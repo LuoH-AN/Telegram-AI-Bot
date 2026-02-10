@@ -28,6 +28,7 @@ def load_from_database() -> None:
                         "temperature": row["temperature"] or 0.7,
                         "token_limit": row.get("token_limit") or 0,
                         "current_persona": row.get("current_persona") or "default",
+                        "enabled_tools": row.get("enabled_tools") or "memory,search,fetch,wikipedia",
                     }
                     cache.set_settings(row["user_id"], settings)
 
@@ -141,18 +142,20 @@ def sync_to_database() -> None:
                 for user_id in dirty["settings"]:
                     s = cache.get_settings(user_id)
                     cur.execute("""
-                        INSERT INTO user_settings (user_id, api_key, base_url, model, temperature, token_limit, current_persona)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO user_settings (user_id, api_key, base_url, model, temperature, token_limit, current_persona, enabled_tools)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (user_id) DO UPDATE SET
                             api_key = EXCLUDED.api_key,
                             base_url = EXCLUDED.base_url,
                             model = EXCLUDED.model,
                             temperature = EXCLUDED.temperature,
                             token_limit = EXCLUDED.token_limit,
-                            current_persona = EXCLUDED.current_persona
+                            current_persona = EXCLUDED.current_persona,
+                            enabled_tools = EXCLUDED.enabled_tools
                     """, (
                         user_id, s["api_key"], s["base_url"],
                         s["model"], s["temperature"], s["token_limit"], s["current_persona"],
+                        s["enabled_tools"]
                     ))
 
                 # Sync deleted personas

@@ -27,6 +27,7 @@ def get_default_settings() -> dict:
         "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
         "token_limit": 0,
         "current_persona": "default",
+        "enabled_tools": "memory,search,fetch,wikipedia",
     }
 
 

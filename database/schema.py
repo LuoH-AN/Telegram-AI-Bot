@@ -27,6 +27,10 @@ MIGRATE_USER_SETTINGS = """
                        WHERE table_name='user_settings' AND column_name='current_persona') THEN
             ALTER TABLE user_settings ADD COLUMN current_persona TEXT DEFAULT 'default';
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_settings' AND column_name='enabled_tools') THEN
+            ALTER TABLE user_settings ADD COLUMN enabled_tools TEXT;
+        END IF;
         IF EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_name='user_settings' AND column_name='system_prompt') THEN
             ALTER TABLE user_settings DROP COLUMN IF EXISTS system_prompt;

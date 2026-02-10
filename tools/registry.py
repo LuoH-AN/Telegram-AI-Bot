@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 class BaseTool(ABC):
     """Abstract base class for tools."""
 
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """The identifier for this tool (e.g. 'search', 'memory')."""
+
     @abstractmethod
     def definitions(self) -> list[dict]:
         """Return OpenAI function-calling format tool definitions."""
@@ -38,25 +43,37 @@ class ToolRegistry:
     def register(self, tool: BaseTool):
         self._tools.append(tool)
 
+    def _get_filtered_tools(self, enabled_tools: str | list[str] | None) -> list[BaseTool]:
+        """Filter registered tools by enabled names."""
+        if enabled_tools is None:
+            return self._tools
+        
+        if isinstance(enabled_tools, str):
+            enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
+        else:
+            enabled_list = [t.lower() for t in enabled_tools]
+            
+        return [t for t in self._tools if t.name.lower() in enabled_list]
+
     # -- public API --
 
-    def get_definitions(self) -> list[dict]:
-        """Merge all tool definitions."""
+    def get_definitions(self, enabled_tools: str | list[str] | None = None) -> list[dict]:
+        """Merge filtered tool definitions."""
         defs = []
-        for tool in self._tools:
+        for tool in self._get_filtered_tools(enabled_tools):
             defs.extend(tool.definitions())
         return defs
 
-    def process_tool_calls(self, user_id: int, tool_calls: list) -> list[dict]:
+    def process_tool_calls(self, user_id: int, tool_calls: list, enabled_tools: str | list[str] | None = None) -> list[dict]:
         """Dispatch tool calls to the matching tool's execute().
 
         Returns:
             List of tool result messages if any tool returned a result,
             empty list if all tools are fire-and-forget (returned None).
         """
-        # Build name -> tool lookup
+        # Build name -> tool lookup from enabled tools
         name_map: dict[str, BaseTool] = {}
-        for tool in self._tools:
+        for tool in self._get_filtered_tools(enabled_tools):
             for defn in tool.definitions():
                 name_map[defn["function"]["name"]] = tool
 
@@ -65,7 +82,7 @@ class ToolRegistry:
         for tc in tool_calls:
             tool = name_map.get(tc.name)
             if tool is None:
-                logger.warning(f"No tool registered for '{tc.name}'")
+                logger.warning(f"No enabled tool registered for '{tc.name}'")
                 continue
             try:
                 args = json.loads(tc.arguments)
@@ -82,20 +99,20 @@ class ToolRegistry:
             })
         return results if has_results else []
 
-    def get_instructions(self) -> str:
-        """Concatenate all tools' instruction strings."""
-        parts = [t.get_instruction() for t in self._tools]
+    def get_instructions(self, enabled_tools: str | list[str] | None = None) -> str:
+        """Concatenate filtered tools' instruction strings."""
+        parts = [t.get_instruction() for t in self._get_filtered_tools(enabled_tools)]
         return "".join(parts)
 
-    def enrich_system_prompt(self, user_id: int, prompt: str, **kwargs) -> str:
-        """Let every tool enrich the system prompt in order."""
-        for tool in self._tools:
+    def enrich_system_prompt(self, user_id: int, prompt: str, enabled_tools: str | list[str] | None = None, **kwargs) -> str:
+        """Let every enabled tool enrich the system prompt in order."""
+        for tool in self._get_filtered_tools(enabled_tools):
             prompt = tool.enrich_system_prompt(user_id, prompt, **kwargs)
         return prompt
 
-    def post_process(self, user_id: int, text: str) -> str:
-        """Let every tool post-process the AI response in order."""
-        for tool in self._tools:
+    def post_process(self, user_id: int, text: str, enabled_tools: str | list[str] | None = None) -> str:
+        """Let every enabled tool post-process the AI response in order."""
+        for tool in self._get_filtered_tools(enabled_tools):
             text = tool.post_process(user_id, text)
         return text
 

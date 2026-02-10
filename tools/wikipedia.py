@@ -88,6 +88,10 @@ def _search_and_summarize(query: str, language: str) -> str:
 class WikipediaTool(BaseTool):
     """Tool for searching Wikipedia via the MediaWiki API."""
 
+    @property
+    def name(self) -> str:
+        return "wikipedia"
+
     def definitions(self) -> list[dict]:
         return [WIKIPEDIA_SEARCH_TOOL]
 

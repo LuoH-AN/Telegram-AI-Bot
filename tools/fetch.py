@@ -33,6 +33,10 @@ URL_FETCH_TOOL = {
 class FetchTool(BaseTool):
     """Tool for fetching content from URLs."""
 
+    @property
+    def name(self) -> str:
+        return "fetch"
+
     def __init__(self):
         # 升级配置：
         # 1. client_identifier="chrome_124": 模拟 Chrome 124 的 TLS 握手特征

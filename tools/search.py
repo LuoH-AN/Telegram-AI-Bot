@@ -40,6 +40,10 @@ def _format_text(results: list[dict]) -> str:
 class SearchTool(BaseTool):
     """Tool for searching the web using ddgs text()."""
 
+    @property
+    def name(self) -> str:
+        return "search"
+
     def definitions(self) -> list[dict]:
         return [WEB_SEARCH_TOOL]
 

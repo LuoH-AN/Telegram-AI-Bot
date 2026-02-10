@@ -39,6 +39,8 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     prompt = persona["system_prompt"]
     prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
 
+    enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia")
+
     await update.message.reply_text(
         f"Current Settings:\n\n"
         f"base_url: {settings['base_url']}\n"
@@ -46,20 +48,38 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
         f"persona: {persona_name}\n"
-        f"prompt: {prompt_display}\n\n"
-        f"Use /persona to manage personas and prompts."
+        f"prompt: {prompt_display}\n"
+        f"tools: {enabled_tools}\n\n"
+        f"Use /persona to manage personas and prompts.\n"
+        f"Use /set tool <name> <on|off> to manage tools."
     )
 
 
 async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /set command - set configuration."""
     user_id = update.effective_user.id
+    settings = get_user_settings(user_id)
 
     if not context.args or len(context.args) < 2:
         # Check if it's "/set model" without value
         if context.args and context.args[0].lower() == "model":
             await _show_model_list(update, context)
             return
+        # Check if it's "/set tool" without value
+        if context.args and context.args[0].lower() == "tool":
+            enabled_tools = settings.get("enabled_tools", "")
+            enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
+            available_tools = ["memory", "search", "fetch", "wikipedia"]
+            status = []
+            for t in available_tools:
+                icon = "✅" if t in enabled_list else "❌"
+                status.append(f"{icon} {t}")
+            await update.message.reply_text(
+                f"Tool Settings:\n\n" + "\n".join(status) + "\n\n"
+                "Usage: /set tool <name> <on|off>"
+            )
+            return
+
         await update.message.reply_text(
             "Usage: /set <key> <value>\n\n"
             "Available keys:\n"
@@ -67,7 +87,8 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "- api_key\n"
             "- model (no value to browse list)\n"
             "- temperature\n"
-            "- token_limit\n\n"
+            "- token_limit\n"
+            "- tool <name> <on|off>\n\n"
             "For prompt, use /persona prompt <text>"
         )
         return
@@ -128,10 +149,39 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await update.message.reply_text("Token limit must be non-negative")
         except ValueError:
             await update.message.reply_text("Invalid token limit value")
+    elif key == "tool":
+        if len(context.args) < 3:
+            await update.message.reply_text("Usage: /set tool <name> <on|off>")
+            return
+        
+        tool_name = context.args[1].lower()
+        action = context.args[2].lower()
+        
+        available_tools = ["memory", "search", "fetch", "wikipedia"]
+        if tool_name not in available_tools:
+            await update.message.reply_text(f"Unknown tool: {tool_name}. Available: {', '.join(available_tools)}")
+            return
+            
+        enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia")
+        enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
+        
+        if action == "on":
+            if tool_name not in enabled_list:
+                enabled_list.append(tool_name)
+        elif action == "off":
+            if tool_name in enabled_list:
+                enabled_list.remove(tool_name)
+        else:
+            await update.message.reply_text("Action must be 'on' or 'off'")
+            return
+            
+        new_enabled = ",".join(enabled_list)
+        update_user_setting(user_id, "enabled_tools", new_enabled)
+        await update.message.reply_text(f"Tool {tool_name} set to {action}")
     else:
         await update.message.reply_text(
             f"Unknown key: {key}\n\n"
-            "Available keys: base_url, api_key, model, temperature, token_limit"
+            "Available keys: base_url, api_key, model, temperature, token_limit, tool"
         )
 
 

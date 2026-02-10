@@ -122,6 +122,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     settings = get_user_settings(user_id)
     conversation = get_conversation(user_id)
+    enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia")
 
     # Check if API key is set
     if not has_api_key(user_id):
@@ -152,10 +153,12 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         system_prompt = get_system_prompt(user_id)
 
         # Let tools enrich system prompt (e.g. inject memories via vector search)
-        system_prompt = enrich_system_prompt(user_id, system_prompt, query=user_message)
+        system_prompt = enrich_system_prompt(
+            user_id, system_prompt, enabled_tools=enabled_tools, query=user_message
+        )
 
         # Add tool instructions (fallback hints)
-        system_prompt += get_tool_instructions()
+        system_prompt += get_tool_instructions(enabled_tools=enabled_tools)
 
         # Build messages with system prompt
         messages = [{"role": "system", "content": system_prompt}]
@@ -163,7 +166,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         messages.append({"role": "user", "content": user_message})
 
         # Get tool definitions
-        tools = get_all_tools()
+        tools = get_all_tools(enabled_tools=enabled_tools)
 
         # Accumulate token usage across rounds
         total_prompt_tokens = 0
@@ -200,7 +203,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             try:
                 tool_results = await asyncio.wait_for(
                     asyncio.get_event_loop().run_in_executor(
-                        None, lambda: process_tool_calls(user_id, tool_calls)
+                        None, lambda: process_tool_calls(user_id, tool_calls, enabled_tools=enabled_tools)
                     ),
                     timeout=TOOL_TIMEOUT,
                 )
@@ -240,7 +243,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         final_text = filter_thinking_content(full_response)
 
         # Post-process response (e.g. regex fallback for memory extraction)
-        final_text = post_process_response(user_id, final_text)
+        final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools)
 
         if not final_text:
             final_text = "(Empty response)"

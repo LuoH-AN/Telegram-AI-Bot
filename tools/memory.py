@@ -42,6 +42,10 @@ MEMORY_TOOL = {
 class MemoryTool(BaseTool):
     """Tool for saving and recalling user memories."""
 
+    @property
+    def name(self) -> str:
+        return "memory"
+
     def definitions(self) -> list[dict]:
         return [MEMORY_TOOL]
 
