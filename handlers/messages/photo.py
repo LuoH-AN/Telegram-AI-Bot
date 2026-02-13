@@ -18,7 +18,7 @@ from services import (
     get_system_prompt,
 )
 from ai import get_ai_client
-from utils import filter_thinking_content, send_message_safe, edit_message_safe
+from utils import filter_thinking_content, send_message_safe, edit_message_safe, get_datetime_prompt
 from handlers.common import should_respond_in_group, get_log_context
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             ]
 
         system_prompt = get_system_prompt(user_id)
+        system_prompt += "\n\n" + get_datetime_prompt()
+
         client = get_ai_client(user_id)
 
         # Build messages with system prompt

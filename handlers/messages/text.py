@@ -28,7 +28,7 @@ from tools import (
     drain_pending_voice_jobs,
 )
 from ai import get_ai_client
-from utils import filter_thinking_content, send_message_safe, edit_message_safe
+from utils import filter_thinking_content, send_message_safe, edit_message_safe, get_datetime_prompt
 from handlers.common import should_respond_in_group, get_log_context
 
 logger = logging.getLogger(__name__)
@@ -240,6 +240,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         # Build system prompt from current persona
         system_prompt = get_system_prompt(user_id)
+        system_prompt += "\n\n" + get_datetime_prompt()
 
         # Let tools enrich system prompt (e.g. inject memories via vector search)
         system_prompt = enrich_system_prompt(

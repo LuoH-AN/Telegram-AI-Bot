@@ -5,4 +5,5 @@ __pycache__/
 .env.local
 .DS_Store
 .venv
-docs
+docs/image
+docs/log

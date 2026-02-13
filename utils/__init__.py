@@ -3,6 +3,7 @@
 from .filters import filter_thinking_content
 from .formatters import markdown_to_telegram_html, split_message
 from .telegram import send_message_safe, edit_message_safe
+from .template import get_datetime_prompt
 from .files import (
     get_file_extension,
     is_text_file,
@@ -20,6 +21,8 @@ __all__ = [
     # Telegram
     "send_message_safe",
     "edit_message_safe",
+    # Template
+    "get_datetime_prompt",
     # Files
     "get_file_extension",
     "is_text_file",

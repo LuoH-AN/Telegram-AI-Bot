@@ -29,6 +29,7 @@ from utils import (
     filter_thinking_content,
     send_message_safe,
     edit_message_safe,
+    get_datetime_prompt,
     get_file_extension,
     is_text_file,
     is_image_file,
@@ -158,6 +159,7 @@ async def _process_text_file(
 
     conversation = get_conversation(user_id)
     system_prompt = get_system_prompt(user_id)
+    system_prompt += "\n\n" + get_datetime_prompt()
 
     client = get_ai_client(user_id)
 
@@ -261,6 +263,8 @@ async def _process_image_file(
         ]
 
     system_prompt = get_system_prompt(user_id)
+    system_prompt += "\n\n" + get_datetime_prompt()
+
     client = get_ai_client(user_id)
 
     # Build messages with system prompt
