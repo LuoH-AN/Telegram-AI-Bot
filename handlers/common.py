@@ -4,6 +4,16 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 
+def get_log_context(update: Update) -> str:
+    """Return a log prefix string with user and optional group context."""
+    user = update.effective_user
+    chat = update.effective_chat
+    user_id = user.id if user else 0
+    if chat and chat.type != "private":
+        return f"[user={user_id} group={chat.id}]"
+    return f"[user={user_id}]"
+
+
 async def should_respond_in_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if bot should respond in a group chat.
 

@@ -19,7 +19,7 @@ from services import (
 )
 from ai import get_ai_client
 from utils import filter_thinking_content, send_message_safe, edit_message_safe
-from handlers.common import should_respond_in_group
+from handlers.common import should_respond_in_group, get_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +32,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     user_id = update.effective_user.id
     settings = get_user_settings(user_id)
+    ctx = get_log_context(update)
+
+    logger.info("%s photo (caption: %s)", ctx, (update.message.caption or "")[:50])
 
     # Check if API key is set
     if not has_api_key(user_id):
         await update.message.reply_text(
             "Please set your OpenAI API key first:\n/set api_key YOUR_API_KEY"
         )
+        return
+
+    # Skip forwarded messages
+    if update.message.forward_origin:
         return
 
     # Get caption as prompt (no default - just send image)
@@ -48,11 +55,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if bot_username and f"@{bot_username}" in caption:
         caption = caption.replace(f"@{bot_username}", "").strip()
 
+    # Include quoted message content when replying to a message
+    reply_msg = update.message.reply_to_message
+    if reply_msg:
+        quoted_text = reply_msg.text or reply_msg.caption or ""
+        if quoted_text:
+            sender = reply_msg.from_user
+            sender_name = sender.first_name if sender else "Unknown"
+            caption = f"[Quoted message from {sender_name}]:\n{quoted_text}\n\n{caption}" if caption else f"[Quoted message from {sender_name}]:\n{quoted_text}"
+
     # Show typing indicator
     await update.message.chat.send_action(ChatAction.TYPING)
 
     # Send initial placeholder message
-    bot_message = await update.message.reply_text("Processing image...")
+    bot_message = await update.message.reply_text("…")
 
     try:
         # Get the largest photo (best quality)
@@ -155,5 +171,5 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
 
     except Exception as e:
-        logger.exception("Error processing image")
+        logger.exception("%s error processing image", ctx)
         await edit_message_safe(bot_message, f"Error: {str(e)}")

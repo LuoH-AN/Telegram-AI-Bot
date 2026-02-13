@@ -11,7 +11,11 @@ CREATE_USER_SETTINGS_TABLE = """
         model TEXT,
         temperature REAL,
         token_limit BIGINT DEFAULT 0,
-        current_persona TEXT DEFAULT 'default'
+        current_persona TEXT DEFAULT 'default',
+        enabled_tools TEXT,
+        tts_voice TEXT,
+        tts_style TEXT,
+        tts_endpoint TEXT
     )
 """
 
@@ -30,6 +34,18 @@ MIGRATE_USER_SETTINGS = """
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                        WHERE table_name='user_settings' AND column_name='enabled_tools') THEN
             ALTER TABLE user_settings ADD COLUMN enabled_tools TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_settings' AND column_name='tts_voice') THEN
+            ALTER TABLE user_settings ADD COLUMN tts_voice TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_settings' AND column_name='tts_style') THEN
+            ALTER TABLE user_settings ADD COLUMN tts_style TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_settings' AND column_name='tts_endpoint') THEN
+            ALTER TABLE user_settings ADD COLUMN tts_endpoint TEXT;
         END IF;
         IF EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_name='user_settings' AND column_name='system_prompt') THEN
@@ -133,6 +149,17 @@ MIGRATE_USER_MEMORIES_EMBEDDING = """
     END $$;
 """
 
+# Add api_presets column to user_settings (migration)
+MIGRATE_USER_SETTINGS_PRESETS = """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_settings' AND column_name='api_presets') THEN
+            ALTER TABLE user_settings ADD COLUMN api_presets TEXT;
+        END IF;
+    END $$;
+"""
+
 # All schema creation statements in order
 SCHEMA_STATEMENTS = [
     CREATE_USER_SETTINGS_TABLE,
@@ -147,6 +174,7 @@ SCHEMA_STATEMENTS = [
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
     MIGRATE_USER_MEMORIES_EMBEDDING,
+    MIGRATE_USER_SETTINGS_PRESETS,
 ]
 
 

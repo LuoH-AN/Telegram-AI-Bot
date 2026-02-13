@@ -1,7 +1,11 @@
 """Memory command handlers: /remember, /memories, /forget."""
 
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from handlers.common import get_log_context
 
 from services import (
     get_memories,
@@ -9,6 +13,8 @@ from services import (
     delete_memory,
     clear_memories,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def remember_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -24,6 +30,7 @@ async def remember_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     content = " ".join(context.args)
     add_memory(user_id, content, source="user")
+    logger.info("%s /remember: %s", get_log_context(update), content[:80])
 
     await update.message.reply_text(f"Remembered: {content}")
 
@@ -31,6 +38,7 @@ async def remember_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def memories_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /memories command - list all memories."""
     user_id = update.effective_user.id
+    logger.info("%s /memories", get_log_context(update))
     memories = get_memories(user_id)
 
     if not memories:
@@ -57,6 +65,7 @@ async def memories_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def forget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /forget command - delete a memory."""
     user_id = update.effective_user.id
+    ctx = get_log_context(update)
 
     if not context.args:
         await update.message.reply_text(
@@ -71,6 +80,7 @@ async def forget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if arg == "all":
         count = clear_memories(user_id)
+        logger.info("%s /forget all (%d memories)", ctx, count)
         if count > 0:
             await update.message.reply_text(f"Cleared {count} memories.")
         else:
@@ -80,6 +90,7 @@ async def forget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         index = int(arg)
         if delete_memory(user_id, index):
+            logger.info("%s /forget #%d", ctx, index)
             await update.message.reply_text(f"Memory #{index} deleted.")
         else:
             await update.message.reply_text(

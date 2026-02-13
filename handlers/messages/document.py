@@ -35,7 +35,7 @@ from utils import (
     is_likely_text,
     decode_file_content,
 )
-from handlers.common import should_respond_in_group
+from handlers.common import should_respond_in_group, get_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     user_id = update.effective_user.id
     settings = get_user_settings(user_id)
+    ctx = get_log_context(update)
 
     # Check if API key is set
     if not has_api_key(user_id):
@@ -60,6 +61,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     file_name = document.file_name or "unknown"
     file_ext = get_file_extension(file_name)
 
+    logger.info("%s document: %s (%s bytes)", ctx, file_name, document.file_size)
+
+    # Skip forwarded messages
+    if update.message.forward_origin:
+        return
+
     # Get caption as user prompt (no default - just use file content)
     caption = update.message.caption or ""
 
@@ -67,6 +74,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     bot_username = context.bot.username
     if bot_username and f"@{bot_username}" in caption:
         caption = caption.replace(f"@{bot_username}", "").strip()
+
+    # Include quoted message content when replying to a message
+    reply_msg = update.message.reply_to_message
+    if reply_msg:
+        quoted_text = reply_msg.text or reply_msg.caption or ""
+        if quoted_text:
+            sender = reply_msg.from_user
+            sender_name = sender.first_name if sender else "Unknown"
+            caption = f"[Quoted message from {sender_name}]:\n{quoted_text}\n\n{caption}" if caption else f"[Quoted message from {sender_name}]:\n{quoted_text}"
 
     # Check file size
     if document.file_size and document.file_size > MAX_FILE_SIZE:
@@ -77,7 +93,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.chat.send_action(ChatAction.TYPING)
 
     # Send initial placeholder message
-    bot_message = await update.message.reply_text("Processing file...")
+    bot_message = await update.message.reply_text("…")
 
     try:
         # Download file
@@ -105,7 +121,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
 
     except Exception as e:
-        logger.exception("Error processing document")
+        logger.exception("%s error processing document", ctx)
         await edit_message_safe(bot_message, f"Error: {str(e)}")
 
 

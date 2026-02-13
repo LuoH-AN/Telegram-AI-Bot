@@ -5,7 +5,13 @@ import logging
 import threading
 import time
 
-from config import DB_SYNC_INTERVAL, DEFAULT_SYSTEM_PROMPT
+from config import (
+    DB_SYNC_INTERVAL,
+    DEFAULT_TTS_VOICE,
+    DEFAULT_TTS_STYLE,
+    DEFAULT_TTS_ENDPOINT,
+    DEFAULT_ENABLED_TOOLS,
+)
 from database import get_connection, get_dict_cursor
 from database.schema import create_tables
 from .manager import cache
@@ -21,6 +27,13 @@ def load_from_database() -> None:
                 # Load settings
                 cur.execute("SELECT * FROM user_settings")
                 for row in cur.fetchall():
+                    # Parse api_presets from JSON
+                    api_presets = {}
+                    if row.get("api_presets"):
+                        try:
+                            api_presets = json.loads(row["api_presets"])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
                     settings = {
                         "api_key": row["api_key"] or "",
                         "base_url": row["base_url"] or "https://api.openai.com/v1",
@@ -28,7 +41,11 @@ def load_from_database() -> None:
                         "temperature": row["temperature"] or 0.7,
                         "token_limit": row.get("token_limit") or 0,
                         "current_persona": row.get("current_persona") or "default",
-                        "enabled_tools": row.get("enabled_tools") or "memory,search,fetch,wikipedia",
+                        "enabled_tools": row.get("enabled_tools") or DEFAULT_ENABLED_TOOLS,
+                        "tts_voice": row.get("tts_voice") or DEFAULT_TTS_VOICE,
+                        "tts_style": row.get("tts_style") or DEFAULT_TTS_STYLE,
+                        "tts_endpoint": row.get("tts_endpoint") or DEFAULT_TTS_ENDPOINT,
+                        "api_presets": api_presets,
                     }
                     cache.set_settings(row["user_id"], settings)
 
@@ -141,9 +158,14 @@ def sync_to_database() -> None:
                 # Sync settings
                 for user_id in dirty["settings"]:
                     s = cache.get_settings(user_id)
+                    api_presets_json = json.dumps(s.get("api_presets", {}), ensure_ascii=False) if s.get("api_presets") else None
                     cur.execute("""
-                        INSERT INTO user_settings (user_id, api_key, base_url, model, temperature, token_limit, current_persona, enabled_tools)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO user_settings (
+                            user_id, api_key, base_url, model, temperature,
+                            token_limit, current_persona, enabled_tools,
+                            tts_voice, tts_style, tts_endpoint, api_presets
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (user_id) DO UPDATE SET
                             api_key = EXCLUDED.api_key,
                             base_url = EXCLUDED.base_url,
@@ -151,11 +173,18 @@ def sync_to_database() -> None:
                             temperature = EXCLUDED.temperature,
                             token_limit = EXCLUDED.token_limit,
                             current_persona = EXCLUDED.current_persona,
-                            enabled_tools = EXCLUDED.enabled_tools
+                            enabled_tools = EXCLUDED.enabled_tools,
+                            tts_voice = EXCLUDED.tts_voice,
+                            tts_style = EXCLUDED.tts_style,
+                            tts_endpoint = EXCLUDED.tts_endpoint,
+                            api_presets = EXCLUDED.api_presets
                     """, (
                         user_id, s["api_key"], s["base_url"],
                         s["model"], s["temperature"], s["token_limit"], s["current_persona"],
-                        s["enabled_tools"]
+                        s["enabled_tools"], s.get("tts_voice", DEFAULT_TTS_VOICE),
+                        s.get("tts_style", DEFAULT_TTS_STYLE),
+                        s.get("tts_endpoint", DEFAULT_TTS_ENDPOINT),
+                        api_presets_json,
                     ))
 
                 # Sync deleted personas

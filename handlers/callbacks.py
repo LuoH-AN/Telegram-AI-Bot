@@ -1,10 +1,15 @@
 """Callback query handlers."""
 
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from services import get_user_settings, update_user_setting
+from handlers.common import get_log_context
 from handlers.commands.settings import _build_model_keyboard
+
+logger = logging.getLogger(__name__)
 
 HELP_SECTIONS = {
     "help:personas": (
@@ -24,7 +29,16 @@ HELP_SECTIONS = {
         "/set model (browse list)\n"
         "/set model <name>\n"
         "/set temperature <0.0-2.0>\n"
-        "/set token_limit <number>"
+        "/set token_limit <number>\n"
+        "/set voice <name>\n"
+        "/set style <style>\n"
+        "/set endpoint <region|host>\n"
+        "/set tool tts <on|off>\n\n"
+        "API Provider Presets:\n"
+        "/set provider - List saved providers\n"
+        "/set provider save <name> - Save current config\n"
+        "/set provider <name> - Load a saved config\n"
+        "/set provider delete <name> - Delete"
     ),
     "help:memory": (
         "Memory Commands\n\n"
@@ -38,7 +52,6 @@ HELP_SECTIONS = {
         "Advanced\n\n"
         "/export - Export current persona's chat history\n"
         "/usage - Show token usage\n"
-        "/retry - Retry last message\n"
         "/clear - Clear conversation and reset usage\n\n"
         "Features:\n"
         "- Token limit is global across all personas\n"
@@ -71,6 +84,7 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if data.startswith("models_page:"):
         page = int(data.split(":")[1])
+        logger.info("%s model page %d", get_log_context(update), page)
         models = context.user_data.get("models", [])
         if not models:
             await query.edit_message_text("Session expired. Use /set model again.")
@@ -83,4 +97,5 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif data.startswith("model:"):
         model = data.split(":", 1)[1]
         update_user_setting(user_id, "model", model)
+        logger.info("%s set model = %s (callback)", get_log_context(update), model)
         await query.edit_message_text(f"Model set to: {model}")

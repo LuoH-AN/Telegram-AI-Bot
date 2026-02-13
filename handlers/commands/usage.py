@@ -1,7 +1,11 @@
 """Usage and export command handlers: /usage, /export."""
 
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from handlers.common import get_log_context
 
 from services import (
     get_token_usage,
@@ -11,10 +15,13 @@ from services import (
     get_token_limit,
 )
 
+logger = logging.getLogger(__name__)
+
 
 async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /usage command - show token usage statistics."""
     user_id = update.effective_user.id
+    logger.info("%s /usage", get_log_context(update))
     persona_name = get_current_persona_name(user_id)
 
     # Get current persona usage
@@ -54,6 +61,7 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /export command - export chat history as markdown file."""
     user_id = update.effective_user.id
+    logger.info("%s /export", get_log_context(update))
     persona_name = get_current_persona_name(user_id)
 
     file_buffer = export_to_markdown(user_id, persona_name)

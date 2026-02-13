@@ -54,6 +54,13 @@ from .memory_service import (
     get_memory_count,
     format_memories_for_prompt,
 )
+from .tts_service import (
+    get_voice,
+    get_voice_list,
+    get_ssml,
+    synthesize_voice,
+    normalize_tts_endpoint,
+)
 
 __all__ = [
     # User service
@@ -104,4 +111,10 @@ __all__ = [
     "clear_memories",
     "get_memory_count",
     "format_memories_for_prompt",
+    # TTS service
+    "get_voice",
+    "get_voice_list",
+    "get_ssml",
+    "synthesize_voice",
+    "normalize_tts_endpoint",
 ]

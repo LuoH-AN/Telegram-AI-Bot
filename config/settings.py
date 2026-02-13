@@ -17,6 +17,14 @@ DEFAULT_SYSTEM_PROMPT = os.getenv(
     "OPENAI_SYSTEM_PROMPT", "You are a helpful assistant."
 )
 
+DEFAULT_TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoMultilingualNeural")
+DEFAULT_TTS_STYLE = os.getenv("TTS_STYLE", "general")
+DEFAULT_TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "")
+DEFAULT_ENABLED_TOOLS = os.getenv(
+    "ENABLED_TOOLS", "memory,search,fetch,wikipedia,tts"
+)
+DEFAULT_TTS_OUTPUT_FORMAT = os.getenv("TTS_OUTPUT_FORMAT", "ogg-24khz-16bit-mono-opus")
+
 
 def get_default_settings() -> dict:
     """Get default settings from environment variables."""
@@ -27,7 +35,11 @@ def get_default_settings() -> dict:
         "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
         "token_limit": 0,
         "current_persona": "default",
-        "enabled_tools": "memory,search,fetch,wikipedia",
+        "enabled_tools": DEFAULT_ENABLED_TOOLS,
+        "tts_voice": DEFAULT_TTS_VOICE,
+        "tts_style": DEFAULT_TTS_STYLE,
+        "tts_endpoint": DEFAULT_TTS_ENDPOINT,
+        "api_presets": {},
     }
 
 

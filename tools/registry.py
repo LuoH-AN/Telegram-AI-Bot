@@ -68,8 +68,8 @@ class ToolRegistry:
         """Dispatch tool calls to the matching tool's execute().
 
         Returns:
-            List of tool result messages if any tool returned a result,
-            empty list if all tools are fire-and-forget (returned None).
+            List of tool result messages (always returned so the AI can
+            generate a follow-up response even after fire-and-forget tools).
         """
         # Build name -> tool lookup from enabled tools
         name_map: dict[str, BaseTool] = {}
@@ -78,7 +78,6 @@ class ToolRegistry:
                 name_map[defn["function"]["name"]] = tool
 
         results = []
-        has_results = False
         for tc in tool_calls:
             tool = name_map.get(tc.name)
             if tool is None:
@@ -90,14 +89,17 @@ class ToolRegistry:
                 logger.warning(f"Failed to parse tool call arguments: {e}")
                 continue
             result = tool.execute(user_id, tc.name, args)
+            logger.info("[user=%d] tool call: %s(%s)", user_id, tc.name, json.dumps(args, ensure_ascii=False)[:200])
             if result is not None:
-                has_results = True
+                logger.info("[user=%d] tool result: %s (%d chars)", user_id, tc.name, len(result))
+            else:
+                logger.info("[user=%d] tool result: %s -> OK (fire-and-forget)", user_id, tc.name)
             results.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": result if result is not None else "OK",
             })
-        return results if has_results else []
+        return results
 
     def get_instructions(self, enabled_tools: str | list[str] | None = None) -> str:
         """Concatenate filtered tools' instruction strings."""

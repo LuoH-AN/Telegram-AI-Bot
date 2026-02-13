@@ -1,7 +1,11 @@
 """Persona command handlers: /persona, /personas."""
 
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from handlers.common import get_log_context
 
 from services import (
     get_personas,
@@ -16,6 +20,8 @@ from services import (
     persona_exists,
 )
 
+logger = logging.getLogger(__name__)
+
 
 async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /persona command - manage personas.
@@ -29,9 +35,11 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """
     user_id = update.effective_user.id
     args = context.args or []
+    ctx = get_log_context(update)
 
     if not args:
         # List all personas
+        logger.info("%s /persona list", ctx)
         await _list_personas(update, user_id)
         return
 
@@ -50,6 +58,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         prompt = " ".join(args[2:]) if len(args) > 2 else None
         if create_persona(user_id, name, prompt):
             switch_persona(user_id, name)
+            logger.info("%s /persona new %s", ctx, name)
             await update.message.reply_text(
                 f"Created and switched to persona: {name}\n\n"
                 f"Use /persona prompt <text> to set its system prompt."
@@ -67,6 +76,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text("Cannot delete the default persona.")
             return
         if delete_persona(user_id, name):
+            logger.info("%s /persona delete %s", ctx, name)
             await update.message.reply_text(f"Deleted persona: {name}")
         else:
             await update.message.reply_text(f"Persona '{name}' not found.")
@@ -84,6 +94,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         prompt = " ".join(args[1:])
         update_current_prompt(user_id, prompt)
         name = get_current_persona_name(user_id)
+        logger.info("%s /persona prompt (persona=%s)", ctx, name)
         await update.message.reply_text(f"Updated prompt for '{name}'.")
 
     else:
@@ -95,6 +106,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
         switch_persona(user_id, name)
+        logger.info("%s /persona switch %s", ctx, name)
         persona = get_current_persona(user_id)
         usage = get_token_usage(user_id, name)
         msg_count = get_message_count(user_id, name)

@@ -35,7 +35,7 @@ def get_temperature(user_id: int) -> float:
 
 def get_enabled_tools(user_id: int) -> str:
     """Get enabled tools for a user."""
-    return cache.get_settings(user_id).get("enabled_tools", "memory,search,fetch,wikipedia")
+    return cache.get_settings(user_id).get("enabled_tools", "memory,search,fetch,wikipedia,tts")
 
 
 def has_api_key(user_id: int) -> bool:

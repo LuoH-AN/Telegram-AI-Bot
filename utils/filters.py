@@ -2,6 +2,12 @@
 
 import re
 
+# All supported thinking tag patterns (opening tags for detection)
+_THINK_OPEN_TAGS = re.compile(
+    r"<think>|<thinking>|<reasoning>|<reflection>|\[thinking\]|<\|think\|>",
+    re.IGNORECASE,
+)
+
 
 def filter_thinking_content(text: str, streaming: bool = False) -> str:
     """Filter out thinking/reasoning content from the response.
@@ -18,21 +24,20 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
     filtered = text
 
     # First, remove complete blocks
-    # Remove <think>...</think> blocks (Claude style)
     filtered = re.sub(r"<think>.*?</think>", "", filtered, flags=re.DOTALL)
-    # Remove <thinking>...</thinking> blocks
     filtered = re.sub(r"<thinking>.*?</thinking>", "", filtered, flags=re.DOTALL)
-    # Remove <reasoning>...</reasoning> blocks
     filtered = re.sub(r"<reasoning>.*?</reasoning>", "", filtered, flags=re.DOTALL)
-    # Remove [thinking]...[/thinking] blocks
+    filtered = re.sub(r"<reflection>.*?</reflection>", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"\[thinking\].*?\[/thinking\]", "", filtered, flags=re.DOTALL)
+    filtered = re.sub(r"<\|think\|>.*?<\|/think\|>", "", filtered, flags=re.DOTALL)
 
     # Then, remove incomplete/unclosed blocks (for streaming)
-    # Remove from opening tag to end of text if no closing tag
     filtered = re.sub(r"<think>.*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<thinking>.*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<reasoning>.*$", "", filtered, flags=re.DOTALL)
+    filtered = re.sub(r"<reflection>.*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"\[thinking\].*$", "", filtered, flags=re.DOTALL)
+    filtered = re.sub(r"<\|think\|>.*$", "", filtered, flags=re.DOTALL)
 
     filtered = filtered.strip()
 
@@ -40,8 +45,15 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
     # Skip this during streaming — empty means "still thinking".
     if not streaming and not filtered and text.strip():
         filtered = re.sub(
-            r"</?(?:think|thinking|reasoning)>|\[/?thinking\]", "", text
+            r"</?(?:think|thinking|reasoning|reflection)>|\[/?thinking\]|<\|/?think\|>",
+            "",
+            text,
         )
         filtered = filtered.strip()
 
     return filtered
+
+
+def has_thinking_tags(text: str) -> bool:
+    """Check if text contains any known thinking opening tag."""
+    return bool(_THINK_OPEN_TAGS.search(text))

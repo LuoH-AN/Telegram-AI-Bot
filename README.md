@@ -26,6 +26,7 @@ pinned: false
 - **过滤 thinking**：自动过滤模型的思考过程内容
 - **长消息分段**：超过 4096 字符自动分多条发送
 - **Markdown 支持**：默认 Markdown 格式，失败自动降级为纯文本
+- **语音输出**：AI 可通过 TTS tool 发送语音消息，支持音色/风格
 - **多用户隔离**：每个用户独立的设置和对话历史
 - **数据持久化**：PostgreSQL 存储，内存缓存加速
 
@@ -39,6 +40,10 @@ pinned: false
 | `/settings` | 查看当前配置 |
 | `/set <key> <value>` | 修改配置 |
 | `/set model` | 浏览可用模型列表 |
+| `/set voice <name>` | 设置默认 TTS 音色 |
+| `/set style <style>` | 设置默认 TTS 风格 |
+| `/set endpoint <region\|host>` | 设置 TTS 区域/主机 |
+| `/set tool tts <on\|off>` | 开关 TTS 工具 |
 | `/remember <text>` | 添加一条记忆 |
 | `/memories` | 查看所有记忆 |
 | `/forget <num\|all>` | 删除记忆 |
@@ -84,6 +89,9 @@ AI 在对话过程中会自动识别重要信息并保存为记忆，例如：
 | `prompt` | 系统提示词 | `/set prompt 你是一个有帮助的助手` |
 | `temperature` | 温度 (0-2) | `/set temperature 0.7` |
 | `token_limit` | Token 用量限额 | `/set token_limit 100000` |
+| `voice` | 默认 TTS 音色 | `/set voice zh-CN-XiaoxiaoMultilingualNeural` |
+| `style` | 默认 TTS 风格 | `/set style cheerful` |
+| `endpoint` | TTS 区域或主机（auto=自动） | `/set endpoint southeastasia` |
 
 ## 项目结构
 
