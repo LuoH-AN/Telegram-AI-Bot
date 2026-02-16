@@ -1,6 +1,5 @@
 """Session management service."""
 
-import json
 import logging
 
 from cache import cache
@@ -170,37 +169,15 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
         if not response_text:
             return None
 
-        # Try to parse JSON response
-        response_text = response_text.strip()
-        # Handle possible markdown code blocks
-        if response_text.startswith("```"):
-            lines = response_text.split("\n")
-            response_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-            response_text = response_text.strip()
+        # Clean up response: strip whitespace, quotes, markdown
+        title = response_text.strip()
+        if title.startswith("```"):
+            lines = title.split("\n")
+            title = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            title = title.strip()
+        title = title.strip('"').strip("'").strip()
 
-        try:
-            data = json.loads(response_text)
-            if isinstance(data, dict):
-                # Try "title" key (case-insensitive)
-                title = None
-                for k, v in data.items():
-                    if k.lower() == "title" and v:
-                        title = str(v).strip()
-                        break
-                if title:
-                    return title
-            elif isinstance(data, str) and data.strip():
-                # Model returned a JSON string like "some title"
-                title = data.strip()
-                if len(title) < 50:
-                    return title
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-        # Fallback: use raw text, strip quotes
-        title = response_text.strip().strip('"').strip("'").strip()
-        # Reject if it looks like unparsed JSON or is too generic
-        if title and len(title) < 50 and not title.startswith("{"):
+        if title and len(title) < 50:
             return title
 
         return None

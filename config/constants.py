@@ -44,18 +44,10 @@ MAX_FILE_SIZE = 20 * 1024 * 1024
 MAX_TEXT_CONTENT_LENGTH = 100000
 
 # Prompt template for generating session titles
-TITLE_GENERATION_PROMPT = """### Task:
-生成一个简洁的、3-5个词的标题，总结聊天历史。
-
-### 指南:
-- 标题应清晰代表对话的主要主题或议题。
-- 标题使用与聊天历史相同的语言。
+TITLE_GENERATION_PROMPT = """生成一个简洁的、3-5个词的标题，总结以下聊天内容。
+- 标题使用与聊天内容相同的语言。
 - 不要使用引号或特殊格式。
-- 不要使用通用标题如"聊天记录"或"对话"。
-- 回复格式为 JSON: {"title": "你的标题"}
+- 直接输出标题，不要输出任何其他内容。
 
-### 聊天历史:
-<chat_history>
 User: {user_message}
-Assistant: {ai_response}
-</chat_history>"""
+Assistant: {ai_response}"""
