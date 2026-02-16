@@ -50,7 +50,14 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
-    title_model = settings.get("title_model", "") or "(same as model)"
+    title_model_raw = settings.get("title_model", "")
+    if not title_model_raw:
+        title_model_display = "(current model)"
+    elif ":" in title_model_raw:
+        p, m = title_model_raw.split(":", 1)
+        title_model_display = f"{p}:{m}"
+    else:
+        title_model_display = title_model_raw
 
     await update.message.reply_text(
         f"Current Settings:\n\n"
@@ -58,7 +65,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"api_key: {masked_key}\n"
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
-        f"title_model: {title_model}\n"
+        f"title_model: {title_model_display}\n"
         f"persona: {persona_name}\n"
         f"prompt: {prompt_display}\n"
         f"tools: {enabled_tools}\n\n"
@@ -123,7 +130,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "- model (no value to browse list)\n"
             "- temperature\n"
             "- token_limit\n"
-            "- title_model\n"
+            "- title_model [provider:]model\n"
             "- voice\n"
             "- style\n"
             "- endpoint\n"
@@ -263,13 +270,35 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif key == "provider":
         await _handle_provider_command(update, context, user_id, settings, ctx)
     elif key == "title_model":
-        if not value.strip():
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none"}:
             update_user_setting(user_id, "title_model", "")
-            await update.message.reply_text("title_model cleared (will use main model)")
+            await update.message.reply_text("title_model cleared (will use current provider + model)")
         else:
-            update_user_setting(user_id, "title_model", value.strip())
-            logger.info("%s set title_model = %s", ctx, value.strip())
-            await update.message.reply_text(f"title_model set to: {value.strip()}")
+            update_user_setting(user_id, "title_model", val)
+            logger.info("%s set title_model = %s", ctx, val)
+            if ":" in val:
+                provider, model = val.split(":", 1)
+                presets = settings.get("api_presets", {})
+                found = any(k.lower() == provider.lower() for k in presets)
+                if found:
+                    await update.message.reply_text(
+                        f"title_model set to: {val}\n"
+                        f"Provider: {provider} | Model: {model}"
+                    )
+                else:
+                    available = ", ".join(presets.keys()) if presets else "(none)"
+                    await update.message.reply_text(
+                        f"title_model set to: {val}\n"
+                        f"⚠️ Provider '{provider}' not found in presets.\n"
+                        f"Available: {available}\n"
+                        f"Use /set provider save <name> to save one first."
+                    )
+            else:
+                await update.message.reply_text(
+                    f"title_model set to: {val}\n"
+                    f"(uses current provider's API)"
+                )
     else:
         await update.message.reply_text(
             f"Unknown key: {key}\n\n"

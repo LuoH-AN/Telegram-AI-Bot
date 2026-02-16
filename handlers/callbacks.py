@@ -64,7 +64,7 @@ HELP_SECTIONS = {
         "- Token limit is global across all personas\n"
         "- Send images or files for AI analysis\n"
         "- In groups: reply to bot or @mention\n"
-        "- /set title_model <model> - Model for auto-titles"
+        "- /set title_model [provider:]model - Auto-title model"
     ),
 }
 

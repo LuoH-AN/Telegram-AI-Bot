@@ -100,16 +100,43 @@ def get_session_message_count(session_id: int) -> int:
 async def generate_session_title(user_id: int, user_message: str, ai_response: str) -> str | None:
     """Generate a title for the current session using AI.
 
+    title_model format: "provider:model" or just "model".
+    When provider is specified, uses that provider's api_key/base_url from presets.
+    Otherwise uses the current provider.
+
     Returns the generated title or None on failure.
     """
     try:
-        from ai import get_ai_client
+        from ai.openai_client import create_openai_client
         from services.user_service import get_user_settings
 
         settings = get_user_settings(user_id)
 
-        # Determine which model to use for title generation
-        title_model = settings.get("title_model", "") or settings.get("model", "gpt-4o")
+        # Parse title_model — supports "provider:model" or just "model"
+        title_model_raw = settings.get("title_model", "")
+        api_key = settings["api_key"]
+        base_url = settings["base_url"]
+        title_model = settings.get("model", "gpt-4o")
+
+        if title_model_raw:
+            if ":" in title_model_raw:
+                provider_name, model_name = title_model_raw.split(":", 1)
+                presets = settings.get("api_presets", {})
+                # Case-insensitive provider lookup
+                preset = None
+                for k, v in presets.items():
+                    if k.lower() == provider_name.lower():
+                        preset = v
+                        break
+                if preset:
+                    api_key = preset["api_key"]
+                    base_url = preset["base_url"]
+                    title_model = model_name or preset.get("model", title_model)
+                else:
+                    logger.warning("Title generation provider '%s' not found in presets", provider_name)
+                    return None
+            else:
+                title_model = title_model_raw
 
         # Build the prompt
         prompt = TITLE_GENERATION_PROMPT.format(
@@ -117,7 +144,7 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
             ai_response=ai_response[:500],
         )
 
-        client = get_ai_client(user_id)
+        client = create_openai_client(api_key=api_key, base_url=base_url)
 
         # Non-streaming call with low temperature
         import asyncio
