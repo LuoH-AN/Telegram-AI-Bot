@@ -160,6 +160,46 @@ MIGRATE_USER_SETTINGS_PRESETS = """
     END $$;
 """
 
+# Sessions table (multiple sessions per persona)
+CREATE_USER_SESSIONS_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        persona_name TEXT NOT NULL DEFAULT 'default',
+        title TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+CREATE_SESSIONS_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_persona
+    ON user_sessions(user_id, persona_name)
+"""
+
+# Add session_id to conversations, current_session_id to personas, title_model to settings
+MIGRATE_SESSIONS = """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_conversations' AND column_name='session_id') THEN
+            ALTER TABLE user_conversations ADD COLUMN session_id INTEGER;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_personas' AND column_name='current_session_id') THEN
+            ALTER TABLE user_personas ADD COLUMN current_session_id INTEGER;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='user_settings' AND column_name='title_model') THEN
+            ALTER TABLE user_settings ADD COLUMN title_model TEXT;
+        END IF;
+    END $$;
+"""
+
+CREATE_CONVERSATIONS_SESSION_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_conversations_session_id
+    ON user_conversations(session_id)
+"""
+
 # All schema creation statements in order
 SCHEMA_STATEMENTS = [
     CREATE_USER_SETTINGS_TABLE,
@@ -175,6 +215,10 @@ SCHEMA_STATEMENTS = [
     CREATE_MEMORIES_INDEX,
     MIGRATE_USER_MEMORIES_EMBEDDING,
     MIGRATE_USER_SETTINGS_PRESETS,
+    CREATE_USER_SESSIONS_TABLE,
+    CREATE_SESSIONS_INDEX,
+    MIGRATE_SESSIONS,
+    CREATE_CONVERSATIONS_SESSION_INDEX,
 ]
 
 

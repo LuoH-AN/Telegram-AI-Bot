@@ -61,6 +61,18 @@ from .tts_service import (
     synthesize_voice,
     normalize_tts_endpoint,
 )
+from .session_service import (
+    get_sessions,
+    get_current_session,
+    get_current_session_id,
+    create_session,
+    delete_session as delete_chat_session,
+    switch_session,
+    rename_session,
+    get_session_count,
+    get_session_message_count,
+    generate_session_title,
+)
 
 __all__ = [
     # User service
@@ -117,4 +129,15 @@ __all__ = [
     "get_ssml",
     "synthesize_voice",
     "normalize_tts_endpoint",
+    # Session service
+    "get_sessions",
+    "get_current_session",
+    "get_current_session_id",
+    "create_session",
+    "delete_chat_session",
+    "switch_session",
+    "rename_session",
+    "get_session_count",
+    "get_session_message_count",
+    "generate_session_title",
 ]

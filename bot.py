@@ -34,6 +34,7 @@ from handlers import (
     memories_command,
     forget_command,
     persona_command,
+    chat_command,
 )
 
 # Configure logging
@@ -114,6 +115,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("clear", clear))
     application.add_handler(CommandHandler("persona", persona_command))
+    application.add_handler(CommandHandler("chat", chat_command))
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("set", set_command))
     application.add_handler(CommandHandler("export", export_command))

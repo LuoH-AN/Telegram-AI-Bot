@@ -67,6 +67,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "In groups: reply to bot or @mention.\n\n"
         "Quick commands:\n"
         "/clear - Clear conversation\n"
+        "/chat - Manage sessions\n"
         "/settings - Show settings\n"
         "/usage - Token usage\n\n"
         "Tap a button for more details:",

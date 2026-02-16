@@ -50,6 +50,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
+    title_model = settings.get("title_model", "") or "(same as model)"
 
     await update.message.reply_text(
         f"Current Settings:\n\n"
@@ -57,6 +58,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"api_key: {masked_key}\n"
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
+        f"title_model: {title_model}\n"
         f"persona: {persona_name}\n"
         f"prompt: {prompt_display}\n"
         f"tools: {enabled_tools}\n\n"
@@ -65,6 +67,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"tts_endpoint: {tts_endpoint}\n\n"
         f"providers: {presets_info}\n\n"
         f"Use /persona to manage personas and prompts.\n"
+        f"Use /chat to manage chat sessions.\n"
         f"Use /set tool <name> <on|off> to manage tools.\n"
         f"Use /set provider to manage API providers."
     )
@@ -120,6 +123,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "- model (no value to browse list)\n"
             "- temperature\n"
             "- token_limit\n"
+            "- title_model\n"
             "- voice\n"
             "- style\n"
             "- endpoint\n"
@@ -258,10 +262,18 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"Tool {tool_name} set to {action}")
     elif key == "provider":
         await _handle_provider_command(update, context, user_id, settings, ctx)
+    elif key == "title_model":
+        if not value.strip():
+            update_user_setting(user_id, "title_model", "")
+            await update.message.reply_text("title_model cleared (will use main model)")
+        else:
+            update_user_setting(user_id, "title_model", value.strip())
+            logger.info("%s set title_model = %s", ctx, value.strip())
+            await update.message.reply_text(f"title_model set to: {value.strip()}")
     else:
         await update.message.reply_text(
             f"Unknown key: {key}\n\n"
-            "Available keys: base_url, api_key, model, temperature, token_limit, voice, style, endpoint, tool, provider"
+            "Available keys: base_url, api_key, model, temperature, token_limit, title_model, voice, style, endpoint, tool, provider"
         )
 
 

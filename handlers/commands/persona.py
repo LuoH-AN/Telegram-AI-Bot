@@ -18,6 +18,8 @@ from services import (
     get_token_usage,
     get_message_count,
     persona_exists,
+    get_session_count,
+    get_current_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,12 +112,17 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         persona = get_current_persona(user_id)
         usage = get_token_usage(user_id, name)
         msg_count = get_message_count(user_id, name)
+        session_ct = get_session_count(user_id, name)
+        current_session = get_current_session(user_id, name)
+        session_title = (current_session.get("title") or "New Chat") if current_session else "New Chat"
         prompt_text = persona['system_prompt']
         if len(prompt_text) > 100:
             prompt_text = prompt_text[:100] + "..."
         await update.message.reply_text(
             f"Switched to: {name}\n\n"
             f"Messages: {msg_count}\n"
+            f"Sessions: {session_ct}\n"
+            f"Current session: {session_title}\n"
             f"Tokens: {usage['total_tokens']:,}\n\n"
             f"Prompt: {prompt_text}"
         )
@@ -135,9 +142,10 @@ async def _list_personas(update: Update, user_id: int) -> None:
         marker = "> " if name == current else "  "
         usage = get_token_usage(user_id, name)
         msg_count = get_message_count(user_id, name)
+        session_ct = get_session_count(user_id, name)
         prompt_preview = persona['system_prompt'][:30] + "..." if len(persona['system_prompt']) > 30 else persona['system_prompt']
         lines.append(f"{marker}{name}")
-        lines.append(f"    {msg_count} msgs | {usage['total_tokens']:,} tokens")
+        lines.append(f"    {msg_count} msgs | {session_ct} sessions | {usage['total_tokens']:,} tokens")
         lines.append(f"    {prompt_preview}")
         lines.append("")
 

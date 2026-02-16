@@ -16,6 +16,9 @@ from services import (
     add_token_usage,
     has_api_key,
     get_system_prompt,
+    get_current_session,
+    get_message_count,
+    generate_session_title,
 )
 from ai import get_ai_client
 from utils import filter_thinking_content, send_message_safe, edit_message_safe, get_datetime_prompt
@@ -164,6 +167,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         add_user_message(user_id, save_msg)
         add_assistant_message(user_id, final_text)
 
+        # Auto-generate session title after first exchange
+        current_session = get_current_session(user_id)
+        if current_session and not current_session.get("title"):
+            session_id = current_session["id"]
+            msg_count = get_message_count(user_id)
+            if msg_count <= 2:
+                asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
+
         # Record token usage if available
         if usage_info:
             add_token_usage(
@@ -175,3 +186,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as e:
         logger.exception("%s error processing image", ctx)
         await edit_message_safe(bot_message, f"Error: {str(e)}")
+
+
+async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
+    """Generate and set a title for a session (runs as background task)."""
+    try:
+        from cache import cache
+        title = await generate_session_title(user_id, user_message, ai_response)
+        if title:
+            cache.update_session_title(session_id, title)
+            logger.info("[user=%d] Auto-generated session title: %s", user_id, title)
+    except Exception as e:
+        logger.warning("[user=%d] Failed to auto-generate title: %s", user_id, e)

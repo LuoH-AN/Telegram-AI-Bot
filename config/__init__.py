@@ -10,6 +10,7 @@ from .constants import (
     MIME_TYPE_MAP,
     MAX_FILE_SIZE,
     MAX_TEXT_CONTENT_LENGTH,
+    TITLE_GENERATION_PROMPT,
 )
 from .settings import (
     DATABASE_URL,
@@ -38,6 +39,7 @@ __all__ = [
     "MIME_TYPE_MAP",
     "MAX_FILE_SIZE",
     "MAX_TEXT_CONTENT_LENGTH",
+    "TITLE_GENERATION_PROMPT",
     # Settings
     "DATABASE_URL",
     "TELEGRAM_BOT_TOKEN",

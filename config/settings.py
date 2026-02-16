@@ -40,6 +40,7 @@ def get_default_settings() -> dict:
         "tts_style": DEFAULT_TTS_STYLE,
         "tts_endpoint": DEFAULT_TTS_ENDPOINT,
         "api_presets": {},
+        "title_model": "",
     }
 
 

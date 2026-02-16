@@ -13,6 +13,7 @@ from .commands import (
     memories_command,
     forget_command,
     persona_command,
+    chat_command,
 )
 
 # Messages
@@ -37,6 +38,7 @@ __all__ = [
     "memories_command",
     "forget_command",
     "persona_command",
+    "chat_command",
     # Messages
     "chat",
     "handle_photo",

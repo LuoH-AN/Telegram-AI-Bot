@@ -10,15 +10,17 @@ logger = logging.getLogger(__name__)
 
 
 class CacheManager:
-    """Manages in-memory caches for settings, personas, conversations, tokens, and memories."""
+    """Manages in-memory caches for settings, personas, sessions, conversations, tokens, and memories."""
 
     def __init__(self):
         # Global settings per user
         self._settings_cache: dict[int, dict] = {}
-        # Personas per user: {user_id: {persona_name: {name, system_prompt}}}
+        # Personas per user: {user_id: {persona_name: {name, system_prompt, current_session_id}}}
         self._personas_cache: dict[int, dict[str, dict]] = {}
-        # Conversations per user per persona: {(user_id, persona_name): [messages]}
-        self._conversations_cache: dict[tuple[int, str], list] = {}
+        # Sessions per (user_id, persona_name): list of session dicts
+        self._sessions_cache: dict[tuple[int, str], list[dict]] = {}
+        # Conversations per session_id: [messages]
+        self._conversations_cache: dict[int, list] = {}
         # Token usage per user per persona: {(user_id, persona_name): {tokens}}
         self._persona_tokens_cache: dict[tuple[int, str], dict] = {}
         # Memories per user (shared across personas)
@@ -28,14 +30,28 @@ class CacheManager:
         self._dirty_settings: set[int] = set()
         self._dirty_personas: set[tuple[int, str]] = set()
         self._deleted_personas: set[tuple[int, str]] = set()
-        self._dirty_conversations: set[tuple[int, str]] = set()
-        self._cleared_conversations: set[tuple[int, str]] = set()
+        self._dirty_conversations: set[int] = set()  # session_ids
+        self._cleared_conversations: set[int] = set()  # session_ids
         self._dirty_tokens: set[tuple[int, str]] = set()
         self._new_memories: list[dict] = []
         self._deleted_memory_ids: list[int] = []
         self._cleared_memories: set[int] = set()
 
+        # Session dirty flags
+        self._new_sessions: list[dict] = []
+        self._dirty_session_titles: dict[int, str] = {}  # session_id -> new title
+        self._deleted_sessions: set[int] = set()
+
+        # Session ID counter
+        self._session_id_counter: int = 0
+
         self._lock = threading.Lock()
+
+    def _next_session_id(self) -> int:
+        """Get the next session ID atomically."""
+        with self._lock:
+            self._session_id_counter += 1
+            return self._session_id_counter
 
     # Settings cache methods
     def get_settings(self, user_id: int) -> dict:
@@ -74,6 +90,7 @@ class CacheManager:
             self._personas_cache[user_id] = {}
         if "default" not in self._personas_cache[user_id]:
             default = get_default_persona()
+            default["current_session_id"] = None
             self._personas_cache[user_id]["default"] = default
             with self._lock:
                 self._dirty_personas.add((user_id, "default"))
@@ -108,6 +125,7 @@ class CacheManager:
         self._personas_cache[user_id][name] = {
             "name": name,
             "system_prompt": system_prompt,
+            "current_session_id": None,
         }
         with self._lock:
             self._dirty_personas.add((user_id, name))
@@ -131,11 +149,18 @@ class CacheManager:
             return False
         if persona_name not in self._personas_cache[user_id]:
             return False
+
+        # Get sessions for this persona to clean up conversations
+        key = (user_id, persona_name)
+        sessions = self._sessions_cache.get(key, [])
+        for session in sessions:
+            sid = session["id"]
+            self._conversations_cache.pop(sid, None)
+
         del self._personas_cache[user_id][persona_name]
-        # Also clear conversations and tokens for this persona
-        conv_key = (user_id, persona_name)
-        self._conversations_cache.pop(conv_key, None)
-        self._persona_tokens_cache.pop(conv_key, None)
+        self._sessions_cache.pop(key, None)
+        self._persona_tokens_cache.pop(key, None)
+
         with self._lock:
             self._deleted_personas.add((user_id, persona_name))
             self._dirty_personas.discard((user_id, persona_name))
@@ -148,42 +173,163 @@ class CacheManager:
         """Set a persona (used during loading)."""
         if user_id not in self._personas_cache:
             self._personas_cache[user_id] = {}
+        # Ensure current_session_id field exists
+        if "current_session_id" not in persona:
+            persona["current_session_id"] = None
         self._personas_cache[user_id][persona["name"]] = persona
 
-    # Conversation cache methods (per persona)
-    def get_conversation(self, user_id: int, persona_name: str = None) -> list:
-        """Get conversation history for a user's persona."""
+    # Session cache methods
+    def get_sessions(self, user_id: int, persona_name: str = None) -> list[dict]:
+        """Get all sessions for a user's persona."""
         if persona_name is None:
             persona_name = self.get_current_persona_name(user_id)
         key = (user_id, persona_name)
-        if key not in self._conversations_cache:
-            self._conversations_cache[key] = []
-        return self._conversations_cache[key]
+        if key not in self._sessions_cache:
+            self._sessions_cache[key] = []
+        return self._sessions_cache[key]
+
+    def set_sessions(self, user_id: int, persona_name: str, sessions: list[dict]) -> None:
+        """Set sessions list for a persona (used during loading)."""
+        self._sessions_cache[(user_id, persona_name)] = sessions
+
+    def create_session(self, user_id: int, persona_name: str = None, title: str = None) -> dict:
+        """Create a new session. Returns the session dict."""
+        if persona_name is None:
+            persona_name = self.get_current_persona_name(user_id)
+        session_id = self._next_session_id()
+        session = {
+            "id": session_id,
+            "user_id": user_id,
+            "persona_name": persona_name,
+            "title": title,
+            "created_at": None,
+        }
+        key = (user_id, persona_name)
+        if key not in self._sessions_cache:
+            self._sessions_cache[key] = []
+        self._sessions_cache[key].append(session)
+        self._conversations_cache[session_id] = []
+        with self._lock:
+            self._new_sessions.append(session)
+        return session
+
+    def delete_session(self, session_id: int, user_id: int, persona_name: str) -> None:
+        """Delete a session and its conversations."""
+        key = (user_id, persona_name)
+        sessions = self._sessions_cache.get(key, [])
+        self._sessions_cache[key] = [s for s in sessions if s["id"] != session_id]
+        self._conversations_cache.pop(session_id, None)
+        with self._lock:
+            self._deleted_sessions.add(session_id)
+            self._dirty_conversations.discard(session_id)
+            self._cleared_conversations.discard(session_id)
+
+    def update_session_title(self, session_id: int, title: str) -> None:
+        """Update a session's title."""
+        # Find and update in cache
+        for key, sessions in self._sessions_cache.items():
+            for session in sessions:
+                if session["id"] == session_id:
+                    session["title"] = title
+                    with self._lock:
+                        self._dirty_session_titles[session_id] = title
+                    return
+
+    def get_session_by_id(self, session_id: int) -> dict | None:
+        """Get a session dict by its ID."""
+        for sessions in self._sessions_cache.values():
+            for session in sessions:
+                if session["id"] == session_id:
+                    return session
+        return None
+
+    def get_current_session_id(self, user_id: int, persona_name: str = None) -> int | None:
+        """Get the current session ID for a persona."""
+        if persona_name is None:
+            persona_name = self.get_current_persona_name(user_id)
+        persona = self.get_persona(user_id, persona_name)
+        if persona:
+            return persona.get("current_session_id")
+        return None
+
+    def set_current_session_id(self, user_id: int, persona_name: str, session_id: int) -> None:
+        """Set the current session ID for a persona."""
+        persona = self.get_persona(user_id, persona_name)
+        if persona:
+            persona["current_session_id"] = session_id
+            with self._lock:
+                self._dirty_personas.add((user_id, persona_name))
+
+    def _ensure_current_session(self, user_id: int, persona_name: str) -> int:
+        """Ensure the persona has a current session, creating one if needed. Returns session_id."""
+        session_id = self.get_current_session_id(user_id, persona_name)
+        if session_id is not None:
+            # Verify session still exists
+            session = self.get_session_by_id(session_id)
+            if session is not None:
+                return session_id
+
+        # No current session or it was deleted - create one
+        sessions = self.get_sessions(user_id, persona_name)
+        if sessions:
+            # Use the most recent session
+            session_id = sessions[-1]["id"]
+        else:
+            # Create a new session
+            session = self.create_session(user_id, persona_name)
+            session_id = session["id"]
+
+        self.set_current_session_id(user_id, persona_name, session_id)
+        return session_id
+
+    # Conversation cache methods (per session)
+    def get_conversation(self, user_id: int, persona_name: str = None) -> list:
+        """Get conversation history for a user's current session."""
+        if persona_name is None:
+            persona_name = self.get_current_persona_name(user_id)
+        session_id = self._ensure_current_session(user_id, persona_name)
+        if session_id not in self._conversations_cache:
+            self._conversations_cache[session_id] = []
+        return self._conversations_cache[session_id]
 
     def add_message(self, user_id: int, role: str, content: str, persona_name: str = None) -> None:
-        """Add a message to conversation history."""
+        """Add a message to the current session's conversation history."""
         if persona_name is None:
             persona_name = self.get_current_persona_name(user_id)
-        key = (user_id, persona_name)
-        if key not in self._conversations_cache:
-            self._conversations_cache[key] = []
-        self._conversations_cache[key].append({"role": role, "content": content})
+        session_id = self._ensure_current_session(user_id, persona_name)
+        if session_id not in self._conversations_cache:
+            self._conversations_cache[session_id] = []
+        self._conversations_cache[session_id].append({"role": role, "content": content})
         with self._lock:
-            self._dirty_conversations.add(key)
+            self._dirty_conversations.add(session_id)
 
     def clear_conversation(self, user_id: int, persona_name: str = None) -> None:
-        """Clear conversation history for a persona."""
+        """Clear conversation history for the current session."""
         if persona_name is None:
             persona_name = self.get_current_persona_name(user_id)
-        key = (user_id, persona_name)
-        self._conversations_cache[key] = []
+        session_id = self._ensure_current_session(user_id, persona_name)
+        self._conversations_cache[session_id] = []
         with self._lock:
-            self._cleared_conversations.add(key)
-            self._dirty_conversations.discard(key)
+            self._cleared_conversations.add(session_id)
+            self._dirty_conversations.discard(session_id)
 
     def set_conversation(self, user_id: int, persona_name: str, messages: list) -> None:
-        """Set entire conversation for a persona (used during loading)."""
-        self._conversations_cache[(user_id, persona_name)] = messages
+        """Set entire conversation for a persona (legacy compat - used during migration)."""
+        # This is only used during load_from_database for migration
+        # After migration, conversations are keyed by session_id
+        # Store temporarily with a synthetic key for migration
+        self._legacy_conversations = getattr(self, "_legacy_conversations", {})
+        self._legacy_conversations[(user_id, persona_name)] = messages
+
+    def set_conversation_by_session(self, session_id: int, messages: list) -> None:
+        """Set conversation for a session (used during loading)."""
+        self._conversations_cache[session_id] = messages
+
+    def get_conversation_by_session(self, session_id: int) -> list:
+        """Get conversation for a specific session."""
+        if session_id not in self._conversations_cache:
+            self._conversations_cache[session_id] = []
+        return self._conversations_cache[session_id]
 
     # Token usage cache methods (per persona)
     def get_token_usage(self, user_id: int, persona_name: str = None) -> dict:
@@ -295,6 +441,9 @@ class CacheManager:
                 "new_memories": self._new_memories.copy(),
                 "deleted_memory_ids": self._deleted_memory_ids.copy(),
                 "cleared_memories": self._cleared_memories.copy(),
+                "new_sessions": self._new_sessions.copy(),
+                "dirty_session_titles": self._dirty_session_titles.copy(),
+                "deleted_sessions": self._deleted_sessions.copy(),
             }
             self._dirty_settings.clear()
             self._dirty_personas.clear()
@@ -305,6 +454,9 @@ class CacheManager:
             self._new_memories.clear()
             self._deleted_memory_ids.clear()
             self._cleared_memories.clear()
+            self._new_sessions.clear()
+            self._dirty_session_titles.clear()
+            self._deleted_sessions.clear()
         return result
 
     def restore_dirty(self, dirty: dict) -> None:
@@ -319,6 +471,9 @@ class CacheManager:
             self._new_memories.extend(dirty.get("new_memories", []))
             self._deleted_memory_ids.extend(dirty.get("deleted_memory_ids", []))
             self._cleared_memories.update(dirty.get("cleared_memories", set()))
+            self._new_sessions.extend(dirty.get("new_sessions", []))
+            self._dirty_session_titles.update(dirty.get("dirty_session_titles", {}))
+            self._deleted_sessions.update(dirty.get("deleted_sessions", set()))
 
 
 # Global cache instance

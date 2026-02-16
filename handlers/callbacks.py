@@ -50,13 +50,21 @@ HELP_SECTIONS = {
     ),
     "help:advanced": (
         "Advanced\n\n"
-        "/export - Export current persona's chat history\n"
+        "/chat - Manage chat sessions\n"
+        "/export - Export current session's chat history\n"
         "/usage - Show token usage\n"
-        "/clear - Clear conversation and reset usage\n\n"
+        "/clear - Clear current session's conversation\n\n"
+        "Session Commands:\n"
+        "/chat - List sessions\n"
+        "/chat new [title] - New session\n"
+        "/chat <num> - Switch session\n"
+        "/chat rename <title> - Rename session\n"
+        "/chat delete <num> - Delete session\n\n"
         "Features:\n"
         "- Token limit is global across all personas\n"
         "- Send images or files for AI analysis\n"
-        "- In groups: reply to bot or @mention"
+        "- In groups: reply to bot or @mention\n"
+        "- /set title_model <model> - Model for auto-titles"
     ),
 }
 

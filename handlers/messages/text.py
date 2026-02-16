@@ -18,6 +18,10 @@ from services import (
     has_api_key,
     get_system_prompt,
     get_remaining_tokens,
+    get_current_session,
+    get_current_session_id,
+    get_message_count,
+    generate_session_title,
 )
 from tools import (
     get_all_tools,
@@ -250,6 +254,15 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Add tool instructions (fallback hints)
         system_prompt += get_tool_instructions(enabled_tools=enabled_tools)
 
+        # Instruct AI to avoid LaTeX (Telegram cannot render it)
+        system_prompt += (
+            "\n\nIMPORTANT: Do NOT use LaTeX math notation ($...$ or $$...$$) in your responses. "
+            "Telegram cannot render LaTeX. Instead, use plain text and Unicode symbols for math: "
+            "use × instead of \\times, ÷ instead of \\div, √ instead of \\sqrt, "
+            "use a/b instead of \\frac{a}{b}, use superscript characters (²³) and subscript characters (₁₂) when possible, "
+            "use → ≤ ≥ ≠ ≈ ∞ π α β etc. directly."
+        )
+
         # Build messages with system prompt
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(conversation)
@@ -382,6 +395,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         add_user_message(user_id, user_message)
         add_assistant_message(user_id, final_text)
 
+        # Auto-generate session title after first exchange
+        current_session = get_current_session(user_id)
+        if current_session and not current_session.get("title"):
+            session_id = current_session["id"]
+            msg_count = get_message_count(user_id)
+            if msg_count <= 2:
+                asyncio.create_task(_generate_and_set_title(user_id, session_id, user_message, final_text))
+
         # Record token usage if available
         if total_prompt_tokens or total_completion_tokens:
             add_token_usage(user_id, total_prompt_tokens, total_completion_tokens)
@@ -389,3 +410,15 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.exception("%s AI API error", ctx)
         await edit_message_safe(bot_message, f"Error: {str(e)}")
+
+
+async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
+    """Generate and set a title for a session (runs as background task)."""
+    try:
+        from cache import cache
+        title = await generate_session_title(user_id, user_message, ai_response)
+        if title:
+            cache.update_session_title(session_id, title)
+            logger.info("[user=%d] Auto-generated session title: %s", user_id, title)
+    except Exception as e:
+        logger.warning("[user=%d] Failed to auto-generate title: %s", user_id, e)
