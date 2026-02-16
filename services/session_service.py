@@ -180,14 +180,28 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
 
         try:
             data = json.loads(response_text)
-            title = data.get("title", "").strip()
-            if title:
-                return title
-        except json.JSONDecodeError:
-            # If JSON parsing fails, use the raw text (trimmed)
-            title = response_text.strip().strip('"').strip("'")
-            if title and len(title) < 50:
-                return title
+            if isinstance(data, dict):
+                # Try "title" key (case-insensitive)
+                title = None
+                for k, v in data.items():
+                    if k.lower() == "title" and v:
+                        title = str(v).strip()
+                        break
+                if title:
+                    return title
+            elif isinstance(data, str) and data.strip():
+                # Model returned a JSON string like "some title"
+                title = data.strip()
+                if len(title) < 50:
+                    return title
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Fallback: use raw text, strip quotes
+        title = response_text.strip().strip('"').strip("'").strip()
+        # Reject if it looks like unparsed JSON or is too generic
+        if title and len(title) < 50 and not title.startswith("{"):
+            return title
 
         return None
 
