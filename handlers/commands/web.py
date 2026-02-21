@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 
 from config import WEB_BASE_URL
 from web.auth import create_short_token
+from handlers.common import get_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,8 @@ async def web_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Generate a short token link and send it privately."""
     user_id = update.effective_user.id
     chat_type = update.effective_chat.type
+    ctx = get_log_context(update)
+    logger.info("%s /web", ctx)
 
     token = create_short_token(user_id)
     url = f"{WEB_BASE_URL}/?token={token}"

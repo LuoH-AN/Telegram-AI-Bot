@@ -1,8 +1,9 @@
 """FastAPI application factory."""
 
+import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -12,6 +13,8 @@ from web.routes.logs import router as logs_router
 from web.routes.usage import router as usage_router
 from web.routes.providers import router as providers_router
 from web.routes.sessions import router as sessions_router
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -25,6 +28,26 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(providers_router)
     app.include_router(sessions_router)
+
+    # Log all /api/ requests with user context
+    @app.middleware("http")
+    async def log_api_requests(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/api/"):
+            user_id = None
+            auth = request.headers.get("authorization", "")
+            if auth.startswith("Bearer "):
+                try:
+                    from web.auth import verify_jwt_token
+                    user_id = verify_jwt_token(auth[7:])
+                except Exception:
+                    pass
+            if user_id:
+                logger.info("[user=%d] web %s %s → %d", user_id, request.method, path, response.status_code)
+            else:
+                logger.info("web %s %s → %d", request.method, path, response.status_code)
+        return response
 
     @app.get("/health")
     async def health():
