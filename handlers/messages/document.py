@@ -1,6 +1,5 @@
 """Document/file upload handler."""
 
-import asyncio
 import base64
 import logging
 
@@ -9,354 +8,193 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from config import (
-    MAX_MESSAGE_LENGTH,
-    STREAM_UPDATE_INTERVAL,
     MIME_TYPE_MAP,
     MAX_FILE_SIZE,
     MAX_TEXT_CONTENT_LENGTH,
 )
 from services import (
-    get_user_settings,
-    get_conversation,
-    add_user_message,
-    add_assistant_message,
-    add_token_usage,
     has_api_key,
-    get_system_prompt,
-    get_current_session,
-    get_message_count,
-    generate_session_title,
+    get_remaining_tokens,
 )
-from ai import get_ai_client
 from utils import (
-    filter_thinking_content,
-    send_message_safe,
     edit_message_safe,
-    get_datetime_prompt,
     get_file_extension,
     is_text_file,
     is_image_file,
     is_likely_text,
     decode_file_content,
 )
-from handlers.common import should_respond_in_group, get_log_context
+from handlers.common import (
+    should_respond_in_group,
+    get_log_context,
+    collect_media_group_messages,
+)
 
 logger = logging.getLogger(__name__)
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle document/file uploads."""
-    # In groups, only respond when replied to or mentioned
     if not await should_respond_in_group(update, context):
         return
 
+    grouped_messages = await collect_media_group_messages(update.message)
+    if grouped_messages is None:
+        return
+
+    if any(msg.forward_origin for msg in grouped_messages):
+        return
+
     user_id = update.effective_user.id
-    settings = get_user_settings(user_id)
     ctx = get_log_context(update)
 
-    # Check if API key is set
+    documents = [msg.document for msg in grouped_messages if msg.document]
+    if not documents:
+        return
+
+    logger.info(
+        "%s document batch (%d item(s))",
+        ctx,
+        len(documents),
+    )
+
     if not has_api_key(user_id):
         await update.message.reply_text(
             "Please set your OpenAI API key first:\n/set api_key YOUR_API_KEY"
         )
         return
 
-    document = update.message.document
-    file_name = document.file_name or "unknown"
-    file_ext = get_file_extension(file_name)
-
-    logger.info("%s document: %s (%s bytes)", ctx, file_name, document.file_size)
-
-    # Skip forwarded messages
-    if update.message.forward_origin:
+    remaining = get_remaining_tokens(user_id)
+    if remaining is not None and remaining <= 0:
+        await update.message.reply_text(
+            "You've reached your token limit. "
+            "Use /usage to check usage or /set token_limit <number> to increase it."
+        )
         return
 
-    # Get caption as user prompt (no default - just use file content)
-    caption = update.message.caption or ""
+    oversized = [
+        (doc.file_name or "unknown")
+        for doc in documents
+        if doc.file_size and doc.file_size > MAX_FILE_SIZE
+    ]
+    if oversized:
+        joined = ", ".join(oversized[:5])
+        suffix = "..." if len(oversized) > 5 else ""
+        await update.message.reply_text(
+            f"File too large. Maximum size is 20MB.\nBlocked: {joined}{suffix}"
+        )
+        return
 
-    # Remove bot mention from caption if present
+    caption = next((m.caption for m in grouped_messages if m.caption), "") or ""
+
     bot_username = context.bot.username
     if bot_username and f"@{bot_username}" in caption:
         caption = caption.replace(f"@{bot_username}", "").strip()
 
-    # Include quoted message content when replying to a message
     reply_msg = update.message.reply_to_message
     if reply_msg:
         quoted_text = reply_msg.text or reply_msg.caption or ""
         if quoted_text:
             sender = reply_msg.from_user
             sender_name = sender.first_name if sender else "Unknown"
-            caption = f"[Quoted message from {sender_name}]:\n{quoted_text}\n\n{caption}" if caption else f"[Quoted message from {sender_name}]:\n{quoted_text}"
+            prefix = f"[Quoted message from {sender_name}]:\n{quoted_text}"
+            caption = f"{prefix}\n\n{caption}" if caption else prefix
 
-    # Check file size
-    if document.file_size and document.file_size > MAX_FILE_SIZE:
-        await update.message.reply_text("File too large. Maximum size is 20MB.")
-        return
-
-    # Show typing indicator
     await update.message.chat.send_action(ChatAction.TYPING)
-
-    # Send initial placeholder message
     bot_message = await update.message.reply_text("…")
 
     try:
-        # Download file
-        file = await context.bot.get_file(document.file_id)
-        file_bytes = await file.download_as_bytearray()
+        text_blocks: list[str] = []
+        image_parts: list[dict] = []
+        unsupported_files: list[str] = []
+        file_names: list[str] = []
 
-        # Determine how to process the file
-        if is_image_file(file_name):
-            # Process as image (vision)
-            await _process_image_file(
-                update, bot_message, file_bytes, file_name, caption, settings
-            )
-        elif is_text_file(file_name) or is_likely_text(file_bytes):
-            # Process as text file
-            await _process_text_file(
-                update, bot_message, file_bytes, file_name, caption, settings
-            )
-        else:
+        for msg in grouped_messages:
+            doc = msg.document
+            if not doc:
+                continue
+
+            file_name = doc.file_name or "unknown"
+            file_names.append(file_name)
+            file_ext = get_file_extension(file_name)
+
+            tg_file = await context.bot.get_file(doc.file_id)
+            file_bytes = await tg_file.download_as_bytearray()
+
+            if is_image_file(file_name):
+                image_base64 = base64.b64encode(file_bytes).decode("utf-8")
+                ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else "jpeg"
+                mime_type = MIME_TYPE_MAP.get(ext, "jpeg")
+                image_parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/{mime_type};base64,{image_base64}"},
+                    }
+                )
+                continue
+
+            if is_text_file(file_name) or is_likely_text(file_bytes):
+                file_content = decode_file_content(file_bytes)
+                if file_content is None:
+                    unsupported_files.append(file_name)
+                    continue
+
+                truncated = False
+                if len(file_content) > MAX_TEXT_CONTENT_LENGTH:
+                    file_content = file_content[:MAX_TEXT_CONTENT_LENGTH]
+                    truncated = True
+
+                label = f"[File: {file_name}]"
+                if truncated:
+                    label += " (truncated)"
+                text_blocks.append(f"{label}\n\n```\n{file_content}\n```")
+                continue
+
+            unsupported_files.append(file_name if file_ext else f"{file_name}(unknown)")
+
+        if not text_blocks and not image_parts:
             await edit_message_safe(
                 bot_message,
-                f"Unsupported file type: {file_ext or 'unknown'}\n\n"
+                "Unsupported file type.\n\n"
                 "Supported types:\n"
                 "- Text/code files (.txt, .py, .js, .json, .md, etc.)\n"
-                "- Images (.jpg, .png, .gif, .webp)"
+                "- Images (.jpg, .png, .gif, .webp)",
             )
+            return
 
-    except Exception as e:
+        text_sections = []
+        if caption:
+            text_sections.append(caption)
+        if text_blocks:
+            text_sections.append("\n\n".join(text_blocks))
+        if unsupported_files:
+            skipped = ", ".join(unsupported_files[:5])
+            if len(unsupported_files) > 5:
+                skipped += ", ..."
+            text_sections.append(f"Skipped unsupported files: {skipped}")
+        text_prompt = "\n\n".join(text_sections).strip()
+
+        if image_parts:
+            user_content = list(image_parts)
+            if text_prompt:
+                user_content.insert(0, {"type": "text", "text": text_prompt})
+        else:
+            user_content = text_prompt or "Please analyze the uploaded file(s)."
+
+        if len(file_names) == 1:
+            save_msg = f"[File: {file_names[0]}]"
+        else:
+            preview = ", ".join(file_names[:3])
+            if len(file_names) > 3:
+                preview += ", ..."
+            save_msg = f"[Files x{len(file_names)}] {preview}"
+        if caption:
+            save_msg += f" {caption}"
+
+        # Delegate to chat handler for full streaming, thinking display, and tool support
+        from handlers.messages.text import chat
+        await chat(update, context, user_content=user_content, save_msg=save_msg, bot_message=bot_message)
+
+    except Exception:
         logger.exception("%s error processing document", ctx)
-        await edit_message_safe(bot_message, f"Error: {str(e)}")
-
-
-async def _process_text_file(
-    update: Update,
-    bot_message,
-    file_bytes: bytearray,
-    file_name: str,
-    caption: str,
-    settings: dict,
-) -> None:
-    """Process a text file and send to AI."""
-    user_id = update.effective_user.id
-
-    # Decode file content
-    file_content = decode_file_content(file_bytes)
-    if file_content is None:
-        await edit_message_safe(bot_message, "Unable to decode file content.")
-        return
-
-    # Truncate if too long
-    truncated = False
-    if len(file_content) > MAX_TEXT_CONTENT_LENGTH:
-        file_content = file_content[:MAX_TEXT_CONTENT_LENGTH]
-        truncated = True
-
-    # Build user message - just include file content
-    user_message = f"[File: {file_name}]"
-    if truncated:
-        user_message += " (truncated)"
-    user_message += f"\n\n```\n{file_content}\n```"
-    if caption:
-        user_message += f"\n\n{caption}"
-
-    conversation = get_conversation(user_id)
-    system_prompt = get_system_prompt(user_id)
-    system_prompt += "\n\n" + get_datetime_prompt()
-
-    client = get_ai_client(user_id)
-
-    # Build messages with system prompt
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(conversation)
-    messages.append({"role": "user", "content": user_message})
-
-    # Call AI API with streaming
-    stream = client.chat_completion(
-        messages=messages,
-        model=settings["model"],
-        temperature=settings["temperature"],
-        stream=True,
-    )
-
-    full_response = ""
-    last_update_time = 0
-    last_update_length = 0
-    usage_info = None
-
-    for chunk in stream:
-        if chunk.usage is not None:
-            usage_info = chunk.usage
-
-        if chunk.content:
-            full_response += chunk.content
-
-            display_text = filter_thinking_content(full_response)
-
-            current_time = asyncio.get_event_loop().time()
-            if (
-                current_time - last_update_time >= STREAM_UPDATE_INTERVAL
-                and len(display_text) > last_update_length
-                and display_text
-            ):
-                await edit_message_safe(bot_message, display_text + " ▌")
-                last_update_time = current_time
-                last_update_length = len(display_text)
-
-    final_text = filter_thinking_content(full_response)
-
-    if not final_text:
-        final_text = "(Empty response)"
-
-    if len(final_text) > MAX_MESSAGE_LENGTH:
-        await bot_message.delete()
-        await send_message_safe(update.message, final_text)
-    else:
-        await edit_message_safe(bot_message, final_text)
-
-    # Save conversation - include caption if provided
-    save_msg = f"[File: {file_name}]"
-    if caption:
-        save_msg += f" {caption}"
-    add_user_message(user_id, save_msg)
-    add_assistant_message(user_id, final_text)
-
-    # Auto-generate session title after first exchange
-    current_session = get_current_session(user_id)
-    if current_session and not current_session.get("title"):
-        session_id = current_session["id"]
-        msg_count = get_message_count(user_id)
-        if msg_count <= 2:
-            asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
-
-    if usage_info:
-        add_token_usage(
-            user_id,
-            usage_info.get("prompt_tokens", 0),
-            usage_info.get("completion_tokens", 0),
-        )
-
-
-async def _process_image_file(
-    update: Update,
-    bot_message,
-    file_bytes: bytearray,
-    file_name: str,
-    caption: str,
-    settings: dict,
-) -> None:
-    """Process an image file and send to AI with vision."""
-    user_id = update.effective_user.id
-
-    # Convert to base64
-    image_base64 = base64.b64encode(file_bytes).decode("utf-8")
-
-    # Determine mime type
-    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else "jpeg"
-    mime_type = MIME_TYPE_MAP.get(ext, "jpeg")
-
-    # Build message content with image
-    # If no caption, just send the image without text prompt
-    if caption:
-        user_content = [
-            {"type": "text", "text": caption},
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/{mime_type};base64,{image_base64}"},
-            },
-        ]
-    else:
-        user_content = [
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/{mime_type};base64,{image_base64}"},
-            },
-        ]
-
-    system_prompt = get_system_prompt(user_id)
-    system_prompt += "\n\n" + get_datetime_prompt()
-
-    client = get_ai_client(user_id)
-
-    # Build messages with system prompt
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
-
-    # Call AI API with streaming
-    stream = client.chat_completion(
-        messages=messages,
-        model=settings["model"],
-        temperature=settings["temperature"],
-        stream=True,
-    )
-
-    full_response = ""
-    last_update_time = 0
-    last_update_length = 0
-    usage_info = None
-
-    for chunk in stream:
-        if chunk.usage is not None:
-            usage_info = chunk.usage
-
-        if chunk.content:
-            full_response += chunk.content
-
-            display_text = filter_thinking_content(full_response)
-
-            current_time = asyncio.get_event_loop().time()
-            if (
-                current_time - last_update_time >= STREAM_UPDATE_INTERVAL
-                and len(display_text) > last_update_length
-                and display_text
-            ):
-                await edit_message_safe(bot_message, display_text + " ▌")
-                last_update_time = current_time
-                last_update_length = len(display_text)
-
-    final_text = filter_thinking_content(full_response)
-
-    if not final_text:
-        final_text = "(Empty response)"
-
-    if len(final_text) > MAX_MESSAGE_LENGTH:
-        await bot_message.delete()
-        await send_message_safe(update.message, final_text)
-    else:
-        await edit_message_safe(bot_message, final_text)
-
-    # Save conversation
-    save_msg = f"[Image: {file_name}]"
-    if caption:
-        save_msg += f" {caption}"
-    add_user_message(user_id, save_msg)
-    add_assistant_message(user_id, final_text)
-
-    # Auto-generate session title after first exchange
-    current_session = get_current_session(user_id)
-    if current_session and not current_session.get("title"):
-        session_id = current_session["id"]
-        msg_count = get_message_count(user_id)
-        if msg_count <= 2:
-            asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
-
-    if usage_info:
-        add_token_usage(
-            user_id,
-            usage_info.get("prompt_tokens", 0),
-            usage_info.get("completion_tokens", 0),
-        )
-
-
-async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
-    """Generate and set a title for a session (runs as background task)."""
-    try:
-        from cache import cache
-        title = await generate_session_title(user_id, user_message, ai_response)
-        if title:
-            cache.update_session_title(session_id, title)
-            logger.info("[user=%d] Auto-generated session title: %s", user_id, title)
-    except Exception as e:
-        logger.warning("[user=%d] Failed to auto-generate title: %s", user_id, e)
+        await edit_message_safe(bot_message, "Error. Please retry.")

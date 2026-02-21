@@ -16,6 +16,7 @@ from services import (
     delete_persona,
     update_current_prompt,
     get_token_usage,
+    ensure_session,
     get_message_count,
     persona_exists,
     get_session_count,
@@ -111,7 +112,8 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.info("%s /persona switch %s", ctx, name)
         persona = get_current_persona(user_id)
         usage = get_token_usage(user_id, name)
-        msg_count = get_message_count(user_id, name)
+        session_id = ensure_session(user_id, name)
+        msg_count = get_message_count(session_id)
         session_ct = get_session_count(user_id, name)
         current_session = get_current_session(user_id, name)
         session_title = (current_session.get("title") or "New Chat") if current_session else "New Chat"
@@ -141,7 +143,8 @@ async def _list_personas(update: Update, user_id: int) -> None:
     for name, persona in personas.items():
         marker = "> " if name == current else "  "
         usage = get_token_usage(user_id, name)
-        msg_count = get_message_count(user_id, name)
+        session_id = ensure_session(user_id, name)
+        msg_count = get_message_count(session_id)
         session_ct = get_session_count(user_id, name)
         prompt_preview = persona['system_prompt'][:30] + "..." if len(persona['system_prompt']) > 30 else persona['system_prompt']
         lines.append(f"{marker}{name}")

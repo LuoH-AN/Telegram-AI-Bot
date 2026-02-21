@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 from handlers.common import get_log_context
 
 from services import (
+    ensure_session,
     clear_conversation,
     get_current_persona_name,
     reset_token_usage,
@@ -81,6 +82,7 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     persona_name = get_current_persona_name(user_id)
     ctx = get_log_context(update)
     logger.info("%s /clear (persona=%s)", ctx, persona_name)
-    clear_conversation(user_id, persona_name)
+    session_id = ensure_session(user_id, persona_name)
+    clear_conversation(session_id)
     reset_token_usage(user_id)
     await update.message.reply_text(f"Conversation cleared and usage reset for persona '{persona_name}'.")

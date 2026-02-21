@@ -2,7 +2,7 @@
 
 # SQL statements for creating tables
 
-# Global user settings (API config, current persona)
+# Global user settings (API config and defaults)
 CREATE_USER_SETTINGS_TABLE = """
     CREATE TABLE IF NOT EXISTS user_settings (
         user_id BIGINT PRIMARY KEY,
@@ -15,43 +15,10 @@ CREATE_USER_SETTINGS_TABLE = """
         enabled_tools TEXT,
         tts_voice TEXT,
         tts_style TEXT,
-        tts_endpoint TEXT
+        tts_endpoint TEXT,
+        api_presets TEXT,
+        title_model TEXT
     )
-"""
-
-# Add token_limit and current_persona columns if they don't exist (migration)
-MIGRATE_USER_SETTINGS = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='token_limit') THEN
-            ALTER TABLE user_settings ADD COLUMN token_limit BIGINT DEFAULT 0;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='current_persona') THEN
-            ALTER TABLE user_settings ADD COLUMN current_persona TEXT DEFAULT 'default';
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='enabled_tools') THEN
-            ALTER TABLE user_settings ADD COLUMN enabled_tools TEXT;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='tts_voice') THEN
-            ALTER TABLE user_settings ADD COLUMN tts_voice TEXT;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='tts_style') THEN
-            ALTER TABLE user_settings ADD COLUMN tts_style TEXT;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='tts_endpoint') THEN
-            ALTER TABLE user_settings ADD COLUMN tts_endpoint TEXT;
-        END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='user_settings' AND column_name='system_prompt') THEN
-            ALTER TABLE user_settings DROP COLUMN IF EXISTS system_prompt;
-        END IF;
-    END $$;
 """
 
 # Persona definitions
@@ -61,6 +28,7 @@ CREATE_USER_PERSONAS_TABLE = """
         user_id BIGINT NOT NULL,
         name TEXT NOT NULL,
         system_prompt TEXT NOT NULL,
+        current_session_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, name)
     )
@@ -69,95 +37,6 @@ CREATE_USER_PERSONAS_TABLE = """
 CREATE_PERSONAS_INDEX = """
     CREATE INDEX IF NOT EXISTS idx_personas_user_id
     ON user_personas(user_id)
-"""
-
-# Conversations now linked to persona
-CREATE_USER_CONVERSATIONS_TABLE = """
-    CREATE TABLE IF NOT EXISTS user_conversations (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL,
-        persona_name TEXT NOT NULL DEFAULT 'default',
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-"""
-
-# Add persona_name column if it doesn't exist (migration)
-MIGRATE_USER_CONVERSATIONS = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_conversations' AND column_name='persona_name') THEN
-            ALTER TABLE user_conversations ADD COLUMN persona_name TEXT NOT NULL DEFAULT 'default';
-        END IF;
-    END $$;
-"""
-
-CREATE_CONVERSATIONS_INDEX = """
-    CREATE INDEX IF NOT EXISTS idx_conversations_user_persona
-    ON user_conversations(user_id, persona_name)
-"""
-
-# Token usage per persona
-CREATE_USER_PERSONA_TOKENS_TABLE = """
-    CREATE TABLE IF NOT EXISTS user_persona_tokens (
-        user_id BIGINT NOT NULL,
-        persona_name TEXT NOT NULL,
-        prompt_tokens BIGINT DEFAULT 0,
-        completion_tokens BIGINT DEFAULT 0,
-        total_tokens BIGINT DEFAULT 0,
-        PRIMARY KEY (user_id, persona_name)
-    )
-"""
-
-# Keep old token table for migration, will migrate data from it
-CREATE_USER_TOKEN_USAGE_TABLE = """
-    CREATE TABLE IF NOT EXISTS user_token_usage (
-        user_id BIGINT PRIMARY KEY,
-        prompt_tokens BIGINT DEFAULT 0,
-        completion_tokens BIGINT DEFAULT 0,
-        total_tokens BIGINT DEFAULT 0,
-        token_limit BIGINT DEFAULT 0
-    )
-"""
-
-# Memories (shared across personas)
-CREATE_USER_MEMORIES_TABLE = """
-    CREATE TABLE IF NOT EXISTS user_memories (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL,
-        content TEXT NOT NULL,
-        source TEXT NOT NULL DEFAULT 'user',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-"""
-
-CREATE_MEMORIES_INDEX = """
-    CREATE INDEX IF NOT EXISTS idx_memories_user_id
-    ON user_memories(user_id)
-"""
-
-# Add embedding column to user_memories (migration)
-MIGRATE_USER_MEMORIES_EMBEDDING = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_memories' AND column_name='embedding') THEN
-            ALTER TABLE user_memories ADD COLUMN embedding TEXT;
-        END IF;
-    END $$;
-"""
-
-# Add api_presets column to user_settings (migration)
-MIGRATE_USER_SETTINGS_PRESETS = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='api_presets') THEN
-            ALTER TABLE user_settings ADD COLUMN api_presets TEXT;
-        END IF;
-    END $$;
 """
 
 # Sessions table (multiple sessions per persona)
@@ -176,23 +55,22 @@ CREATE_SESSIONS_INDEX = """
     ON user_sessions(user_id, persona_name)
 """
 
-# Add session_id to conversations, current_session_id to personas, title_model to settings
-MIGRATE_SESSIONS = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_conversations' AND column_name='session_id') THEN
-            ALTER TABLE user_conversations ADD COLUMN session_id INTEGER;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_personas' AND column_name='current_session_id') THEN
-            ALTER TABLE user_personas ADD COLUMN current_session_id INTEGER;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                       WHERE table_name='user_settings' AND column_name='title_model') THEN
-            ALTER TABLE user_settings ADD COLUMN title_model TEXT;
-        END IF;
-    END $$;
+# Conversations linked to session_id
+CREATE_USER_CONVERSATIONS_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_conversations (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        persona_name TEXT NOT NULL DEFAULT 'default',
+        session_id INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+CREATE_CONVERSATIONS_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_conversations_user_persona
+    ON user_conversations(user_id, persona_name)
 """
 
 CREATE_CONVERSATIONS_SESSION_INDEX = """
@@ -200,25 +78,48 @@ CREATE_CONVERSATIONS_SESSION_INDEX = """
     ON user_conversations(session_id)
 """
 
+# Token usage per persona
+CREATE_USER_PERSONA_TOKENS_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_persona_tokens (
+        user_id BIGINT NOT NULL,
+        persona_name TEXT NOT NULL,
+        prompt_tokens BIGINT DEFAULT 0,
+        completion_tokens BIGINT DEFAULT 0,
+        total_tokens BIGINT DEFAULT 0,
+        PRIMARY KEY (user_id, persona_name)
+    )
+"""
+
+# Memories (shared across personas)
+CREATE_USER_MEMORIES_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_memories (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        content TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'user',
+        embedding TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+CREATE_MEMORIES_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_memories_user_id
+    ON user_memories(user_id)
+"""
+
 # All schema creation statements in order
 SCHEMA_STATEMENTS = [
     CREATE_USER_SETTINGS_TABLE,
-    MIGRATE_USER_SETTINGS,
     CREATE_USER_PERSONAS_TABLE,
     CREATE_PERSONAS_INDEX,
-    CREATE_USER_CONVERSATIONS_TABLE,
-    MIGRATE_USER_CONVERSATIONS,
-    CREATE_CONVERSATIONS_INDEX,
-    CREATE_USER_PERSONA_TOKENS_TABLE,
-    CREATE_USER_TOKEN_USAGE_TABLE,
-    CREATE_USER_MEMORIES_TABLE,
-    CREATE_MEMORIES_INDEX,
-    MIGRATE_USER_MEMORIES_EMBEDDING,
-    MIGRATE_USER_SETTINGS_PRESETS,
     CREATE_USER_SESSIONS_TABLE,
     CREATE_SESSIONS_INDEX,
-    MIGRATE_SESSIONS,
+    CREATE_USER_CONVERSATIONS_TABLE,
+    CREATE_CONVERSATIONS_INDEX,
     CREATE_CONVERSATIONS_SESSION_INDEX,
+    CREATE_USER_PERSONA_TOKENS_TABLE,
+    CREATE_USER_MEMORIES_TABLE,
+    CREATE_MEMORIES_INDEX,
 ]
 
 

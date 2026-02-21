@@ -1,7 +1,15 @@
 """Common utilities for handlers."""
 
+import asyncio
+import threading
+
+from telegram import Message
 from telegram import Update
 from telegram.ext import ContextTypes
+
+_MEDIA_GROUP_WAIT_SECONDS = 1.0
+_MEDIA_GROUP_LOCK = threading.Lock()
+_MEDIA_GROUP_BUFFER: dict[tuple[int, str], list[Message]] = {}
 
 
 def get_log_context(update: Update) -> str:
@@ -55,3 +63,37 @@ async def should_respond_in_group(update: Update, context: ContextTypes.DEFAULT_
                 return True
 
     return False
+
+
+async def collect_media_group_messages(message: Message) -> list[Message] | None:
+    """Collect all messages in the same media group and return once for the leader update.
+
+    Returns:
+        - [message] for non-media-group updates
+        - list[Message] for the first update of a media group (after a short wait)
+        - None for follower updates that should be ignored
+    """
+    media_group_id = message.media_group_id
+    if not media_group_id:
+        return [message]
+
+    key = (message.chat_id, media_group_id)
+    is_leader = False
+
+    with _MEDIA_GROUP_LOCK:
+        if key not in _MEDIA_GROUP_BUFFER:
+            _MEDIA_GROUP_BUFFER[key] = [message]
+            is_leader = True
+        else:
+            _MEDIA_GROUP_BUFFER[key].append(message)
+
+    if not is_leader:
+        return None
+
+    await asyncio.sleep(_MEDIA_GROUP_WAIT_SECONDS)
+
+    with _MEDIA_GROUP_LOCK:
+        grouped = _MEDIA_GROUP_BUFFER.pop(key, [])
+
+    grouped.sort(key=lambda m: m.message_id)
+    return grouped

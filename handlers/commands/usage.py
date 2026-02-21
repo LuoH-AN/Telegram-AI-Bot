@@ -11,6 +11,7 @@ from services import (
     get_token_usage,
     export_to_markdown,
     get_current_persona_name,
+    get_current_session_id,
     get_total_tokens_all_personas,
     get_token_limit,
 )
@@ -59,21 +60,26 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /export command - export chat history as markdown file."""
+    """Handle /export command - export current session chat history as markdown file."""
     user_id = update.effective_user.id
     logger.info("%s /export", get_log_context(update))
     persona_name = get_current_persona_name(user_id)
+    session_id = get_current_session_id(user_id, persona_name)
 
     file_buffer = export_to_markdown(user_id, persona_name)
 
     if file_buffer is None:
         await update.message.reply_text(
-            f"No conversation history to export for persona '{persona_name}'."
+            f"No conversation history to export in current session (persona: '{persona_name}')."
         )
         return
+
+    caption = f"Chat history export (Persona: {persona_name})"
+    if session_id is not None:
+        caption += f"\nSession ID: {session_id}"
 
     await update.message.reply_document(
         document=file_buffer,
         filename=file_buffer.name,
-        caption=f"Chat history export (Persona: {persona_name})"
+        caption=caption,
     )

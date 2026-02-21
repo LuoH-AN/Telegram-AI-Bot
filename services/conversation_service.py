@@ -3,42 +3,47 @@
 from cache import cache
 
 
-def get_conversation(user_id: int, persona_name: str = None) -> list:
-    """Get conversation history for a user's current or specified persona."""
-    return cache.get_conversation(user_id, persona_name)
+def ensure_session(user_id: int, persona_name: str = None) -> int:
+    """Ensure a persona has a current session and return its ID."""
+    return cache.ensure_session_id(user_id, persona_name)
 
 
-def add_message(user_id: int, role: str, content: str, persona_name: str = None) -> None:
-    """Add a message to conversation history."""
-    cache.add_message(user_id, role, content, persona_name)
+def get_conversation(session_id: int) -> list:
+    """Get conversation history for a specific session."""
+    return cache.get_conversation_by_session(session_id)
 
 
-def add_user_message(user_id: int, content: str, persona_name: str = None) -> None:
-    """Add a user message to conversation history."""
-    cache.add_message(user_id, "user", content, persona_name)
+def add_message(session_id: int, role: str, content: str) -> None:
+    """Add a message to a specific session by ID."""
+    cache.add_message_to_session(session_id, role, content)
 
 
-def add_assistant_message(user_id: int, content: str, persona_name: str = None) -> None:
-    """Add an assistant message to conversation history."""
-    cache.add_message(user_id, "assistant", content, persona_name)
+def add_user_message(session_id: int, content: str) -> None:
+    """Add a user message to a specific session."""
+    cache.add_message_to_session(session_id, "user", content)
 
 
-def clear_conversation(user_id: int, persona_name: str = None) -> None:
-    """Clear conversation history for the current or specified persona."""
-    cache.clear_conversation(user_id, persona_name)
+def add_assistant_message(session_id: int, content: str) -> None:
+    """Add an assistant message to a specific session."""
+    cache.add_message_to_session(session_id, "assistant", content)
 
 
-def get_message_count(user_id: int, persona_name: str = None) -> int:
-    """Get number of messages in conversation."""
-    return len(cache.get_conversation(user_id, persona_name))
+def clear_conversation(session_id: int) -> None:
+    """Clear conversation history for a specific session."""
+    cache.clear_conversation_by_session(session_id)
 
 
-def pop_last_exchange(user_id: int, persona_name: str = None) -> bool:
+def get_message_count(session_id: int) -> int:
+    """Get number of messages in a session."""
+    return len(cache.get_conversation_by_session(session_id))
+
+
+def pop_last_exchange(session_id: int) -> bool:
     """Remove the last user+assistant message pair from conversation.
 
     Returns True if messages were removed, False if conversation was empty.
     """
-    conversation = cache.get_conversation(user_id, persona_name)
+    conversation = cache.get_conversation_by_session(session_id)
     if not conversation:
         return False
     # Remove trailing assistant message(s), then the last user message

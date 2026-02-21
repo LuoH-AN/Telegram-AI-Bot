@@ -392,7 +392,7 @@ async def _show_provider_list(update: Update, settings: dict) -> None:
             "No saved providers.\n\n"
             "Usage:\n"
             "/set provider save <name> - Save current API config\n"
-            "/set provider <name> - Load a saved config\n"
+            "/set provider load <name> - Load a saved config\n"
             "/set provider delete <name> - Delete a saved config"
         )
         return
@@ -414,7 +414,7 @@ async def _show_provider_list(update: Update, settings: dict) -> None:
     lines.append(
         "\nUsage:\n"
         "/set provider save <name>\n"
-        "/set provider <name>\n"
+        "/set provider load <name>\n"
         "/set provider delete <name>"
     )
     await update.message.reply_text("\n".join(lines))
@@ -474,13 +474,15 @@ async def _handle_provider_command(
         logger.info("%s provider delete %s", ctx, name)
         await update.message.reply_text(f"Provider '{name}' deleted.")
 
-    else:
-        # /set provider <name> — load a preset
-        name = args[1]  # use original case
+    elif sub == "load":
+        if len(args) < 3:
+            await update.message.reply_text("Usage: /set provider load <name>")
+            return
+        name = args[2]  # use original case
         if name not in presets:
             # Try case-insensitive match
             for k in presets:
-                if k.lower() == sub:
+                if k.lower() == name.lower():
                     name = k
                     break
             else:
@@ -507,4 +509,13 @@ async def _handle_provider_command(
             f"  base_url: {preset['base_url']}\n"
             f"  api_key: {masked_key}\n"
             f"  model: {preset['model']}"
+        )
+
+    else:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/set provider list\n"
+            "/set provider save <name>\n"
+            "/set provider load <name>\n"
+            "/set provider delete <name>"
         )

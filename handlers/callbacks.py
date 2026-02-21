@@ -37,7 +37,7 @@ HELP_SECTIONS = {
         "API Provider Presets:\n"
         "/set provider - List saved providers\n"
         "/set provider save <name> - Save current config\n"
-        "/set provider <name> - Load a saved config\n"
+        "/set provider load <name> - Load a saved config\n"
         "/set provider delete <name> - Delete"
     ),
     "help:memory": (

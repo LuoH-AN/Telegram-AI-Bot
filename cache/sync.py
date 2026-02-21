@@ -50,14 +50,6 @@ def load_from_database() -> None:
                     }
                     cache.set_settings(row["user_id"], settings)
 
-                # Migrate token_limit from old table if needed
-                cur.execute("SELECT user_id, token_limit FROM user_token_usage WHERE token_limit > 0")
-                for row in cur.fetchall():
-                    user_id = row["user_id"]
-                    if user_id in cache._settings_cache:
-                        if cache._settings_cache[user_id].get("token_limit", 0) == 0:
-                            cache._settings_cache[user_id]["token_limit"] = row["token_limit"]
-
                 # Load personas
                 cur.execute("SELECT user_id, name, system_prompt, current_session_id FROM user_personas")
                 for row in cur.fetchall():
@@ -104,101 +96,29 @@ def load_from_database() -> None:
 
                 # Load conversations grouped by session_id
                 cur.execute("""
-                    SELECT id, user_id, persona_name, session_id, role, content
+                    SELECT session_id, role, content
                     FROM user_conversations
+                    WHERE session_id IS NOT NULL
                     ORDER BY id
                 """)
-                # Separate migrated (have session_id) from unmigrated (no session_id)
                 conversations_by_session: dict[int, list] = {}
-                unmigrated: dict[tuple[int, str], list[dict]] = {}
-                unmigrated_row_ids: dict[tuple[int, str], list[int]] = {}
 
                 for row in cur.fetchall():
-                    msg = {"role": row["role"], "content": row["content"]}
-                    if row["session_id"] is not None:
-                        sid = row["session_id"]
-                        if sid not in conversations_by_session:
-                            conversations_by_session[sid] = []
-                        conversations_by_session[sid].append(msg)
-                    else:
-                        key = (row["user_id"], row["persona_name"] or "default")
-                        if key not in unmigrated:
-                            unmigrated[key] = []
-                            unmigrated_row_ids[key] = []
-                        unmigrated[key].append(msg)
-                        unmigrated_row_ids[key].append(row["id"])
+                    sid = row["session_id"]
+                    if sid not in conversations_by_session:
+                        conversations_by_session[sid] = []
+                    conversations_by_session[sid].append({
+                        "role": row["role"],
+                        "content": row["content"],
+                    })
 
-                # Load migrated conversations into cache
                 for session_id, messages in conversations_by_session.items():
                     cache.set_conversation_by_session(session_id, messages)
-
-                # Migrate unmigrated conversations
-                if unmigrated:
-                    logger.info("Migrating %d conversation groups to sessions...", len(unmigrated))
-                    for (user_id, persona_name), messages in unmigrated.items():
-                        # Create a session in DB immediately
-                        cur.execute(
-                            "INSERT INTO user_sessions (user_id, persona_name) VALUES (%s, %s) RETURNING id",
-                            (user_id, persona_name)
-                        )
-                        new_session_id = cur.fetchone()["id"]
-                        if new_session_id > cache._session_id_counter:
-                            cache._session_id_counter = new_session_id
-
-                        # Update all conversation rows with this session_id
-                        row_ids = unmigrated_row_ids[(user_id, persona_name)]
-                        if row_ids:
-                            cur.execute(
-                                "UPDATE user_conversations SET session_id = %s WHERE id = ANY(%s)",
-                                (new_session_id, row_ids)
-                            )
-
-                        # Update persona's current_session_id
-                        cur.execute(
-                            "UPDATE user_personas SET current_session_id = %s WHERE user_id = %s AND name = %s AND current_session_id IS NULL",
-                            (new_session_id, user_id, persona_name)
-                        )
-
-                        # Add to cache
-                        session_dict = {
-                            "id": new_session_id,
-                            "user_id": user_id,
-                            "persona_name": persona_name,
-                            "title": None,
-                            "created_at": None,
-                        }
-                        key = (user_id, persona_name)
-                        existing = cache._sessions_cache.get(key, [])
-                        existing.append(session_dict)
-                        cache.set_sessions(user_id, persona_name, existing)
-                        cache.set_conversation_by_session(new_session_id, messages)
-
-                        # Update persona cache
-                        persona = cache.get_persona(user_id, persona_name)
-                        if persona and persona.get("current_session_id") is None:
-                            persona["current_session_id"] = new_session_id
-
-                    conn.commit()
-                    logger.info("Migration complete")
 
                 # Load persona token usage
                 cur.execute("SELECT * FROM user_persona_tokens")
                 for row in cur.fetchall():
                     cache.set_token_usage(row["user_id"], row["persona_name"], {
-                        "prompt_tokens": row["prompt_tokens"] or 0,
-                        "completion_tokens": row["completion_tokens"] or 0,
-                        "total_tokens": row["total_tokens"] or 0,
-                    })
-
-                # Migrate old token usage to default persona
-                cur.execute("""
-                    SELECT u.user_id, u.prompt_tokens, u.completion_tokens, u.total_tokens
-                    FROM user_token_usage u
-                    LEFT JOIN user_persona_tokens p ON u.user_id = p.user_id AND p.persona_name = 'default'
-                    WHERE p.user_id IS NULL AND u.total_tokens > 0
-                """)
-                for row in cur.fetchall():
-                    cache.set_token_usage(row["user_id"], "default", {
                         "prompt_tokens": row["prompt_tokens"] or 0,
                         "completion_tokens": row["completion_tokens"] or 0,
                         "total_tokens": row["total_tokens"] or 0,
@@ -292,11 +212,6 @@ def sync_to_database() -> None:
                         "DELETE FROM user_personas WHERE user_id = %s AND name = %s",
                         (user_id, persona_name)
                     )
-                    # Also delete old-style conversations without session_id
-                    cur.execute(
-                        "DELETE FROM user_conversations WHERE user_id = %s AND persona_name = %s",
-                        (user_id, persona_name)
-                    )
                     cur.execute(
                         "DELETE FROM user_persona_tokens WHERE user_id = %s AND persona_name = %s",
                         (user_id, persona_name)
@@ -335,6 +250,13 @@ def sync_to_database() -> None:
                     if old_id in dirty["cleared_conversations"]:
                         dirty["cleared_conversations"].discard(old_id)
                         dirty["cleared_conversations"].add(db_id)
+                    # Update deleted sessions references
+                    if old_id in dirty["deleted_sessions"]:
+                        dirty["deleted_sessions"].discard(old_id)
+                        dirty["deleted_sessions"].add(db_id)
+                    # Update dirty session title references
+                    if old_id in dirty["dirty_session_titles"]:
+                        dirty["dirty_session_titles"][db_id] = dirty["dirty_session_titles"].pop(old_id)
 
                     # Update persona's current_session_id if it points to the old id
                     persona = cache.get_persona(session["user_id"], session["persona_name"])

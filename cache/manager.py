@@ -260,8 +260,11 @@ class CacheManager:
             with self._lock:
                 self._dirty_personas.add((user_id, persona_name))
 
-    def _ensure_current_session(self, user_id: int, persona_name: str) -> int:
-        """Ensure the persona has a current session, creating one if needed. Returns session_id."""
+    def ensure_session_id(self, user_id: int, persona_name: str = None) -> int:
+        """Ensure the persona has a current session, creating one if needed. Returns session ID."""
+        if persona_name is None:
+            persona_name = self.get_current_persona_name(user_id)
+
         session_id = self.get_current_session_id(user_id, persona_name)
         if session_id is not None:
             # Verify session still exists
@@ -283,43 +286,20 @@ class CacheManager:
         return session_id
 
     # Conversation cache methods (per session)
-    def get_conversation(self, user_id: int, persona_name: str = None) -> list:
-        """Get conversation history for a user's current session."""
-        if persona_name is None:
-            persona_name = self.get_current_persona_name(user_id)
-        session_id = self._ensure_current_session(user_id, persona_name)
-        if session_id not in self._conversations_cache:
-            self._conversations_cache[session_id] = []
-        return self._conversations_cache[session_id]
-
-    def add_message(self, user_id: int, role: str, content: str, persona_name: str = None) -> None:
-        """Add a message to the current session's conversation history."""
-        if persona_name is None:
-            persona_name = self.get_current_persona_name(user_id)
-        session_id = self._ensure_current_session(user_id, persona_name)
+    def add_message_to_session(self, session_id: int, role: str, content: str) -> None:
+        """Add a message directly to a specific session."""
         if session_id not in self._conversations_cache:
             self._conversations_cache[session_id] = []
         self._conversations_cache[session_id].append({"role": role, "content": content})
         with self._lock:
             self._dirty_conversations.add(session_id)
 
-    def clear_conversation(self, user_id: int, persona_name: str = None) -> None:
-        """Clear conversation history for the current session."""
-        if persona_name is None:
-            persona_name = self.get_current_persona_name(user_id)
-        session_id = self._ensure_current_session(user_id, persona_name)
+    def clear_conversation_by_session(self, session_id: int) -> None:
+        """Clear conversation history for a specific session."""
         self._conversations_cache[session_id] = []
         with self._lock:
             self._cleared_conversations.add(session_id)
             self._dirty_conversations.discard(session_id)
-
-    def set_conversation(self, user_id: int, persona_name: str, messages: list) -> None:
-        """Set entire conversation for a persona (legacy compat - used during migration)."""
-        # This is only used during load_from_database for migration
-        # After migration, conversations are keyed by session_id
-        # Store temporarily with a synthetic key for migration
-        self._legacy_conversations = getattr(self, "_legacy_conversations", {})
-        self._legacy_conversations[(user_id, persona_name)] = messages
 
     def set_conversation_by_session(self, session_id: int, messages: list) -> None:
         """Set conversation for a session (used during loading)."""

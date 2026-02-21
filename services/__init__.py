@@ -24,6 +24,7 @@ from .persona_service import (
     get_persona_count,
 )
 from .conversation_service import (
+    ensure_session,
     get_conversation,
     add_message,
     add_user_message,
@@ -97,6 +98,7 @@ __all__ = [
     "persona_exists",
     "get_persona_count",
     # Conversation service
+    "ensure_session",
     "get_conversation",
     "add_message",
     "add_user_message",

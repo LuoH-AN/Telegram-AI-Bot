@@ -108,6 +108,7 @@ class OpenAIClient(AIClient):
                             tool_call_chunks[idx]["arguments"] += tc_delta.function.arguments
 
             finished = chunk.choices[0].finish_reason is not None if chunk.choices else False
+            finish_reason = chunk.choices[0].finish_reason if chunk.choices else None
 
             # On finish, compile tool calls
             tool_calls = []
@@ -122,7 +123,7 @@ class OpenAIClient(AIClient):
                         ))
 
             if content or reasoning or usage or finished:
-                yield StreamChunk(content=content, reasoning=reasoning, usage=usage, finished=finished, tool_calls=tool_calls)
+                yield StreamChunk(content=content, reasoning=reasoning, usage=usage, finished=finished, tool_calls=tool_calls, finish_reason=finish_reason)
 
     def list_models(self) -> list[str]:
         """List available models."""

@@ -21,6 +21,7 @@ class StreamChunk:
     usage: dict | None = None
     finished: bool = False
     tool_calls: list[ToolCall] = field(default_factory=list)
+    finish_reason: str | None = None
 
 
 class AIClient(ABC):

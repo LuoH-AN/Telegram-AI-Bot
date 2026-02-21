@@ -82,13 +82,32 @@ class ToolRegistry:
             tool = name_map.get(tc.name)
             if tool is None:
                 logger.warning(f"No enabled tool registered for '{tc.name}'")
+                results.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": f"Error: Unknown tool '{tc.name}'",
+                })
                 continue
             try:
                 args = json.loads(tc.arguments)
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse tool call arguments: {e}")
+                results.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": f"Error: Invalid arguments - {e}",
+                })
                 continue
-            result = tool.execute(user_id, tc.name, args)
+            try:
+                result = tool.execute(user_id, tc.name, args)
+            except Exception as e:
+                logger.exception("[user=%d] tool execution failed: %s", user_id, tc.name)
+                results.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": f"Error: Tool execution failed - {e}",
+                })
+                continue
             logger.info("[user=%d] tool call: %s(%s)", user_id, tc.name, json.dumps(args, ensure_ascii=False)[:200])
             if result is not None:
                 logger.info("[user=%d] tool result: %s (%d chars)", user_id, tc.name, len(result))
