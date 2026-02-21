@@ -16,6 +16,8 @@ COPY ai/ ./ai/
 COPY handlers/ ./handlers/
 COPY tools/ ./tools/
 COPY utils/ ./utils/
+COPY web/ ./web/
+COPY static/ ./static/
 
 # Health check port
 EXPOSE 7860

@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import logging
+import time
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -48,6 +49,28 @@ TOOL_STATUS_MAP = {
     "tts_speak": "🎤 Generating voice...",
     "tts_list_voices": "🎙️ Loading voices...",
 }
+
+
+def _estimate_tokens_str(text: str) -> int:
+    """Rough token estimate: ~4 chars per token for English, ~2 for CJK."""
+    if not text:
+        return 0
+    cjk = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u30ff')
+    other = len(text) - cjk
+    return max(1, int(cjk / 1.5 + other / 4))
+
+
+def _estimate_tokens(messages: list[dict]) -> int:
+    """Estimate total prompt tokens from a list of messages."""
+    total = 0
+    for msg in messages:
+        content = msg.get("content") or ""
+        if isinstance(content, list):
+            content = " ".join(
+                p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+            )
+        total += _estimate_tokens_str(str(content)) + 4  # overhead per message
+    return total
 
 
 def _tool_dedup_key(tc):
@@ -292,6 +315,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
     try:
         client = get_ai_client(user_id)
+        request_start = time.monotonic()
 
         # Build system prompt from current persona
         system_prompt = get_system_prompt(user_id)
@@ -531,14 +555,30 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
 
         # Record token usage if available
+        # If the API didn't return usage (many providers ignore stream_options),
+        # estimate from message content so usage is never zero.
+        if not total_prompt_tokens and not total_completion_tokens:
+            total_prompt_tokens = _estimate_tokens(messages)
+            total_completion_tokens = _estimate_tokens_str(final_text)
         if total_prompt_tokens or total_completion_tokens:
             add_token_usage(
                 user_id, total_prompt_tokens, total_completion_tokens, persona_name=persona_name
             )
 
-    except Exception:
+        # Record AI interaction log
+        latency_ms = int((time.monotonic() - request_start) * 1000)
+        tool_name_list = list({k.split(":")[0] for k in seen_tool_keys}) if seen_tool_keys else None
+        from services.log_service import record_ai_interaction
+        record_ai_interaction(
+            user_id, settings["model"], total_prompt_tokens, total_completion_tokens,
+            total_prompt_tokens + total_completion_tokens, tool_name_list, latency_ms, persona_name,
+        )
+
+    except Exception as e:
         logger.exception("%s AI API error", ctx)
         await edit_message_safe(bot_message, "Error. Please retry.")
+        from services.log_service import record_error
+        record_error(user_id, str(e), "chat handler", settings.get("model"), persona_name)
 
 
 async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:

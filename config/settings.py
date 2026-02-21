@@ -1,6 +1,7 @@
 """Settings and environment variable management."""
 
 import os
+import secrets
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -11,6 +12,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE", "").rstrip("/")
 HEALTH_CHECK_PORT = int(os.getenv("PORT", "8080"))
+
+# JWT / Web dashboard
+JWT_SECRET = os.getenv("JWT_SECRET", "") or secrets.token_urlsafe(32)
+WEB_BASE_URL = os.getenv("WEB_BASE_URL", f"http://localhost:{HEALTH_CHECK_PORT}")
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 
 # Default system prompt for new personas
 DEFAULT_SYSTEM_PROMPT = os.getenv(

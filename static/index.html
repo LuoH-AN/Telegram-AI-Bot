@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemen Dashboard</title>
+  <link rel="stylesheet" href="/static/custom.css">
+</head>
+<body>
+  <!-- Background decorations -->
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+
+  <!-- Login overlay (shown when no token) -->
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+      <h2>Gemen Dashboard</h2>
+      <p>Send <code>/web</code> in Telegram to get a login link.</p>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="admin-wrapper" id="mainContent" style="display:none">
+    <!-- Header -->
+    <div class="dash-header">
+      <div>
+        <div class="logo-row">
+          <div class="logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <div>
+            <div class="logo-name">Gemen</div>
+          </div>
+        </div>
+        <div class="logo-sub">AI Bot Dashboard</div>
+      </div>
+      <div class="theme-row">
+        <button class="theme-btn" data-theme="light" title="Light">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <button class="theme-btn" data-theme="system" title="System">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </button>
+        <button class="theme-btn active" data-theme="dark" title="Dark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="tab-row">
+      <button class="tab-btn active" data-tab="settings">Settings</button>
+      <button class="tab-btn" data-tab="logs">Logs</button>
+      <button class="tab-btn" data-tab="usage">Usage</button>
+    </div>
+
+    <!-- ════ Settings Tab ════ -->
+    <div class="tab-panel active" id="tab-settings">
+      <!-- Sub-Tab Navigation -->
+      <div class="sub-tab-row" id="settingsSubTabs">
+        <button class="sub-tab-btn active" data-subtab="general">General</button>
+        <button class="sub-tab-btn" data-subtab="tools">Tools</button>
+        <button class="sub-tab-btn" data-subtab="tts">TTS</button>
+        <button class="sub-tab-btn" data-subtab="providers">Providers</button>
+        <button class="sub-tab-btn" data-subtab="personas">Personas</button>
+        <button class="sub-tab-btn" data-subtab="conversations">Conversations</button>
+      </div>
+
+      <!-- ── General Sub-Panel ── -->
+      <div class="sub-tab-panel active" id="subtab-general">
+        <div class="config-section">
+          <div class="config-section-title">General</div>
+          <div class="config-row">
+            <label>base_url <span class="config-desc">API base URL</span></label>
+            <input type="text" class="server-input" id="cfg-base_url" placeholder="https://api.openai.com/v1">
+          </div>
+          <div class="config-row">
+            <label>model <span class="config-desc">AI model name</span></label>
+            <input type="text" class="server-input" id="cfg-model" placeholder="gpt-4o">
+          </div>
+          <div class="config-row">
+            <label>temperature <span class="config-desc">0.0 - 2.0</span></label>
+            <input type="number" class="server-input" id="cfg-temperature" step="0.1" min="0" max="2" placeholder="0.7">
+          </div>
+          <div class="config-row">
+            <label>token_limit <span class="config-desc">0 = unlimited</span></label>
+            <input type="number" class="server-input" id="cfg-token_limit" min="0" placeholder="0">
+          </div>
+          <div class="config-row">
+            <label>title_model <span class="config-desc">Model for auto-titles</span></label>
+            <input type="text" class="server-input" id="cfg-title_model" placeholder="(same as model)">
+          </div>
+        </div>
+        <div class="action-row" style="margin-bottom:20px">
+          <button class="btn-sm accent" id="btnSaveSettings">Save Settings</button>
+        </div>
+      </div>
+
+      <!-- ── Tools Sub-Panel ── -->
+      <div class="sub-tab-panel" id="subtab-tools">
+        <div class="config-section">
+          <div class="config-section-title">Tools</div>
+          <div class="tool-grid" id="toolGrid"></div>
+        </div>
+        <div class="action-row" style="margin-bottom:20px">
+          <button class="btn-sm accent" id="btnSaveTools">Save Settings</button>
+        </div>
+      </div>
+
+      <!-- ── TTS Sub-Panel ── -->
+      <div class="sub-tab-panel" id="subtab-tts">
+        <div class="config-section">
+          <div class="config-section-title">Text-to-Speech</div>
+          <div class="config-row">
+            <label>tts_voice</label>
+            <input type="text" class="server-input" id="cfg-tts_voice" placeholder="zh-CN-XiaoxiaoMultilingualNeural">
+          </div>
+          <div class="config-row">
+            <label>tts_style</label>
+            <input type="text" class="server-input" id="cfg-tts_style" placeholder="general">
+          </div>
+          <div class="config-row">
+            <label>tts_endpoint</label>
+            <input type="text" class="server-input" id="cfg-tts_endpoint" placeholder="https://...">
+          </div>
+        </div>
+        <div class="action-row" style="margin-bottom:20px">
+          <button class="btn-sm accent" id="btnSaveTTS">Save Settings</button>
+        </div>
+      </div>
+
+      <!-- ── Providers Sub-Panel ── -->
+      <div class="sub-tab-panel" id="subtab-providers">
+        <div class="config-section">
+          <div class="config-section-title">Providers</div>
+          <div class="provider-list" id="providerList"></div>
+          <div id="providerEmpty" class="empty-state" style="display:none">No providers configured.</div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">Add Provider</div>
+          <div class="config-row">
+            <label>name</label>
+            <input type="text" class="server-input" id="prov-name" placeholder="e.g. openai">
+          </div>
+          <div class="config-row">
+            <label>api_key</label>
+            <input type="text" class="server-input" id="prov-api_key" placeholder="sk-...">
+          </div>
+          <div class="config-row">
+            <label>base_url</label>
+            <input type="text" class="server-input" id="prov-base_url" placeholder="https://api.openai.com/v1">
+          </div>
+          <div class="config-row">
+            <label>model</label>
+            <input type="text" class="server-input" id="prov-model" placeholder="gpt-4o">
+          </div>
+          <div class="action-row" style="margin-top:12px">
+            <button class="btn-sm accent" id="btnCreateProvider">Create Provider</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Personas Sub-Panel ── -->
+      <div class="sub-tab-panel" id="subtab-personas">
+        <div class="config-section">
+          <div class="config-section-title">Personas</div>
+          <div class="persona-list" id="personaList"></div>
+          <div class="action-row" style="margin-top:12px">
+            <input type="text" class="server-input" id="newPersonaName" placeholder="New persona name" style="max-width:200px">
+            <button class="btn-sm outline" id="btnCreatePersona">Create</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Conversations Sub-Panel ── -->
+      <div class="sub-tab-panel" id="subtab-conversations">
+        <div class="config-section">
+          <div class="config-section-title">Conversations</div>
+          <div class="config-row">
+            <label>persona</label>
+            <select class="server-input" id="convPersonaSelect" style="width:auto;flex:none;min-width:160px">
+              <option value="">Select persona...</option>
+            </select>
+          </div>
+        </div>
+        <div class="session-list" id="sessionList"></div>
+        <div id="sessionsEmpty" class="empty-state" style="display:none">No conversations found.</div>
+      </div>
+    </div>
+
+    <!-- ════ Logs Tab ════ -->
+    <div class="tab-panel" id="tab-logs">
+      <div class="filter-row">
+        <label>Type:</label>
+        <select class="server-input" id="logTypeFilter" style="width:auto;flex:none">
+          <option value="">All</option>
+          <option value="ai_interaction">AI Interaction</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+      <div class="table-wrap" id="logsTableWrap">
+        <table class="admin-table" id="logsTable">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Model</th>
+              <th>Tokens</th>
+              <th>Tools</th>
+              <th>Latency</th>
+              <th>Persona</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody id="logsBody"></tbody>
+        </table>
+      </div>
+      <div id="logsEmpty" class="empty-state" style="display:none">No logs yet.</div>
+      <div class="pagination" id="logsPagination"></div>
+    </div>
+
+    <!-- ════ Usage Tab ════ -->
+    <div class="tab-panel" id="tab-usage">
+      <div class="stats-grid" id="usageStats"></div>
+      <div class="config-section">
+        <div class="config-section-title">Per Persona</div>
+        <div class="table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Persona</th>
+                <th>Prompt</th>
+                <th>Completion</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="usageBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

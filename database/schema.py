@@ -107,6 +107,30 @@ CREATE_MEMORIES_INDEX = """
     ON user_memories(user_id)
 """
 
+# User logs (AI interactions and errors)
+CREATE_USER_LOGS_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_logs (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        log_type TEXT NOT NULL,
+        model TEXT,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        total_tokens INTEGER DEFAULT 0,
+        tool_calls TEXT,
+        latency_ms INTEGER,
+        persona_name TEXT,
+        error_message TEXT,
+        error_context TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+CREATE_USER_LOGS_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_user_logs_user_created
+    ON user_logs(user_id, created_at DESC)
+"""
+
 # All schema creation statements in order
 SCHEMA_STATEMENTS = [
     CREATE_USER_SETTINGS_TABLE,
@@ -120,6 +144,8 @@ SCHEMA_STATEMENTS = [
     CREATE_USER_PERSONA_TOKENS_TABLE,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
+    CREATE_USER_LOGS_TABLE,
+    CREATE_USER_LOGS_INDEX,
 ]
 
 
