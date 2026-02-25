@@ -32,15 +32,39 @@ from tools import (
     enrich_system_prompt,
     post_process_response,
     drain_pending_voice_jobs,
+    drain_pending_screenshot_jobs,
 )
-from ai import get_ai_client
-from utils import filter_thinking_content, send_message_safe, edit_message_safe, get_datetime_prompt
+from ai import get_ai_client, ToolCall
+from utils import filter_thinking_content, parse_raw_tool_calls, send_message_safe, edit_message_safe, get_datetime_prompt
 from handlers.common import should_respond_in_group, get_log_context
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 3
-TOOL_TIMEOUT = 30  # seconds
+TOOL_TIMEOUT = 30  # seconds (default, may be extended by shell_exec)
+
+
+def _effective_tool_timeout(tool_calls) -> int:
+    """Return timeout for the handler-level wait_for.
+
+    If any tool call is shell_exec with a custom timeout, use that (+ 5s buffer).
+    Playwright tools get an extended timeout for page load + CF challenge wait.
+    Otherwise fall back to the default TOOL_TIMEOUT.
+    """
+    _PLAYWRIGHT_TOOLS = {"page_screenshot", "page_content"}
+    timeout = TOOL_TIMEOUT
+    for tc in tool_calls:
+        if tc.name == "shell_exec":
+            try:
+                args = json.loads(tc.arguments)
+                requested = int(args.get("timeout", 0))
+                if requested > timeout:
+                    timeout = min(requested + 5, 125)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        elif tc.name in _PLAYWRIGHT_TOOLS:
+            timeout = max(timeout, 60)
+    return timeout
 
 TOOL_STATUS_MAP = {
     "web_search": "🔍 Searching...",
@@ -48,6 +72,13 @@ TOOL_STATUS_MAP = {
     "save_memory": "💾 Saving to memory...",
     "tts_speak": "🎤 Generating voice...",
     "tts_list_voices": "🎙️ Loading voices...",
+    "shell_exec": "💻 Running command...",
+    "cron_create": "⏰ Creating scheduled task...",
+    "cron_list": "📋 Listing scheduled tasks...",
+    "cron_delete": "🗑️ Deleting scheduled task...",
+    "cron_run": "▶️ Running scheduled task...",
+    "page_screenshot": "📸 Taking screenshot...",
+    "page_content": "🌐 Extracting page content...",
 }
 
 
@@ -289,15 +320,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             )
             return
 
-        # Check token limit
-        remaining = get_remaining_tokens(user_id)
-        if remaining is not None and remaining <= 0:
-            await update.message.reply_text(
-                "You've reached your token limit. "
-                "Use /usage to check usage or /set token_limit <number> to increase it."
-            )
-            return
-
     # Freeze persona/session snapshot for this request to avoid cross-session writes.
     persona_name = get_current_persona_name(user_id)
     session_id = ensure_session(user_id, persona_name)
@@ -307,6 +329,15 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
     conversation = list(get_conversation(session_id))
 
     if not internal_call:
+        # Check token limit (per-persona)
+        remaining = get_remaining_tokens(user_id, persona_name)
+        if remaining is not None and remaining <= 0:
+            await update.message.reply_text(
+                f"Persona '{persona_name}' 已达到 token 上限。\n"
+                "使用 /usage 查看用量，或 /set token_limit <数字> 调整上限。"
+            )
+            return
+
         # Show typing indicator
         await update.message.chat.send_action(ChatAction.TYPING)
 
@@ -368,7 +399,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         tool_results_pending = False
         truncated_prefix = ""    # accumulated text from truncated responses
         for round_num in range(MAX_TOOL_ROUNDS + 1):
-            tool_results_pending = False
 
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _stream_response(
                 client, messages, settings["model"], settings["temperature"],
@@ -380,8 +410,24 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 total_prompt_tokens += usage_info.get("prompt_tokens") or 0
                 total_completion_tokens += usage_info.get("completion_tokens") or 0
 
+            # Parse raw tool call markup from content (some models output
+            # tool calls as text instead of using the API tool_calls field)
+            if not tool_calls and full_response:
+                parsed_calls, cleaned = parse_raw_tool_calls(full_response)
+                if parsed_calls:
+                    tool_calls = [
+                        ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
+                        for tc in parsed_calls
+                    ]
+                    full_response = cleaned
+                    logger.info("%s parsed %d raw tool call(s) from content", ctx, len(tool_calls))
+
             if full_response.strip():
                 last_text_response = full_response
+
+            # Clear tool_results_pending only when we get visible (non-thinking) content
+            if filter_thinking_content(full_response).strip():
+                tool_results_pending = False
 
             if not tool_calls:
                 # If response was truncated (output token limit), ask the model to continue
@@ -391,7 +437,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                     truncated_prefix += truncated_text
                     messages.append({"role": "assistant", "content": truncated_text})
                     messages.append({"role": "user", "content": "Please continue and complete your response concisely."})
-                    tool_results_pending = False
                     continue
                 break
 
@@ -422,21 +467,53 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
             # Execute only non-duplicate tool calls
             if new_tool_calls:
+                effective_timeout = _effective_tool_timeout(new_tool_calls)
+
+                # Animate status message while tools run
+                _anim_active = True
+                async def _animate_tool_status():
+                    elapsed = 0
+                    try:
+                        while _anim_active:
+                            await asyncio.sleep(2)
+                            if not _anim_active:
+                                break
+                            elapsed += 2
+                            lines = []
+                            for name in tool_names:
+                                base = TOOL_STATUS_MAP.get(name, f"⚙️ Running {name}...")
+                                lines.append(f"{base} ({elapsed}s)")
+                            animated_text = "\n".join(lines)
+                            if display_text:
+                                await edit_message_safe(bot_message, thinking_prefix + display_text + "\n\n" + animated_text)
+                            else:
+                                await edit_message_safe(bot_message, thinking_prefix + animated_text)
+                    except asyncio.CancelledError:
+                        pass
+
+                anim_task = asyncio.create_task(_animate_tool_status())
+
                 try:
                     executed_results = await asyncio.wait_for(
                         asyncio.get_event_loop().run_in_executor(
                             None, lambda: process_tool_calls(user_id, new_tool_calls, enabled_tools=enabled_tools)
                         ),
-                        timeout=TOOL_TIMEOUT,
+                        timeout=effective_timeout,
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("%s tool timeout after %ds", ctx, TOOL_TIMEOUT)
-                    await edit_message_safe(
-                        bot_message,
-                        (display_text + "\n\n" if display_text else "")
-                        + "⚠️ Tool execution timed out."
-                    )
-                    break
+                    logger.warning("%s tool timeout after %ds", ctx, effective_timeout)
+                    # Feed timeout error back as tool results so the AI can respond
+                    executed_results = [
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": f"Error: Tool execution timed out after {effective_timeout}s.",
+                        }
+                        for tc in new_tool_calls
+                    ]
+                finally:
+                    _anim_active = False
+                    anim_task.cancel()
             else:
                 executed_results = []
 
@@ -459,9 +536,12 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 break
 
             # Build assistant message with tool_calls for the conversation
+            # Strip thinking content — sending <think> tags back as content
+            # confuses models into believing they already responded.
+            visible_content = filter_thinking_content(full_response).strip() or None
             assistant_msg = {
                 "role": "assistant",
-                "content": full_response or None,
+                "content": visible_content,
                 "tool_calls": [
                     {
                         "id": tc.id,
@@ -482,6 +562,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         # are in messages but the AI never got to process them.
         # Make one final call WITHOUT tools to force a proper text response.
         if tool_results_pending:
+            logger.info("%s tool results pending, retrying without tools", ctx)
+            messages.append({
+                "role": "user",
+                "content": "Please respond to the user based on the information you have gathered above. Do not attempt to call any more tools.",
+            })
             full_response, usage_info, _, thinking_seconds, _ = await _stream_response(
                 client, messages, settings["model"], settings["temperature"],
                 None, bot_message, show_waiting=False,
@@ -510,6 +595,22 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 )
             except Exception:
                 logger.exception("Failed to send pending tts voice")
+
+        # Deliver pending screenshots from playwright tool
+        pending_screenshots = drain_pending_screenshot_jobs(user_id)
+        for idx, job in enumerate(pending_screenshots, 1):
+            image_data = job.get("image")
+            if not image_data:
+                continue
+            photo_file = io.BytesIO(image_data)
+            photo_file.name = job.get("filename", f"screenshot_{idx}.png")
+            try:
+                await update.message.reply_photo(
+                    photo=photo_file,
+                    caption=job.get("caption"),
+                )
+            except Exception:
+                logger.exception("Failed to send pending screenshot")
 
         # Final update with complete response
         # If there was a truncated response followed by continuation, combine them

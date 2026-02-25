@@ -14,6 +14,8 @@ from services import (
     get_current_session_id,
     get_total_tokens_all_personas,
     get_token_limit,
+    get_remaining_tokens,
+    get_usage_percentage,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,8 +29,7 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Get current persona usage
     usage = get_token_usage(user_id, persona_name)
-    total_all = get_total_tokens_all_personas(user_id)
-    token_limit = get_token_limit(user_id)
+    token_limit = get_token_limit(user_id, persona_name)
 
     prompt_tokens = usage["prompt_tokens"]
     completion_tokens = usage["completion_tokens"]
@@ -39,22 +40,26 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     message += f"Completion tokens: {completion_tokens:,}\n"
     message += f"Total tokens:      {total_tokens:,}\n"
 
-    message += f"\n--- All Personas ---\n"
-    message += f"Total tokens: {total_all:,}\n"
-
     if token_limit > 0:
-        remaining = max(0, token_limit - total_all)
-        percentage = min(100.0, (total_all / token_limit) * 100)
+        remaining = get_remaining_tokens(user_id, persona_name)
+        percentage = get_usage_percentage(user_id, persona_name)
 
-        message += f"\nGlobal Limit: {token_limit:,}\n"
-        message += f"Remaining:    {remaining:,}\n"
-        message += f"Usage:        {percentage:.1f}%\n\n"
+        message += f"\nLimit:     {token_limit:,}\n"
+        message += f"Remaining: {remaining:,}\n"
+        message += f"Usage:     {percentage:.1f}%\n\n"
 
         # Progress bar (20 characters wide)
         filled = int(percentage / 5)
         empty = 20 - filled
         bar = "[" + "#" * filled + "-" * empty + "]"
         message += f"{bar} {percentage:.1f}%"
+    else:
+        message += f"\nLimit: Unlimited"
+
+    # Show total across all personas
+    total_all = get_total_tokens_all_personas(user_id)
+    message += f"\n\n--- All Personas ---\n"
+    message += f"Total tokens: {total_all:,}"
 
     await update.message.reply_text(message)
 

@@ -67,6 +67,7 @@
         <button class="sub-tab-btn" data-subtab="providers">Providers</button>
         <button class="sub-tab-btn" data-subtab="personas">Personas</button>
         <button class="sub-tab-btn" data-subtab="conversations">Conversations</button>
+        <button class="sub-tab-btn" data-subtab="cron">Cron Tasks</button>
       </div>
 
       <!-- ── General Sub-Panel ── -->
@@ -86,12 +87,12 @@
             <input type="number" class="server-input" id="cfg-temperature" step="0.1" min="0" max="2" placeholder="0.7">
           </div>
           <div class="config-row">
-            <label>token_limit <span class="config-desc">0 = unlimited</span></label>
-            <input type="number" class="server-input" id="cfg-token_limit" min="0" placeholder="0">
-          </div>
-          <div class="config-row">
             <label>title_model <span class="config-desc">Model for auto-titles</span></label>
             <input type="text" class="server-input" id="cfg-title_model" placeholder="(same as model)">
+          </div>
+          <div class="config-row">
+            <label>cron_model <span class="config-desc">Model for scheduled tasks</span></label>
+            <input type="text" class="server-input" id="cfg-cron_model" placeholder="(same as model)">
           </div>
         </div>
         <div class="action-row" style="margin-bottom:20px">
@@ -189,6 +190,33 @@
         <div class="session-list" id="sessionList"></div>
         <div id="sessionsEmpty" class="empty-state" style="display:none">No conversations found.</div>
       </div>
+
+      <!-- ── Cron Tasks Sub-Panel ── -->
+      <div class="sub-tab-panel" id="subtab-cron">
+        <div class="config-section">
+          <div class="config-section-title">Scheduled Tasks</div>
+          <div class="cron-list" id="cronList"></div>
+          <div id="cronEmpty" class="empty-state" style="display:none">No scheduled tasks.</div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">Add Task</div>
+          <div class="config-row">
+            <label>name <span class="config-desc">Unique task name</span></label>
+            <input type="text" class="server-input" id="cron-name" placeholder="e.g. daily_news">
+          </div>
+          <div class="config-row">
+            <label>cron <span class="config-desc">minute hour day month weekday</span></label>
+            <input type="text" class="server-input" id="cron-expression" placeholder="0 9 * * *">
+          </div>
+          <div class="config-row">
+            <label>prompt <span class="config-desc">AI prompt to execute</span></label>
+            <textarea class="server-input" id="cron-prompt" rows="3" placeholder="Summarize today's tech news..."></textarea>
+          </div>
+          <div class="action-row" style="margin-top:12px">
+            <button class="btn-sm accent" id="btnCreateCron">Create Task</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ════ Logs Tab ════ -->
@@ -235,6 +263,7 @@
                 <th>Prompt</th>
                 <th>Completion</th>
                 <th>Total</th>
+                <th>Limit</th>
               </tr>
             </thead>
             <tbody id="usageBody"></tbody>

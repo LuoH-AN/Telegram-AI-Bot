@@ -1,6 +1,6 @@
 """Utility functions module."""
 
-from .filters import filter_thinking_content
+from .filters import filter_thinking_content, parse_raw_tool_calls
 from .formatters import markdown_to_telegram_html, split_message, latex_to_unicode
 from .telegram import send_message_safe, edit_message_safe
 from .template import get_datetime_prompt
@@ -16,6 +16,7 @@ from .files import (
 __all__ = [
     # Filters
     "filter_thinking_content",
+    "parse_raw_tool_calls",
     # Formatters
     "markdown_to_telegram_html",
     "split_message",

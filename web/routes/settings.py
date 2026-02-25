@@ -9,8 +9,8 @@ from web.auth import get_current_user
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 ALLOWED_FIELDS = {
-    "base_url", "model", "temperature", "token_limit",
-    "enabled_tools", "tts_voice", "tts_style", "tts_endpoint", "title_model",
+    "base_url", "model", "temperature",
+    "enabled_tools", "tts_voice", "tts_style", "tts_endpoint", "title_model", "cron_model",
 }
 
 
@@ -18,12 +18,12 @@ class SettingsUpdate(BaseModel):
     base_url: str | None = None
     model: str | None = None
     temperature: float | None = None
-    token_limit: int | None = None
     enabled_tools: str | None = None
     tts_voice: str | None = None
     tts_style: str | None = None
     tts_endpoint: str | None = None
     title_model: str | None = None
+    cron_model: str | None = None
 
 
 @router.get("")

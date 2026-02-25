@@ -79,13 +79,14 @@ class ToolRegistry:
 
         results = []
         for tc in tool_calls:
-            tool = name_map.get(tc.name)
+            tc_name = tc.name.strip() if tc.name else tc.name
+            tool = name_map.get(tc_name)
             if tool is None:
-                logger.warning(f"No enabled tool registered for '{tc.name}'")
+                logger.warning(f"No enabled tool registered for '{tc_name}'")
                 results.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": f"Error: Unknown tool '{tc.name}'",
+                    "content": f"Error: Unknown tool '{tc_name}'",
                 })
                 continue
             try:
@@ -99,20 +100,20 @@ class ToolRegistry:
                 })
                 continue
             try:
-                result = tool.execute(user_id, tc.name, args)
+                result = tool.execute(user_id, tc_name, args)
             except Exception as e:
-                logger.exception("[user=%d] tool execution failed: %s", user_id, tc.name)
+                logger.exception("[user=%d] tool execution failed: %s", user_id, tc_name)
                 results.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": f"Error: Tool execution failed - {e}",
                 })
                 continue
-            logger.info("[user=%d] tool call: %s(%s)", user_id, tc.name, json.dumps(args, ensure_ascii=False)[:200])
+            logger.info("[user=%d] tool call: %s(%s)", user_id, tc_name, json.dumps(args, ensure_ascii=False)[:200])
             if result is not None:
-                logger.info("[user=%d] tool result: %s (%d chars)", user_id, tc.name, len(result))
+                logger.info("[user=%d] tool result: %s (%d chars)", user_id, tc_name, len(result))
             else:
-                logger.info("[user=%d] tool result: %s -> OK (fire-and-forget)", user_id, tc.name)
+                logger.info("[user=%d] tool result: %s -> OK (fire-and-forget)", user_id, tc_name)
             results.append({
                 "role": "tool",
                 "tool_call_id": tc.id,

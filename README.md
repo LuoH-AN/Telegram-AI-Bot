@@ -146,6 +146,9 @@ gemen/
 | `OPENAI_TEMPERATURE` | 否 | 默认温度 |
 | `OPENAI_SYSTEM_PROMPT` | 否 | 默认系统提示词 |
 | `TELEGRAM_API_BASE` | 否 | 自定义 Telegram API 地址 |
+| `TELEGRAM_SEND_GLOBAL_RATE` | 否 | 全局发送速率（默认 25 req/s） |
+| `TELEGRAM_SEND_PER_CHAT_RATE` | 否 | 单 chat 发送速率（默认 1 req/s） |
+| `TELEGRAM_SEND_MAX_RETRIES` | 否 | `RetryAfter` 最大重试次数（默认 8） |
 | `PORT` | 否 | 健康检查端口 (默认 8080) |
 
 ## 部署

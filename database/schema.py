@@ -17,7 +17,8 @@ CREATE_USER_SETTINGS_TABLE = """
         tts_style TEXT,
         tts_endpoint TEXT,
         api_presets TEXT,
-        title_model TEXT
+        title_model TEXT,
+        cron_model TEXT
     )
 """
 
@@ -86,8 +87,19 @@ CREATE_USER_PERSONA_TOKENS_TABLE = """
         prompt_tokens BIGINT DEFAULT 0,
         completion_tokens BIGINT DEFAULT 0,
         total_tokens BIGINT DEFAULT 0,
+        token_limit BIGINT DEFAULT 0,
         PRIMARY KEY (user_id, persona_name)
     )
+"""
+
+# Migration: add token_limit column to existing user_persona_tokens tables
+MIGRATE_PERSONA_TOKENS_ADD_LIMIT = """
+    ALTER TABLE user_persona_tokens ADD COLUMN IF NOT EXISTS token_limit BIGINT DEFAULT 0
+"""
+
+# Migration: add cron_model column to existing user_settings tables
+MIGRATE_SETTINGS_ADD_CRON_MODEL = """
+    ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS cron_model TEXT
 """
 
 # Memories (shared across personas)
@@ -131,6 +143,26 @@ CREATE_USER_LOGS_INDEX = """
     ON user_logs(user_id, created_at DESC)
 """
 
+# Cron tasks (scheduled AI tasks)
+CREATE_USER_CRON_TASKS_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_cron_tasks (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        name TEXT NOT NULL,
+        cron_expression TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        enabled BOOLEAN DEFAULT TRUE,
+        last_run_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+    )
+"""
+
+CREATE_CRON_TASKS_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_cron_tasks_user
+    ON user_cron_tasks(user_id)
+"""
+
 # All schema creation statements in order
 SCHEMA_STATEMENTS = [
     CREATE_USER_SETTINGS_TABLE,
@@ -142,10 +174,14 @@ SCHEMA_STATEMENTS = [
     CREATE_CONVERSATIONS_INDEX,
     CREATE_CONVERSATIONS_SESSION_INDEX,
     CREATE_USER_PERSONA_TOKENS_TABLE,
+    MIGRATE_PERSONA_TOKENS_ADD_LIMIT,
+    MIGRATE_SETTINGS_ADD_CRON_MODEL,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
     CREATE_USER_LOGS_TABLE,
     CREATE_USER_LOGS_INDEX,
+    CREATE_USER_CRON_TASKS_TABLE,
+    CREATE_CRON_TASKS_INDEX,
 ]
 
 

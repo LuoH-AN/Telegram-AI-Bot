@@ -22,7 +22,7 @@ from handlers.common import get_log_context
 
 logger = logging.getLogger(__name__)
 
-AVAILABLE_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts"]
+AVAILABLE_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"]
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -58,6 +58,14 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         title_model_display = f"{p}:{m}"
     else:
         title_model_display = title_model_raw
+    cron_model_raw = settings.get("cron_model", "")
+    if not cron_model_raw:
+        cron_model_display = "(current model)"
+    elif ":" in cron_model_raw:
+        p, m = cron_model_raw.split(":", 1)
+        cron_model_display = f"{p}:{m}"
+    else:
+        cron_model_display = cron_model_raw
 
     await update.message.reply_text(
         f"Current Settings:\n\n"
@@ -66,6 +74,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
         f"title_model: {title_model_display}\n"
+        f"cron_model: {cron_model_display}\n"
         f"persona: {persona_name}\n"
         f"prompt: {prompt_display}\n"
         f"tools: {enabled_tools}\n\n"
@@ -129,8 +138,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "- api_key\n"
             "- model (no value to browse list)\n"
             "- temperature\n"
-            "- token_limit\n"
+            "- token_limit (当前 persona)\n"
             "- title_model [provider:]model\n"
+            "- cron_model [provider:]model\n"
             "- voice\n"
             "- style\n"
             "- endpoint\n"
@@ -195,9 +205,13 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         try:
             limit = int(value)
             if limit >= 0:
-                set_token_limit(user_id, limit)
-                logger.info("%s set token_limit = %s", ctx, limit)
-                await update.message.reply_text(f"token_limit set to: {limit:,}")
+                persona_name = get_current_persona_name(user_id)
+                set_token_limit(user_id, limit, persona_name)
+                logger.info("%s set token_limit = %s (persona=%s)", ctx, limit, persona_name)
+                await update.message.reply_text(
+                    f"Persona '{persona_name}' token_limit set to: {limit:,}"
+                    + (" (unlimited)" if limit == 0 else "")
+                )
             else:
                 await update.message.reply_text("Token limit must be non-negative")
         except ValueError:
@@ -299,10 +313,40 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     f"title_model set to: {val}\n"
                     f"(uses current provider's API)"
                 )
+    elif key == "cron_model":
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none"}:
+            update_user_setting(user_id, "cron_model", "")
+            await update.message.reply_text("cron_model cleared (will use current provider + model)")
+        else:
+            update_user_setting(user_id, "cron_model", val)
+            logger.info("%s set cron_model = %s", ctx, val)
+            if ":" in val:
+                provider, model = val.split(":", 1)
+                presets = settings.get("api_presets", {})
+                found = any(k.lower() == provider.lower() for k in presets)
+                if found:
+                    await update.message.reply_text(
+                        f"cron_model set to: {val}\n"
+                        f"Provider: {provider} | Model: {model}"
+                    )
+                else:
+                    available = ", ".join(presets.keys()) if presets else "(none)"
+                    await update.message.reply_text(
+                        f"cron_model set to: {val}\n"
+                        f"⚠️ Provider '{provider}' not found in presets.\n"
+                        f"Available: {available}\n"
+                        f"Use /set provider save <name> to save one first."
+                    )
+            else:
+                await update.message.reply_text(
+                    f"cron_model set to: {val}\n"
+                    f"(uses current provider's API)"
+                )
     else:
         await update.message.reply_text(
             f"Unknown key: {key}\n\n"
-            "Available keys: base_url, api_key, model, temperature, token_limit, title_model, voice, style, endpoint, tool, provider"
+            "Available keys: base_url, api_key, model, temperature, token_limit, title_model, cron_model, voice, style, endpoint, tool, provider"
         )
 
 

@@ -1,11 +1,27 @@
 """Content filtering utilities."""
 
 import re
+import uuid
 
 # All supported thinking tag patterns (opening tags for detection)
 _THINK_OPEN_TAGS = re.compile(
     r"<think>|<thinking>|<reasoning>|<reflection>|\[thinking\]|<\|think\|>",
     re.IGNORECASE,
+)
+
+# Raw tool call markup patterns (e.g., Qwen-style models)
+_RAW_TOOL_SECTION_RE = re.compile(
+    r'<\|tool_calls_section_begin\|>(.*?)<\|tool_calls_section_end\|>',
+    re.DOTALL,
+)
+_RAW_TOOL_SECTION_OPEN_RE = re.compile(
+    r'<\|tool_calls_section_begin\|>.*$',
+    re.DOTALL,
+)
+_RAW_TOOL_CALL_RE = re.compile(
+    r'<\|tool_call_begin\|>\s*(\S+?)(?::\d+)?\s*'
+    r'<\|tool_call_argument_begin\|>\s*(.*?)\s*<\|tool_call_end\|>',
+    re.DOTALL,
 )
 
 
@@ -39,6 +55,10 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
     filtered = re.sub(r"\[thinking\].*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<\|think\|>.*$", "", filtered, flags=re.DOTALL)
 
+    # Remove raw tool call markup (models may output tool calls as plain text)
+    filtered = _RAW_TOOL_SECTION_RE.sub('', filtered)
+    filtered = _RAW_TOOL_SECTION_OPEN_RE.sub('', filtered)
+
     filtered = filtered.strip()
 
     # If filtering removed everything, strip tags only and keep the content.
@@ -49,6 +69,8 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
             "",
             text,
         )
+        filtered = _RAW_TOOL_SECTION_RE.sub('', filtered)
+        filtered = _RAW_TOOL_SECTION_OPEN_RE.sub('', filtered)
         filtered = filtered.strip()
 
     return filtered
@@ -57,3 +79,32 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
 def has_thinking_tags(text: str) -> bool:
     """Check if text contains any known thinking opening tag."""
     return bool(_THINK_OPEN_TAGS.search(text))
+
+
+def parse_raw_tool_calls(text: str) -> tuple[list[dict], str]:
+    """Parse raw tool call markup that some models output as plain text.
+
+    Models like Qwen may emit tool calls as text markup instead of using
+    the API's structured tool_calls field.  This function extracts them.
+
+    Returns:
+        (tool_calls, cleaned_text) where tool_calls is a list of dicts
+        with 'id', 'name', and 'arguments' keys.
+    """
+    match = _RAW_TOOL_SECTION_RE.search(text)
+    if not match:
+        return [], text
+
+    section = match.group(1)
+    calls = []
+    for m in _RAW_TOOL_CALL_RE.finditer(section):
+        name = m.group(1).strip()
+        args = m.group(2).strip()
+        calls.append({
+            "id": f"raw_{uuid.uuid4().hex[:8]}",
+            "name": name,
+            "arguments": args,
+        })
+
+    cleaned = _RAW_TOOL_SECTION_RE.sub('', text).strip()
+    return calls, cleaned

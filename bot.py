@@ -15,9 +15,21 @@ from telegram.ext import (
     filters,
 )
 
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_API_BASE, HEALTH_CHECK_PORT
+from config import (
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_API_BASE,
+    TELEGRAM_SEND_GLOBAL_RATE,
+    TELEGRAM_SEND_GLOBAL_PERIOD,
+    TELEGRAM_SEND_PER_CHAT_RATE,
+    TELEGRAM_SEND_PER_CHAT_PERIOD,
+    TELEGRAM_SEND_MAX_RETRIES,
+    TELEGRAM_SEND_RETRY_JITTER,
+    TELEGRAM_SEND_QUEUE_WARN_THRESHOLD,
+    HEALTH_CHECK_PORT,
+)
 from cache import init_database
 from web.app import create_app
+from utils.rate_limiter import QueuedRateLimiter
 from handlers import (
     start,
     help_command,
@@ -101,12 +113,35 @@ def main() -> None:
     web_thread.start()
 
     # Create application with custom Telegram API base URL if provided
-    builder = Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(True)
+    builder = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .concurrent_updates(True)
+        .rate_limiter(
+            QueuedRateLimiter(
+                overall_max_rate=TELEGRAM_SEND_GLOBAL_RATE,
+                overall_time_period=TELEGRAM_SEND_GLOBAL_PERIOD,
+                per_chat_max_rate=TELEGRAM_SEND_PER_CHAT_RATE,
+                per_chat_time_period=TELEGRAM_SEND_PER_CHAT_PERIOD,
+                max_retries=TELEGRAM_SEND_MAX_RETRIES,
+                retry_jitter=TELEGRAM_SEND_RETRY_JITTER,
+                queue_warn_threshold=TELEGRAM_SEND_QUEUE_WARN_THRESHOLD,
+            )
+        )
+    )
     if TELEGRAM_API_BASE:
         base_url = f"{TELEGRAM_API_BASE}/bot"
         base_file_url = f"{TELEGRAM_API_BASE}/file/bot"
         builder = builder.base_url(base_url).base_file_url(base_file_url)
         logger.info(f"Using custom Telegram API: {TELEGRAM_API_BASE}")
+
+    async def _post_init(application: Application) -> None:
+        """Capture the running event loop for cron service to use."""
+        import asyncio
+        from services.cron_service import set_main_loop
+        set_main_loop(asyncio.get_running_loop())
+
+    builder = builder.post_init(_post_init)
     application = builder.build()
 
     # Add handlers
@@ -134,6 +169,8 @@ def main() -> None:
 
     # Start the bot
     logger.info("Starting bot...")
+    from services.cron_service import start_cron_scheduler
+    start_cron_scheduler(application.bot)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

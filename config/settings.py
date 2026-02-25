@@ -11,6 +11,13 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE", "").rstrip("/")
+TELEGRAM_SEND_GLOBAL_RATE = float(os.getenv("TELEGRAM_SEND_GLOBAL_RATE", "25"))
+TELEGRAM_SEND_GLOBAL_PERIOD = float(os.getenv("TELEGRAM_SEND_GLOBAL_PERIOD", "1"))
+TELEGRAM_SEND_PER_CHAT_RATE = float(os.getenv("TELEGRAM_SEND_PER_CHAT_RATE", "1"))
+TELEGRAM_SEND_PER_CHAT_PERIOD = float(os.getenv("TELEGRAM_SEND_PER_CHAT_PERIOD", "1"))
+TELEGRAM_SEND_MAX_RETRIES = int(os.getenv("TELEGRAM_SEND_MAX_RETRIES", "8"))
+TELEGRAM_SEND_RETRY_JITTER = float(os.getenv("TELEGRAM_SEND_RETRY_JITTER", "0.4"))
+TELEGRAM_SEND_QUEUE_WARN_THRESHOLD = int(os.getenv("TELEGRAM_SEND_QUEUE_WARN_THRESHOLD", "100"))
 HEALTH_CHECK_PORT = int(os.getenv("PORT", "8080"))
 
 # JWT / Web dashboard
@@ -47,6 +54,7 @@ def get_default_settings() -> dict:
         "tts_endpoint": DEFAULT_TTS_ENDPOINT,
         "api_presets": {},
         "title_model": "",
+        "cron_model": "",
     }
 
 
@@ -64,4 +72,5 @@ def get_default_token_usage() -> dict:
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "total_tokens": 0,
+        "token_limit": 0,
     }

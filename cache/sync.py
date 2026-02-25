@@ -47,6 +47,7 @@ def load_from_database() -> None:
                         "tts_endpoint": row.get("tts_endpoint") or DEFAULT_TTS_ENDPOINT,
                         "api_presets": api_presets,
                         "title_model": row.get("title_model") or "",
+                        "cron_model": row.get("cron_model") or "",
                     }
                     cache.set_settings(row["user_id"], settings)
 
@@ -122,6 +123,7 @@ def load_from_database() -> None:
                         "prompt_tokens": row["prompt_tokens"] or 0,
                         "completion_tokens": row["completion_tokens"] or 0,
                         "total_tokens": row["total_tokens"] or 0,
+                        "token_limit": row.get("token_limit") or 0,
                     })
 
                 # Load memories
@@ -148,6 +150,25 @@ def load_from_database() -> None:
                 for uid, mem_list in memories.items():
                     cache.set_memories(uid, mem_list)
 
+                # Load cron tasks
+                cur.execute("SELECT id, user_id, name, cron_expression, prompt, enabled, last_run_at FROM user_cron_tasks ORDER BY id")
+                cron_tasks: dict[int, list] = {}
+                for row in cur.fetchall():
+                    uid = row["user_id"]
+                    if uid not in cron_tasks:
+                        cron_tasks[uid] = []
+                    cron_tasks[uid].append({
+                        "id": row["id"],
+                        "user_id": uid,
+                        "name": row["name"],
+                        "cron_expression": row["cron_expression"],
+                        "prompt": row["prompt"],
+                        "enabled": row["enabled"],
+                        "last_run_at": row["last_run_at"],
+                    })
+                for uid, task_list in cron_tasks.items():
+                    cache.set_cron_tasks(uid, task_list)
+
     except Exception as e:
         logger.exception("Failed to load from database")
 
@@ -170,9 +191,9 @@ def sync_to_database() -> None:
                         INSERT INTO user_settings (
                             user_id, api_key, base_url, model, temperature,
                             token_limit, current_persona, enabled_tools,
-                            tts_voice, tts_style, tts_endpoint, api_presets, title_model
+                            tts_voice, tts_style, tts_endpoint, api_presets, title_model, cron_model
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (user_id) DO UPDATE SET
                             api_key = EXCLUDED.api_key,
                             base_url = EXCLUDED.base_url,
@@ -185,7 +206,8 @@ def sync_to_database() -> None:
                             tts_style = EXCLUDED.tts_style,
                             tts_endpoint = EXCLUDED.tts_endpoint,
                             api_presets = EXCLUDED.api_presets,
-                            title_model = EXCLUDED.title_model
+                            title_model = EXCLUDED.title_model,
+                            cron_model = EXCLUDED.cron_model
                     """, (
                         user_id, s["api_key"], s["base_url"],
                         s["model"], s["temperature"], s["token_limit"], s["current_persona"],
@@ -194,6 +216,7 @@ def sync_to_database() -> None:
                         s.get("tts_endpoint", DEFAULT_TTS_ENDPOINT),
                         api_presets_json,
                         s.get("title_model", ""),
+                        s.get("cron_model", ""),
                     ))
 
                 # Sync deleted personas (cascade: delete sessions + conversations + tokens)
@@ -324,14 +347,16 @@ def sync_to_database() -> None:
                 for user_id, persona_name in dirty["tokens"]:
                     t = cache.get_token_usage(user_id, persona_name)
                     cur.execute("""
-                        INSERT INTO user_persona_tokens (user_id, persona_name, prompt_tokens, completion_tokens, total_tokens)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO user_persona_tokens (user_id, persona_name, prompt_tokens, completion_tokens, total_tokens, token_limit)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (user_id, persona_name) DO UPDATE SET
                             prompt_tokens = EXCLUDED.prompt_tokens,
                             completion_tokens = EXCLUDED.completion_tokens,
-                            total_tokens = EXCLUDED.total_tokens
+                            total_tokens = EXCLUDED.total_tokens,
+                            token_limit = EXCLUDED.token_limit
                     """, (
                         user_id, persona_name, t["prompt_tokens"], t["completion_tokens"], t["total_tokens"],
+                        t.get("token_limit", 0),
                     ))
 
                 # Sync cleared memories
@@ -352,6 +377,28 @@ def sync_to_database() -> None:
                         (mem["user_id"], mem["content"], mem["source"], embedding_json)
                     )
                     mem["id"] = cur.fetchone()[0]
+
+                # Sync deleted cron tasks
+                for user_id, name in dirty["deleted_cron_tasks"]:
+                    cur.execute(
+                        "DELETE FROM user_cron_tasks WHERE user_id = %s AND name = %s",
+                        (user_id, name)
+                    )
+
+                # Sync new cron tasks
+                for task in dirty["new_cron_tasks"]:
+                    cur.execute(
+                        "INSERT INTO user_cron_tasks (user_id, name, cron_expression, prompt, enabled) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                        (task["user_id"], task["name"], task["cron_expression"], task["prompt"], task["enabled"])
+                    )
+                    task["id"] = cur.fetchone()[0]
+
+                # Sync updated cron tasks (all mutable fields)
+                for task in dirty["updated_cron_tasks"]:
+                    cur.execute(
+                        "UPDATE user_cron_tasks SET cron_expression = %s, prompt = %s, enabled = %s, last_run_at = %s WHERE user_id = %s AND name = %s",
+                        (task["cron_expression"], task["prompt"], task["enabled"], task["last_run_at"], task["user_id"], task["name"])
+                    )
 
             conn.commit()
 
@@ -381,6 +428,12 @@ def sync_to_database() -> None:
                 parts.append(f"{len(dirty['deleted_memory_ids'])} deleted memories")
             if dirty["cleared_memories"]:
                 parts.append(f"{len(dirty['cleared_memories'])} cleared memories")
+            if dirty["new_cron_tasks"]:
+                parts.append(f"{len(dirty['new_cron_tasks'])} new cron tasks")
+            if dirty["updated_cron_tasks"]:
+                parts.append(f"{len(dirty['updated_cron_tasks'])} updated cron tasks")
+            if dirty["deleted_cron_tasks"]:
+                parts.append(f"{len(dirty['deleted_cron_tasks'])} deleted cron tasks")
             if parts:
                 logger.info(f"Synced to DB: {', '.join(parts)}")
 

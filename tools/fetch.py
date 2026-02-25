@@ -1,13 +1,11 @@
-"""Fetch tool — retrieve content from URLs (direct or Jina Reader)."""
+"""Fetch tool — retrieve content from URLs via direct request."""
 
 import json
 import logging
-import os
 import ipaddress
 import socket
 from urllib.parse import urljoin, urlparse
 
-import requests
 import tls_client
 import trafilatura
 
@@ -19,10 +17,9 @@ MAX_REDIRECTS = 5
 
 
 class FetchTool(BaseTool):
-    """Fetch URL content via direct request (default) or Jina Reader API."""
+    """Fetch URL content via direct HTTP request + text extraction."""
 
     def __init__(self):
-        # Direct fetch: TLS fingerprint impersonation
         self._session = tls_client.Session(
             client_identifier="chrome_124",
             random_tls_extension_order=True,
@@ -40,9 +37,6 @@ class FetchTool(BaseTool):
         )
         self._session.timeout_seconds = 30
 
-        # Jina Reader API
-        self._jina_key = os.getenv("JINA_API_KEY", "").strip()
-
     @property
     def name(self) -> str:
         return "fetch"
@@ -54,9 +48,9 @@ class FetchTool(BaseTool):
                 "function": {
                     "name": "url_fetch",
                     "description": (
-                        "Fetch content from a URL. "
-                        "Use method='jina' for complex/JS-heavy pages (returns clean markdown). "
-                        "Default method is faster for simple pages and API endpoints."
+                        "Fetch content from a URL via direct HTTP request. "
+                        "Best for static pages and API endpoints. "
+                        "For JS-heavy pages that need browser rendering, use page_content instead."
                     ),
                     "parameters": {
                         "type": "object",
@@ -65,19 +59,10 @@ class FetchTool(BaseTool):
                                 "type": "string",
                                 "description": "The URL to fetch",
                             },
-                            "method": {
-                                "type": "string",
-                                "enum": ["default", "jina"],
-                                "default": "default",
-                                "description": (
-                                    "'default' = direct request + text extraction. "
-                                    "'jina' = Jina Reader API, better for JS-heavy or complex pages."
-                                ),
-                            },
                             "max_length": {
                                 "type": "integer",
-                                "description": "Maximum characters to return (default 5000)",
-                                "default": 5000,
+                                "description": "Maximum characters to return (default 10000)",
+                                "default": 10000,
                             },
                         },
                         "required": ["url"],
@@ -98,28 +83,22 @@ class FetchTool(BaseTool):
         except ValueError as e:
             return f"Fetch rejected: {e}"
 
-        method = (arguments.get("method") or "default").strip().lower()
-        max_length = arguments.get("max_length", 5000)
+        max_length = arguments.get("max_length", 10000)
         try:
             max_length = int(max_length)
         except (TypeError, ValueError):
-            max_length = 5000
-        max_length = max(200, min(max_length, 20000))
+            max_length = 10000
+        max_length = max(200, min(max_length, 50000))
 
         try:
-            if method == "jina":
-                text = self._fetch_jina(url)
-            else:
-                text = self._fetch_direct(url)
+            text = self._fetch_direct(url)
         except Exception as e:
-            logger.exception("url_fetch (%s) failed for '%s'", method, url)
+            logger.exception("url_fetch failed for '%s'", url)
             return f"Fetch failed: {e}"
 
         if len(text) > max_length:
             text = text[:max_length] + "\n...(truncated)"
         return text
-
-    # --- Direct fetch (tls_client + trafilatura) ---
 
     def _fetch_direct(self, url: str) -> str:
         current_url = url
@@ -151,6 +130,10 @@ class FetchTool(BaseTool):
         ):
             content_type = "text/html"
 
+        # Empty content-type with non-HTML body: try as plain text
+        if not content_type:
+            return resp.text
+
         if "application/json" in content_type:
             try:
                 return json.dumps(resp.json(), indent=2, ensure_ascii=False)
@@ -163,39 +146,6 @@ class FetchTool(BaseTool):
             return resp.text
         else:
             raise RuntimeError(f"Unsupported content type: {content_type}")
-
-    # --- Jina Reader API ---
-
-    def _fetch_jina(self, url: str) -> str:
-        if not self._jina_key:
-            raise RuntimeError("JINA_API_KEY not configured")
-
-        resp = requests.post(
-            "https://r.jina.ai/",
-            headers={
-                "Authorization": f"Bearer {self._jina_key}",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "X-Return-Format": "markdown",
-                "X-Timeout": "15",
-            },
-            json={"url": url},
-            timeout=20,
-        )
-        resp.raise_for_status()
-
-        data = resp.json().get("data", {})
-        title = data.get("title", "")
-        content = data.get("content", "")
-
-        if not content:
-            raise RuntimeError("Jina returned empty content")
-
-        if title:
-            return f"# {title}\n\n{content}"
-        return content
-
-    # --- URL safety helpers ---
 
     @staticmethod
     def _validate_external_url(url: str) -> str:
@@ -211,7 +161,6 @@ class FetchTool(BaseTool):
         if host == "localhost" or host.endswith(".local"):
             raise ValueError("Local hosts are not allowed")
 
-        # Resolve and ensure all target IPs are public routable addresses.
         try:
             infos = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
         except socket.gaierror:
@@ -234,7 +183,6 @@ class FetchTool(BaseTool):
     def get_instruction(self) -> str:
         return (
             "\n\nYou have the url_fetch tool to retrieve content from URLs.\n"
-            "Use it when you need to read a web page or API endpoint.\n"
-            "Use method='jina' for complex/JS-heavy pages (returns clean markdown).\n"
-            "Default method is faster for simple pages.\n"
+            "Use it for static pages and API endpoints.\n"
+            "For JS-heavy pages that need browser rendering, use page_content instead.\n"
         )

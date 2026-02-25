@@ -154,7 +154,7 @@ def latex_to_unicode(text: str) -> str:
 
     def _save_code(m):
         code_placeholders.append(m.group(0))
-        return f"\x01LATEXCODE{len(code_placeholders) - 1}\x01"
+        return f"\x03LATEXCODE{len(code_placeholders) - 1}\x03"
 
     text = re.sub(r'```.*?```', _save_code, text, flags=re.DOTALL)
     text = re.sub(r'`[^`]+`', _save_code, text)
@@ -177,9 +177,81 @@ def latex_to_unicode(text: str) -> str:
 
     # Restore code
     for i, code in enumerate(code_placeholders):
-        text = text.replace(f"\x01LATEXCODE{i}\x01", code)
+        text = text.replace(f"\x03LATEXCODE{i}\x03", code)
 
     return text
+
+
+def _format_cell(cell: str) -> str:
+    """Convert inline Markdown in a table cell to Telegram HTML.
+
+    Handles inline code, bold, italic, strikethrough, and placeholder restoration.
+    """
+    # Restore inline code placeholders first, then process markdown
+    # Inline code placeholders: \x00INLINECODE{n}\x00 (may have lost \x00 via html.escape)
+    codes = []
+
+    def _save(m):
+        codes.append(m.group(1))
+        return f"\x02IC{len(codes) - 1}\x02"
+
+    cell = re.sub(r'`([^`]+)`', _save, cell)
+
+    # Escape HTML
+    cell = html.escape(cell)
+
+    # Bold
+    cell = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', cell)
+    cell = re.sub(r'__(.+?)__', r'<b>\1</b>', cell)
+    # Italic
+    cell = re.sub(r'(?<!\w)\*([^*]+?)\*(?!\w)', r'<i>\1</i>', cell)
+    cell = re.sub(r'(?<!\w)_([^_]+?)_(?!\w)', r'<i>\1</i>', cell)
+    # Strikethrough
+    cell = re.sub(r'~~(.+?)~~', r'<s>\1</s>', cell)
+
+    # Restore inline code
+    for i, code in enumerate(codes):
+        cell = cell.replace(f"\x02IC{i}\x02", f"<code>{html.escape(code)}</code>")
+
+    return cell
+
+
+def _markdown_table_to_html(table_text: str) -> str:
+    """Convert a markdown table block to Telegram-friendly HTML.
+
+    Each data row is rendered as:
+        <b>Header1</b>: Value1
+        <b>Header2</b>: Value2
+    with blank lines between rows.
+    """
+    lines = [l.strip() for l in table_text.strip().split('\n') if l.strip()]
+    if len(lines) < 3:
+        return html.escape(table_text)
+
+    def parse_row(line: str) -> list[str]:
+        s = line.strip()
+        if s.startswith('|'):
+            s = s[1:]
+        if s.endswith('|'):
+            s = s[:-1]
+        return [c.strip() for c in s.split('|')]
+
+    headers = parse_row(lines[0])
+    rows = [parse_row(line) for line in lines[2:]]
+
+    parts = []
+    for row in rows:
+        row_parts = []
+        for i, cell in enumerate(row):
+            h = html.escape(headers[i]) if i < len(headers) else ""
+            formatted_cell = _format_cell(cell)
+            if h:
+                row_parts.append(f"<b>{h}</b>: {formatted_cell}")
+            else:
+                row_parts.append(formatted_cell)
+        parts.append("\n".join(row_parts))
+
+    return "\n\n".join(parts)
 
 
 def markdown_to_telegram_html(text: str) -> str:
@@ -196,6 +268,7 @@ def markdown_to_telegram_html(text: str) -> str:
     - Code blocks: ```code``` -> <pre>code</pre>
     - Strikethrough: ~~text~~ -> <s>text</s>
     - Links: [text](url) -> <a href="url">text</a>
+    - Blockquotes: > text -> <blockquote>text</blockquote>
     """
     if not text:
         return text
@@ -214,15 +287,38 @@ def markdown_to_telegram_html(text: str) -> str:
     # Extract code blocks first (```...```)
     def save_code_block(match):
         code_blocks.append(match.group(1) or match.group(2))
-        return f"\x00CODEBLOCK{len(code_blocks) - 1}\x00"
+        return f"\x02CODEBLOCK{len(code_blocks) - 1}\x02"
 
     # Match ```lang\ncode``` or ```code```
     text = re.sub(r'```(?:\w*\n)?(.*?)```|```(.*?)```', save_code_block, text, flags=re.DOTALL)
 
-    # Extract inline code (`...`)
+    # Extract and convert markdown tables BEFORE inline code extraction,
+    # so that _format_cell sees the original backtick syntax in cells.
+    table_placeholders = []
+
+    def save_table(match):
+        block = match.group(0)
+        lines = [l.strip() for l in block.strip().split('\n') if l.strip()]
+        if len(lines) < 3:
+            return block
+        # Validate separator row (second line must be like |---|---|)
+        sep_inner = lines[1].strip().strip('|')
+        sep_cells = [c.strip() for c in sep_inner.split('|')]
+        if not all(re.match(r'^:?-+:?$', c) for c in sep_cells if c):
+            return block
+        table_html = _markdown_table_to_html(block)
+        table_placeholders.append(table_html)
+        return f"\x02TABLE{len(table_placeholders) - 1}\x02"
+
+    text = re.sub(
+        r'(?:^[ \t]*\|.+\|[ \t]*$\n?){3,}',
+        save_table, text, flags=re.MULTILINE,
+    )
+
+    # Extract inline code (`...`) — AFTER tables so table cells keep backticks
     def save_inline_code(match):
         inline_codes.append(match.group(1))
-        return f"\x00INLINECODE{len(inline_codes) - 1}\x00"
+        return f"\x02INLINECODE{len(inline_codes) - 1}\x02"
 
     text = re.sub(r'`([^`]+)`', save_inline_code, text)
 
@@ -240,6 +336,31 @@ def markdown_to_telegram_html(text: str) -> str:
     text = re.sub(r'^([ \t]*)[-*+]\s+', r'\1• ', text, flags=re.MULTILINE)
     # Ordered: 1. item -> 1. item (normalize spacing only)
     text = re.sub(r'^([ \t]*)(\d+)\.\s+', r'\1\2. ', text, flags=re.MULTILINE)
+
+    # Blockquotes: > text -> <blockquote>text</blockquote>
+    # Merge consecutive > lines into a single blockquote block
+    def convert_blockquotes(t):
+        lines = t.split('\n')
+        result = []
+        bq_lines = []
+
+        def flush_bq():
+            if bq_lines:
+                content = '\n'.join(bq_lines)
+                result.append(f'\x02BQSTART\x02{content}\x02BQEND\x02')
+                bq_lines.clear()
+
+        for line in lines:
+            m = re.match(r'^>\s?(.*)', line)
+            if m:
+                bq_lines.append(m.group(1))
+            else:
+                flush_bq()
+                result.append(line)
+        flush_bq()
+        return '\n'.join(result)
+
+    text = convert_blockquotes(text)
 
     # Now escape HTML in the remaining text
     text = html.escape(text)
@@ -262,12 +383,20 @@ def markdown_to_telegram_html(text: str) -> str:
     # Restore code blocks
     for i, code in enumerate(code_blocks):
         escaped_code = html.escape(code)
-        text = text.replace(f"\x00CODEBLOCK{i}\x00", f"<pre>{escaped_code}</pre>")
+        text = text.replace(f"\x02CODEBLOCK{i}\x02", f"<pre>{escaped_code}</pre>")
 
     # Restore inline code
     for i, code in enumerate(inline_codes):
         escaped_code = html.escape(code)
-        text = text.replace(f"\x00INLINECODE{i}\x00", f"<code>{escaped_code}</code>")
+        text = text.replace(f"\x02INLINECODE{i}\x02", f"<code>{escaped_code}</code>")
+
+    # Restore tables (already contain final HTML)
+    for i, tbl in enumerate(table_placeholders):
+        text = text.replace(f"\x02TABLE{i}\x02", tbl)
+
+    # Restore blockquotes
+    text = text.replace('\x02BQSTART\x02', '<blockquote>')
+    text = text.replace('\x02BQEND\x02', '</blockquote>')
 
     return text
 

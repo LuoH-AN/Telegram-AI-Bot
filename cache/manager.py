@@ -25,6 +25,8 @@ class CacheManager:
         self._persona_tokens_cache: dict[tuple[int, str], dict] = {}
         # Memories per user (shared across personas)
         self._memories_cache: dict[int, list[dict]] = {}
+        # Cron tasks per user: {user_id: [task_dict, ...]}
+        self._cron_tasks_cache: dict[int, list[dict]] = {}
 
         # Dirty flags for tracking what needs syncing
         self._dirty_settings: set[int] = set()
@@ -36,6 +38,9 @@ class CacheManager:
         self._new_memories: list[dict] = []
         self._deleted_memory_ids: list[int] = []
         self._cleared_memories: set[int] = set()
+        self._new_cron_tasks: list[dict] = []
+        self._updated_cron_tasks: list[dict] = []  # tasks with updated last_run_at
+        self._deleted_cron_tasks: list[tuple[int, str]] = []  # (user_id, name)
 
         # Session dirty flags
         self._new_sessions: list[dict] = []
@@ -347,16 +352,22 @@ class CacheManager:
         """Set token usage for a persona (used during loading)."""
         self._persona_tokens_cache[(user_id, persona_name)] = usage
 
-    def get_token_limit(self, user_id: int) -> int:
-        """Get global token limit for a user."""
-        return self.get_settings(user_id).get("token_limit", 0)
+    def get_token_limit(self, user_id: int, persona_name: str = None) -> int:
+        """Get token limit for a persona."""
+        usage = self.get_token_usage(user_id, persona_name)
+        return usage.get("token_limit", 0)
 
-    def set_token_limit(self, user_id: int, limit: int) -> None:
-        """Set global token limit for a user."""
-        self.update_settings(user_id, "token_limit", limit)
+    def set_token_limit(self, user_id: int, limit: int, persona_name: str = None) -> None:
+        """Set token limit for a persona."""
+        if persona_name is None:
+            persona_name = self.get_current_persona_name(user_id)
+        usage = self.get_token_usage(user_id, persona_name)
+        usage["token_limit"] = limit
+        with self._lock:
+            self._dirty_tokens.add((user_id, persona_name))
 
     def get_total_tokens_all_personas(self, user_id: int) -> int:
-        """Get total tokens across all personas for limit checking."""
+        """Get total tokens across all personas."""
         total = 0
         for key, usage in self._persona_tokens_cache.items():
             if key[0] == user_id:
@@ -407,6 +418,83 @@ class CacheManager:
         """Set entire memories list for a user (used during loading)."""
         self._memories_cache[user_id] = memories
 
+    # Cron task cache methods
+    def get_cron_tasks(self, user_id: int) -> list[dict]:
+        """Get all cron tasks for a user."""
+        return self._cron_tasks_cache.get(user_id, [])
+
+    def get_all_cron_tasks(self) -> list[dict]:
+        """Get all cron tasks across all users (for scheduler)."""
+        tasks = []
+        for user_tasks in self._cron_tasks_cache.values():
+            tasks.extend(user_tasks)
+        return tasks
+
+    def add_cron_task(self, user_id: int, name: str, cron_expression: str, prompt: str) -> dict | None:
+        """Add a cron task. Returns None if name already exists or limit reached."""
+        if user_id not in self._cron_tasks_cache:
+            self._cron_tasks_cache[user_id] = []
+        tasks = self._cron_tasks_cache[user_id]
+        # Check limit
+        if len(tasks) >= 10:
+            return None
+        # Check duplicate name
+        for t in tasks:
+            if t["name"] == name:
+                return None
+        task = {
+            "id": None,
+            "user_id": user_id,
+            "name": name,
+            "cron_expression": cron_expression,
+            "prompt": prompt,
+            "enabled": True,
+            "last_run_at": None,
+        }
+        tasks.append(task)
+        with self._lock:
+            self._new_cron_tasks.append(task)
+        return task
+
+    def delete_cron_task(self, user_id: int, name: str) -> bool:
+        """Delete a cron task by name."""
+        tasks = self._cron_tasks_cache.get(user_id, [])
+        for i, t in enumerate(tasks):
+            if t["name"] == name:
+                tasks.pop(i)
+                with self._lock:
+                    self._deleted_cron_tasks.append((user_id, name))
+                return True
+        return False
+
+    def update_cron_task(self, user_id: int, name: str, **kwargs) -> bool:
+        """Update fields of a cron task (cron_expression, prompt, enabled).
+        Returns False if task not found."""
+        tasks = self._cron_tasks_cache.get(user_id, [])
+        for t in tasks:
+            if t["name"] == name:
+                for k, v in kwargs.items():
+                    if k in ("cron_expression", "prompt", "enabled"):
+                        t[k] = v
+                with self._lock:
+                    self._updated_cron_tasks.append(t)
+                return True
+        return False
+
+    def update_cron_last_run(self, user_id: int, name: str, last_run_at) -> None:
+        """Update last_run_at for a cron task."""
+        tasks = self._cron_tasks_cache.get(user_id, [])
+        for t in tasks:
+            if t["name"] == name:
+                t["last_run_at"] = last_run_at
+                with self._lock:
+                    self._updated_cron_tasks.append(t)
+                return
+
+    def set_cron_tasks(self, user_id: int, tasks: list[dict]) -> None:
+        """Set cron tasks for a user (used during loading)."""
+        self._cron_tasks_cache[user_id] = tasks
+
     # Dirty tracking methods
     def get_and_clear_dirty(self) -> dict:
         """Get all dirty flags and clear them atomically."""
@@ -424,6 +512,9 @@ class CacheManager:
                 "new_sessions": self._new_sessions.copy(),
                 "dirty_session_titles": self._dirty_session_titles.copy(),
                 "deleted_sessions": self._deleted_sessions.copy(),
+                "new_cron_tasks": self._new_cron_tasks.copy(),
+                "updated_cron_tasks": self._updated_cron_tasks.copy(),
+                "deleted_cron_tasks": self._deleted_cron_tasks.copy(),
             }
             self._dirty_settings.clear()
             self._dirty_personas.clear()
@@ -437,6 +528,9 @@ class CacheManager:
             self._new_sessions.clear()
             self._dirty_session_titles.clear()
             self._deleted_sessions.clear()
+            self._new_cron_tasks.clear()
+            self._updated_cron_tasks.clear()
+            self._deleted_cron_tasks.clear()
         return result
 
     def restore_dirty(self, dirty: dict) -> None:
@@ -454,6 +548,9 @@ class CacheManager:
             self._new_sessions.extend(dirty.get("new_sessions", []))
             self._dirty_session_titles.update(dirty.get("dirty_session_titles", {}))
             self._deleted_sessions.update(dirty.get("deleted_sessions", set()))
+            self._new_cron_tasks.extend(dirty.get("new_cron_tasks", []))
+            self._updated_cron_tasks.extend(dirty.get("updated_cron_tasks", []))
+            self._deleted_cron_tasks.extend(dirty.get("deleted_cron_tasks", []))
 
 
 # Global cache instance

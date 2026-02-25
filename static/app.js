@@ -124,6 +124,7 @@
       // Lazy-load sub-tab data
       if (btn.dataset.subtab === "providers") loadProviders();
       if (btn.dataset.subtab === "conversations") loadConversationPersonas();
+      if (btn.dataset.subtab === "cron") loadCronTasks();
     });
   });
 
@@ -132,10 +133,10 @@
   // ═════════════════════════════
 
   const SETTINGS_FIELDS = [
-    "base_url", "model", "temperature", "token_limit", "title_model",
+    "base_url", "model", "temperature", "title_model", "cron_model",
     "tts_voice", "tts_style", "tts_endpoint",
   ];
-  const ALL_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts"];
+  const ALL_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"];
 
   async function loadSettings() {
     try {
@@ -560,6 +561,181 @@
   }
 
   // ═════════════════════════════
+  //  CRON TASKS
+  // ═════════════════════════════
+
+  async function loadCronTasks() {
+    try {
+      const data = await api("/api/cron");
+      const list = document.getElementById("cronList");
+      const empty = document.getElementById("cronEmpty");
+      list.innerHTML = "";
+      if (!data.tasks.length) {
+        empty.style.display = "block";
+        return;
+      }
+      empty.style.display = "none";
+      data.tasks.forEach((t) => {
+        const card = document.createElement("div");
+        card.className = "persona-card";
+
+        const header = document.createElement("div");
+        header.className = "persona-card-header";
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "persona-card-name";
+        nameEl.textContent = t.name;
+        const badge = document.createElement("span");
+        badge.className = "badge " + (t.enabled ? "badge-green" : "badge-red");
+        badge.textContent = t.enabled ? "enabled" : "disabled";
+        badge.style.marginLeft = "8px";
+        nameEl.appendChild(badge);
+
+        const cronInfo = document.createElement("span");
+        cronInfo.style.cssText = "margin-left:8px;font-size:0.8em;opacity:0.6;font-family:monospace";
+        cronInfo.textContent = t.cron_expression;
+        nameEl.appendChild(cronInfo);
+
+        const actions = document.createElement("div");
+        actions.className = "action-row";
+
+        // Toggle enabled
+        const toggleBtn = document.createElement("button");
+        toggleBtn.className = "btn-sm outline";
+        toggleBtn.textContent = t.enabled ? "Disable" : "Enable";
+        toggleBtn.addEventListener("click", async () => {
+          try {
+            await api("/api/cron/" + encodeURIComponent(t.name), {
+              method: "PUT",
+              body: JSON.stringify({ enabled: !t.enabled }),
+            });
+            toast(t.enabled ? "Task disabled" : "Task enabled", "success");
+            loadCronTasks();
+          } catch (e) {
+            toast("Toggle failed: " + e.message, "error");
+          }
+        });
+        actions.appendChild(toggleBtn);
+
+        // Run now
+        const runBtn = document.createElement("button");
+        runBtn.className = "btn-sm accent";
+        runBtn.textContent = "Run";
+        runBtn.addEventListener("click", async () => {
+          try {
+            await api("/api/cron/" + encodeURIComponent(t.name) + "/run", { method: "POST" });
+            toast("Task triggered — result will be sent via Telegram", "success");
+          } catch (e) {
+            toast("Run failed: " + e.message, "error");
+          }
+        });
+        actions.appendChild(runBtn);
+
+        // Save
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "btn-sm outline";
+        saveBtn.textContent = "Save";
+        saveBtn.addEventListener("click", async () => {
+          const cronInput = card.querySelector(".cron-expr-input");
+          const promptInput = card.querySelector(".cron-prompt-input");
+          try {
+            await api("/api/cron/" + encodeURIComponent(t.name), {
+              method: "PUT",
+              body: JSON.stringify({
+                cron_expression: cronInput.value.trim(),
+                prompt: promptInput.value.trim(),
+              }),
+            });
+            toast("Task updated", "success");
+            loadCronTasks();
+          } catch (e) {
+            toast("Update failed: " + e.message, "error");
+          }
+        });
+        actions.appendChild(saveBtn);
+
+        // Delete
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn-sm danger";
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm("Delete task '" + t.name + "'?")) return;
+          try {
+            await api("/api/cron/" + encodeURIComponent(t.name), { method: "DELETE" });
+            toast("Task deleted", "success");
+            loadCronTasks();
+          } catch (e) {
+            toast("Delete failed: " + e.message, "error");
+          }
+        });
+        actions.appendChild(delBtn);
+
+        header.appendChild(nameEl);
+        header.appendChild(actions);
+        card.appendChild(header);
+
+        // Editable fields
+        const body = document.createElement("div");
+        body.className = "persona-card-prompt";
+
+        const cronRow = document.createElement("div");
+        cronRow.className = "config-row";
+        cronRow.style.marginBottom = "8px";
+        const cronLabel = document.createElement("label");
+        cronLabel.textContent = "cron";
+        cronLabel.style.minWidth = "50px";
+        const cronInput = document.createElement("input");
+        cronInput.type = "text";
+        cronInput.className = "server-input cron-expr-input";
+        cronInput.value = t.cron_expression;
+        cronRow.appendChild(cronLabel);
+        cronRow.appendChild(cronInput);
+        body.appendChild(cronRow);
+
+        const promptTa = document.createElement("textarea");
+        promptTa.className = "server-input cron-prompt-input";
+        promptTa.rows = 3;
+        promptTa.value = t.prompt;
+        body.appendChild(promptTa);
+
+        if (t.last_run_at) {
+          const lastRun = document.createElement("div");
+          lastRun.style.cssText = "font-size:0.8em;opacity:0.5;margin-top:6px";
+          lastRun.textContent = "Last run: " + new Date(t.last_run_at).toLocaleString();
+          body.appendChild(lastRun);
+        }
+
+        card.appendChild(body);
+        list.appendChild(card);
+      });
+    } catch (e) {
+      toast("Failed to load cron tasks: " + e.message, "error");
+    }
+  }
+
+  document.getElementById("btnCreateCron").addEventListener("click", async () => {
+    const name = document.getElementById("cron-name").value.trim();
+    const expr = document.getElementById("cron-expression").value.trim();
+    const prompt = document.getElementById("cron-prompt").value.trim();
+    if (!name) return toast("Enter a task name", "error");
+    if (!expr) return toast("Enter a cron expression", "error");
+    if (!prompt) return toast("Enter a prompt", "error");
+    try {
+      await api("/api/cron", {
+        method: "POST",
+        body: JSON.stringify({ name: name, cron_expression: expr, prompt: prompt }),
+      });
+      document.getElementById("cron-name").value = "";
+      document.getElementById("cron-expression").value = "";
+      document.getElementById("cron-prompt").value = "";
+      toast("Task created", "success");
+      loadCronTasks();
+    } catch (e) {
+      toast("Create failed: " + e.message, "error");
+    }
+  });
+
+  // ═════════════════════════════
   //  LOGS TAB
   // ═════════════════════════════
 
@@ -652,16 +828,16 @@
       const stats = document.getElementById("usageStats");
       const limit = data.token_limit || 0;
       const total = data.total_all_personas || 0;
-      const remaining = data.remaining;
       const pct = data.usage_percentage;
+      const persona = data.current_persona || "default";
 
       let html =
         '<div class="stat-card">' +
-          '<div class="stat-label">Total Tokens Used</div>' +
+          '<div class="stat-label">All Personas Total</div>' +
           '<div class="stat-value accent">' + formatNum(total) + "</div>" +
         "</div>" +
         '<div class="stat-card">' +
-          '<div class="stat-label">Token Limit</div>' +
+          '<div class="stat-label">Current: ' + esc(persona) + '</div>' +
           '<div class="stat-value">' + (limit ? formatNum(limit) : "Unlimited") + "</div>" +
         "</div>";
 
@@ -669,7 +845,7 @@
         html +=
           '<div class="stat-card">' +
             '<div class="stat-label">Remaining</div>' +
-            '<div class="stat-value green">' + formatNum(remaining) + "</div>" +
+            '<div class="stat-value green">' + formatNum(data.remaining) + "</div>" +
           "</div>" +
           '<div class="stat-card">' +
             '<div class="stat-label">Usage</div>' +
@@ -688,7 +864,8 @@
           "<td>" + esc(p.persona) + "</td>" +
           "<td>" + formatNum(p.prompt_tokens) + "</td>" +
           "<td>" + formatNum(p.completion_tokens) + "</td>" +
-          "<td>" + formatNum(p.total_tokens) + "</td>";
+          "<td>" + formatNum(p.total_tokens) + "</td>" +
+          "<td>" + (p.token_limit ? formatNum(p.token_limit) : "∞") + "</td>";
         body.appendChild(tr);
       });
     } catch (e) {

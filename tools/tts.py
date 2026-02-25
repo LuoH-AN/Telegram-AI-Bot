@@ -147,14 +147,14 @@ class TTSTool(BaseTool):
 
         settings = get_user_settings(user_id)
 
-        # /set 设定优先：默认由用户设置控制音色和风格。
+        # 模型显式传参优先（代表用户当次意图），否则回退到 /set 设定和默认值。
         configured_voice = str(settings.get("tts_voice", "")).strip()
         configured_style = str(settings.get("tts_style", "")).strip().lower()
         requested_voice = str(arguments.get("voice_name", "")).strip()
         requested_style = str(arguments.get("style", "")).strip().lower()
 
-        voice_name = configured_voice or requested_voice or DEFAULT_TTS_VOICE
-        style = configured_style or requested_style or DEFAULT_TTS_STYLE
+        voice_name = requested_voice or configured_voice or DEFAULT_TTS_VOICE
+        style = requested_style or configured_style or DEFAULT_TTS_STYLE
 
         # 校验音色是否存在，不存在时回退到默认音色。
         fallback_note = ""

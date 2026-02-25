@@ -13,6 +13,7 @@ from web.routes.logs import router as logs_router
 from web.routes.usage import router as usage_router
 from web.routes.providers import router as providers_router
 from web.routes.sessions import router as sessions_router
+from web.routes.cron import router as cron_router
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(providers_router)
     app.include_router(sessions_router)
+    app.include_router(cron_router)
 
     # Log all /api/ requests with user context
     @app.middleware("http")

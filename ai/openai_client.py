@@ -82,19 +82,20 @@ class OpenAIClient(AIClient):
                 }
 
             content = None
-            if chunk.choices and chunk.choices[0].delta.content:
-                content = chunk.choices[0].delta.content
+            reasoning = None
+            delta = chunk.choices[0].delta if chunk.choices else None
+
+            if delta and delta.content:
+                content = delta.content
 
             # Capture reasoning/thinking content (e.g. DeepSeek R1)
-            reasoning = None
-            if chunk.choices:
-                delta = chunk.choices[0].delta
+            if delta:
                 rc = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
                 if rc:
                     reasoning = rc
 
             # Collect tool call deltas
-            if chunk.choices and chunk.choices[0].delta.tool_calls:
+            if delta and delta.tool_calls:
                 for tc_delta in chunk.choices[0].delta.tool_calls:
                     idx = tc_delta.index
                     if idx not in tool_call_chunks:
