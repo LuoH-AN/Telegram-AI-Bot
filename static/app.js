@@ -123,6 +123,7 @@
 
       // Lazy-load sub-tab data
       if (btn.dataset.subtab === "providers") loadProviders();
+      if (btn.dataset.subtab === "memories") loadMemories();
       if (btn.dataset.subtab === "conversations") loadConversationPersonas();
       if (btn.dataset.subtab === "cron") loadCronTasks();
     });
@@ -147,15 +148,45 @@
           el.value = data[key];
         }
       });
-      renderToolGrid(data.enabled_tools || "");
+      const chatTools = normalizeToolsCsv(data.enabled_tools || "");
+      const cronTools = normalizeToolsCsv(
+        data.cron_enabled_tools || removeToolFromCsv(chatTools, "memory")
+      );
+      renderToolGrid("toolGrid", chatTools);
+      renderToolGrid("cronToolGrid", cronTools);
     } catch (e) {
       toast("Failed to load settings: " + e.message, "error");
     }
   }
 
-  function renderToolGrid(enabledStr) {
-    const enabled = new Set(enabledStr.split(",").map((s) => s.trim()).filter(Boolean));
-    const grid = document.getElementById("toolGrid");
+  function normalizeToolsCsv(enabledStr) {
+    const seen = new Set();
+    const ordered = [];
+    String(enabledStr || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .forEach((name) => {
+        if (!name || !ALL_TOOLS.includes(name) || seen.has(name)) return;
+        seen.add(name);
+        ordered.push(name);
+      });
+    return ordered.join(",");
+  }
+
+  function removeToolFromCsv(enabledStr, toolName) {
+    return String(enabledStr || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((name) => name && name !== toolName)
+      .join(",");
+  }
+
+  function renderToolGrid(gridId, enabledStr) {
+    const enabled = new Set(
+      normalizeToolsCsv(enabledStr).split(",").map((s) => s.trim()).filter(Boolean)
+    );
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
     grid.innerHTML = "";
     ALL_TOOLS.forEach((tool) => {
       const label = document.createElement("label");
@@ -182,12 +213,20 @@
       else if (key === "token_limit") val = parseInt(val, 10) || 0;
       body[key] = val;
     });
-    // Collect enabled tools
-    const tools = [];
+    // Collect chat tools
+    const chatTools = [];
     document.querySelectorAll("#toolGrid input[type=checkbox]").forEach((cb) => {
-      if (cb.checked) tools.push(cb.dataset.tool);
+      if (cb.checked) chatTools.push(cb.dataset.tool);
     });
-    body.enabled_tools = tools.join(",");
+
+    // Collect cron tools
+    const cronTools = [];
+    document.querySelectorAll("#cronToolGrid input[type=checkbox]").forEach((cb) => {
+      if (cb.checked) cronTools.push(cb.dataset.tool);
+    });
+
+    body.enabled_tools = normalizeToolsCsv(chatTools.join(","));
+    body.cron_enabled_tools = normalizeToolsCsv(cronTools.join(","));
     return body;
   }
 
@@ -305,6 +344,127 @@
       loadPersonas();
     } catch (e) {
       toast("Create failed: " + e.message, "error");
+    }
+  });
+
+  // ═════════════════════════════
+  //  MEMORIES
+  // ═════════════════════════════
+
+  async function loadMemories() {
+    try {
+      const data = await api("/api/memories");
+      const list = document.getElementById("memoryList");
+      const empty = document.getElementById("memoryEmpty");
+      list.innerHTML = "";
+
+      if (!data.memories.length) {
+        empty.style.display = "block";
+        return;
+      }
+      empty.style.display = "none";
+
+      data.memories.forEach((m) => {
+        const card = document.createElement("div");
+        card.className = "persona-card";
+
+        const header = document.createElement("div");
+        header.className = "persona-card-header";
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "persona-card-name";
+        nameEl.textContent = "Memory #" + m.index;
+        if (m.source) {
+          const badge = document.createElement("span");
+          badge.className = "badge badge-accent";
+          badge.textContent = m.source;
+          badge.style.marginLeft = "8px";
+          nameEl.appendChild(badge);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "action-row";
+
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "btn-sm outline";
+        saveBtn.textContent = "Save";
+        saveBtn.addEventListener("click", async () => {
+          const ta = card.querySelector("textarea");
+          const content = ta.value.trim();
+          if (!content) return toast("Memory content cannot be empty", "error");
+          try {
+            await api("/api/memories/" + m.index, {
+              method: "PUT",
+              body: JSON.stringify({ content }),
+            });
+            toast("Memory updated", "success");
+            loadMemories();
+          } catch (e) {
+            toast("Update failed: " + e.message, "error");
+          }
+        });
+        actions.appendChild(saveBtn);
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn-sm danger";
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm("Delete this memory?")) return;
+          try {
+            await api("/api/memories/" + m.index, { method: "DELETE" });
+            toast("Memory deleted", "success");
+            loadMemories();
+          } catch (e) {
+            toast("Delete failed: " + e.message, "error");
+          }
+        });
+        actions.appendChild(delBtn);
+
+        header.appendChild(nameEl);
+        header.appendChild(actions);
+        card.appendChild(header);
+
+        const contentWrap = document.createElement("div");
+        contentWrap.className = "persona-card-prompt";
+        const ta = document.createElement("textarea");
+        ta.className = "server-input";
+        ta.rows = 3;
+        ta.value = m.content || "";
+        contentWrap.appendChild(ta);
+        card.appendChild(contentWrap);
+
+        list.appendChild(card);
+      });
+    } catch (e) {
+      toast("Failed to load memories: " + e.message, "error");
+    }
+  }
+
+  document.getElementById("btnAddMemory").addEventListener("click", async () => {
+    const input = document.getElementById("newMemoryContent");
+    const content = input.value.trim();
+    if (!content) return toast("Enter memory content", "error");
+    try {
+      await api("/api/memories", {
+        method: "POST",
+        body: JSON.stringify({ content }),
+      });
+      input.value = "";
+      toast("Memory added", "success");
+      loadMemories();
+    } catch (e) {
+      toast("Add failed: " + e.message, "error");
+    }
+  });
+
+  document.getElementById("btnClearMemories").addEventListener("click", async () => {
+    if (!confirm("Clear all memories?")) return;
+    try {
+      const data = await api("/api/memories", { method: "DELETE" });
+      toast("Cleared " + (data.cleared || 0) + " memories", "success");
+      loadMemories();
+    } catch (e) {
+      toast("Clear failed: " + e.message, "error");
     }
   });
 

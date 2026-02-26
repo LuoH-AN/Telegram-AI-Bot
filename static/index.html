@@ -66,6 +66,7 @@
         <button class="sub-tab-btn" data-subtab="tts">TTS</button>
         <button class="sub-tab-btn" data-subtab="providers">Providers</button>
         <button class="sub-tab-btn" data-subtab="personas">Personas</button>
+        <button class="sub-tab-btn" data-subtab="memories">Memories</button>
         <button class="sub-tab-btn" data-subtab="conversations">Conversations</button>
         <button class="sub-tab-btn" data-subtab="cron">Cron Tasks</button>
       </div>
@@ -104,7 +105,18 @@
       <div class="sub-tab-panel" id="subtab-tools">
         <div class="config-section">
           <div class="config-section-title">Tools</div>
-          <div class="tool-grid" id="toolGrid"></div>
+          <div class="config-row" style="align-items:flex-start">
+            <label>chat_tools <span class="config-desc">Used in normal chat</span></label>
+            <div style="flex:1">
+              <div class="tool-grid" id="toolGrid"></div>
+            </div>
+          </div>
+          <div class="config-row" style="align-items:flex-start">
+            <label>cron_tools <span class="config-desc">Used in scheduled tasks</span></label>
+            <div style="flex:1">
+              <div class="tool-grid" id="cronToolGrid"></div>
+            </div>
+          </div>
         </div>
         <div class="action-row" style="margin-bottom:20px">
           <button class="btn-sm accent" id="btnSaveTools">Save Settings</button>
@@ -172,6 +184,26 @@
           <div class="action-row" style="margin-top:12px">
             <input type="text" class="server-input" id="newPersonaName" placeholder="New persona name" style="max-width:200px">
             <button class="btn-sm outline" id="btnCreatePersona">Create</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Memories Sub-Panel ── -->
+      <div class="sub-tab-panel" id="subtab-memories">
+        <div class="config-section">
+          <div class="config-section-title">Memories</div>
+          <div class="persona-list" id="memoryList"></div>
+          <div id="memoryEmpty" class="empty-state" style="display:none">No memories yet.</div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">Add Memory</div>
+          <div class="config-row">
+            <label>content <span class="config-desc">What the bot should remember</span></label>
+            <textarea class="server-input" id="newMemoryContent" rows="3" placeholder="e.g. Prefer concise answers in Chinese"></textarea>
+          </div>
+          <div class="action-row" style="margin-top:12px">
+            <button class="btn-sm accent" id="btnAddMemory">Add Memory</button>
+            <button class="btn-sm danger" id="btnClearMemories">Clear All</button>
           </div>
         </div>
       </div>

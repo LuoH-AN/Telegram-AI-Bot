@@ -18,7 +18,8 @@ CREATE_USER_SETTINGS_TABLE = """
         tts_endpoint TEXT,
         api_presets TEXT,
         title_model TEXT,
-        cron_model TEXT
+        cron_model TEXT,
+        cron_enabled_tools TEXT
     )
 """
 
@@ -102,6 +103,16 @@ MIGRATE_SETTINGS_ADD_CRON_MODEL = """
     ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS cron_model TEXT
 """
 
+# Migration: add cron_enabled_tools column to existing user_settings tables
+MIGRATE_SETTINGS_ADD_CRON_ENABLED_TOOLS = """
+    ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS cron_enabled_tools TEXT
+"""
+
+# Migration: add stream_mode column to existing user_settings tables
+MIGRATE_SETTINGS_ADD_STREAM_MODE = """
+    ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS stream_mode TEXT
+"""
+
 # Memories (shared across personas)
 CREATE_USER_MEMORIES_TABLE = """
     CREATE TABLE IF NOT EXISTS user_memories (
@@ -176,6 +187,8 @@ SCHEMA_STATEMENTS = [
     CREATE_USER_PERSONA_TOKENS_TABLE,
     MIGRATE_PERSONA_TOKENS_ADD_LIMIT,
     MIGRATE_SETTINGS_ADD_CRON_MODEL,
+    MIGRATE_SETTINGS_ADD_CRON_ENABLED_TOOLS,
+    MIGRATE_SETTINGS_ADD_STREAM_MODE,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
     CREATE_USER_LOGS_TABLE,

@@ -7,9 +7,9 @@ sdk: docker
 pinned: false
 ---
 
-# Telegram AI Bot
+# Gemen AI Bot (Telegram + Discord)
 
-一个支持 OpenAI API 的 Telegram 聊天机器人，支持流式输出、上下文对话、图片/文件分析、自定义配置。
+一个支持 OpenAI API 的多平台聊天机器人，当前支持 Telegram 与 Discord，包含上下文对话、图片/文件分析、自定义配置与工具调用。
 
 ## 功能特点
 
@@ -23,6 +23,7 @@ pinned: false
 - **Token 统计**：跟踪使用量，支持设置限额
 - **聊天导出**：导出对话历史为 Markdown 文件
 - **群聊支持**：通过 @提及 或回复触发响应
+- **Discord 兼容**：支持 DM / @提及 / 回复触发聊天，复用同一套记忆、会话、persona、工具逻辑
 - **过滤 thinking**：自动过滤模型的思考过程内容
 - **长消息分段**：超过 4096 字符自动分多条发送
 - **Markdown 支持**：默认 Markdown 格式，失败自动降级为纯文本
@@ -44,12 +45,29 @@ pinned: false
 | `/set style <style>` | 设置默认 TTS 风格 |
 | `/set endpoint <region\|host>` | 设置 TTS 区域/主机 |
 | `/set tool tts <on\|off>` | 开关 TTS 工具 |
+| `/set cron_tool <name> <on\|off>` | 开关定时任务可用工具 |
+| `/set cron_tools <a,b,c>` | 批量设置定时任务可用工具 |
 | `/remember <text>` | 添加一条记忆 |
 | `/memories` | 查看所有记忆 |
 | `/forget <num\|all>` | 删除记忆 |
 | `/usage` | 查看 Token 使用统计 |
 | `/usage reset` | 重置 Token 统计 |
 | `/export` | 导出聊天记录 |
+
+### Discord 命令（默认前缀 `!`）
+
+- `!start`
+- `!help`
+- `!clear`
+- `!settings`
+- `!set <key> <value>`
+- `!usage`
+- `!remember <text>`
+- `!memories`
+- `!forget <num|all>`
+- `!persona ...`
+- `!chat ...`
+- `!web`
 
 ## 记忆系统
 
@@ -89,6 +107,7 @@ AI 在对话过程中会自动识别重要信息并保存为记忆，例如：
 | `prompt` | 系统提示词 | `/set prompt 你是一个有帮助的助手` |
 | `temperature` | 温度 (0-2) | `/set temperature 0.7` |
 | `token_limit` | Token 用量限额 | `/set token_limit 100000` |
+| `cron_tools` | 定时任务可用工具列表（逗号分隔） | `/set cron_tools search,fetch,wikipedia,tts` |
 | `voice` | 默认 TTS 音色 | `/set voice zh-CN-XiaoxiaoMultilingualNeural` |
 | `style` | 默认 TTS 风格 | `/set style cheerful` |
 | `endpoint` | TTS 区域或主机（auto=自动） | `/set endpoint southeastasia` |
@@ -98,6 +117,7 @@ AI 在对话过程中会自动识别重要信息并保存为记忆，例如：
 ```
 gemen/
 ├── bot.py                  # 入口文件
+├── discord_bot.py          # Discord 入口文件
 ├── config/                 # 配置模块
 │   ├── settings.py         # 环境变量、默认设置
 │   └── constants.py        # 常量定义
@@ -139,12 +159,15 @@ gemen/
 | 变量 | 必需 | 说明 |
 |------|------|------|
 | `TELEGRAM_BOT_TOKEN` | 是 | Telegram Bot Token |
+| `DISCORD_BOT_TOKEN` | Discord 模式需要 | Discord Bot Token |
+| `DISCORD_COMMAND_PREFIX` | 否 | Discord 命令前缀（默认 `!`） |
 | `DATABASE_URL` | 是 | PostgreSQL 连接字符串 |
 | `OPENAI_API_KEY` | 否 | 默认 API 密钥 |
 | `OPENAI_BASE_URL` | 否 | 默认 API 地址 |
 | `OPENAI_MODEL` | 否 | 默认模型 |
 | `OPENAI_TEMPERATURE` | 否 | 默认温度 |
 | `OPENAI_SYSTEM_PROMPT` | 否 | 默认系统提示词 |
+| `CRON_ENABLED_TOOLS` | 否 | 定时任务默认可用工具（默认 `search,fetch,wikipedia,tts`） |
 | `TELEGRAM_API_BASE` | 否 | 自定义 Telegram API 地址 |
 | `TELEGRAM_SEND_GLOBAL_RATE` | 否 | 全局发送速率（默认 25 req/s） |
 | `TELEGRAM_SEND_PER_CHAT_RATE` | 否 | 单 chat 发送速率（默认 1 req/s） |
@@ -153,15 +176,33 @@ gemen/
 
 ## 部署
 
+### 本地启动
+
+```bash
+# Telegram
+python bot.py
+
+# Discord
+python discord_bot.py
+```
+
 ### Docker
 
 ```bash
 docker build -t gemen .
 docker run -d \
   -e TELEGRAM_BOT_TOKEN=your_token \
+  -e DISCORD_BOT_TOKEN=your_discord_token \
   -e DATABASE_URL=postgresql://... \
   -e OPENAI_API_KEY=sk-xxx \
   gemen
+
+# Discord only (override default CMD)
+docker run -d \
+  -e DISCORD_BOT_TOKEN=your_discord_token \
+  -e DATABASE_URL=postgresql://... \
+  -e OPENAI_API_KEY=sk-xxx \
+  gemen python discord_bot.py
 ```
 
 ### HuggingFace Spaces

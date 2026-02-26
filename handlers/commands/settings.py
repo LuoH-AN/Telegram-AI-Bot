@@ -25,6 +25,29 @@ logger = logging.getLogger(__name__)
 AVAILABLE_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"]
 
 
+def _normalize_tools_csv(raw: str) -> str:
+    """Normalize comma-separated tool names in declared order."""
+    seen = set()
+    ordered = []
+    for item in (raw or "").split(","):
+        name = item.strip().lower()
+        if not name or name not in AVAILABLE_TOOLS or name in seen:
+            continue
+        seen.add(name)
+        ordered.append(name)
+    return ",".join(ordered)
+
+
+def _resolve_cron_tools_for_display(settings: dict) -> str:
+    """Resolve cron tools with fallback when per-cron setting is unset."""
+    explicit = _normalize_tools_csv(settings.get("cron_enabled_tools", ""))
+    if explicit:
+        return explicit
+    derived = _normalize_tools_csv(settings.get("enabled_tools", ""))
+    derived_list = [t for t in derived.split(",") if t and t != "memory"]
+    return ",".join(derived_list)
+
+
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /settings command - show current settings."""
     user_id = update.effective_user.id
@@ -45,6 +68,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
 
     enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia,tts")
+    cron_tools = _resolve_cron_tools_for_display(settings) or "(none)"
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
@@ -78,6 +102,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"persona: {persona_name}\n"
         f"prompt: {prompt_display}\n"
         f"tools: {enabled_tools}\n\n"
+        f"cron_tools: {cron_tools}\n\n"
         f"tts_voice: {tts_voice}\n"
         f"tts_style: {tts_style}\n"
         f"tts_endpoint: {tts_endpoint}\n\n"
@@ -112,6 +137,27 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "Usage: /set tool <name> <on|off>"
             )
             return
+        # Check if it's "/set cron_tool" without enough args
+        if context.args and context.args[0].lower() == "cron_tool":
+            cron_tools = _resolve_cron_tools_for_display(settings)
+            enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
+            status = []
+            for t in AVAILABLE_TOOLS:
+                icon = "✅" if t in enabled_list else "❌"
+                status.append(f"{icon} {t}")
+            await update.message.reply_text(
+                f"Cron Tool Settings:\n\n" + "\n".join(status) + "\n\n"
+                "Usage: /set cron_tool <name> <on|off>"
+            )
+            return
+        if context.args and context.args[0].lower() == "cron_tools":
+            cron_tools = settings.get("cron_enabled_tools", "") or "(auto: chat tools without memory)"
+            await update.message.reply_text(
+                f"Current cron_tools: {cron_tools}\n"
+                f"Usage: /set cron_tools <tool1,tool2,...>\n"
+                f"Use /set cron_tools clear to reset to auto."
+            )
+            return
 
         if context.args and context.args[0].lower() in {"voice", "style", "endpoint"}:
             key = context.args[0].lower()
@@ -141,10 +187,13 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "- token_limit (当前 persona)\n"
             "- title_model [provider:]model\n"
             "- cron_model [provider:]model\n"
+            "- cron_tools <tool1,tool2,...>\n"
+            "- stream_mode (default/time/chars)\n"
             "- voice\n"
             "- style\n"
             "- endpoint\n"
             "- tool <name> <on|off>\n"
+            "- cron_tool <name> <on|off>\n"
             "- provider save/load/delete/list\n\n"
             "For prompt, use /persona prompt <text>"
         )
@@ -281,6 +330,65 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         update_user_setting(user_id, "enabled_tools", new_enabled)
         logger.info("%s set tool %s = %s", ctx, tool_name, action)
         await update.message.reply_text(f"Tool {tool_name} set to {action}")
+    elif key == "cron_tool":
+        if len(context.args) < 3:
+            await update.message.reply_text("Usage: /set cron_tool <name> <on|off>")
+            return
+
+        tool_name = context.args[1].lower()
+        action = context.args[2].lower()
+
+        if tool_name not in AVAILABLE_TOOLS:
+            await update.message.reply_text(f"Unknown tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}")
+            return
+
+        cron_tools = _resolve_cron_tools_for_display(settings)
+        enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
+
+        if action == "on":
+            if tool_name not in enabled_list:
+                enabled_list.append(tool_name)
+        elif action == "off":
+            if tool_name in enabled_list:
+                enabled_list.remove(tool_name)
+        else:
+            await update.message.reply_text("Action must be 'on' or 'off'")
+            return
+
+        new_enabled = _normalize_tools_csv(",".join(enabled_list))
+        update_user_setting(user_id, "cron_enabled_tools", new_enabled)
+        logger.info("%s set cron_tool %s = %s", ctx, tool_name, action)
+        await update.message.reply_text(f"Cron tool {tool_name} set to {action}")
+    elif key == "cron_tools":
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none", "default"}:
+            update_user_setting(user_id, "cron_enabled_tools", "")
+            logger.info("%s cleared cron_enabled_tools (auto mode)", ctx)
+            await update.message.reply_text(
+                "cron_tools cleared.\n"
+                "Now cron tasks will auto-use chat tools without memory."
+            )
+            return
+
+        normalized = _normalize_tools_csv(val)
+        if not normalized:
+            await update.message.reply_text(
+                "No valid tools provided.\n"
+                f"Available: {', '.join(AVAILABLE_TOOLS)}"
+            )
+            return
+
+        requested = [t.strip().lower() for t in val.split(",") if t.strip()]
+        unknown = [t for t in requested if t not in AVAILABLE_TOOLS]
+        update_user_setting(user_id, "cron_enabled_tools", normalized)
+        logger.info("%s set cron_enabled_tools = %s", ctx, normalized)
+        if unknown:
+            await update.message.reply_text(
+                f"cron_tools set to: {normalized}\n"
+                f"⚠️ Ignored unknown tools: {', '.join(sorted(set(unknown)))}"
+            )
+        else:
+            await update.message.reply_text(f"cron_tools set to: {normalized}")
     elif key == "provider":
         await _handle_provider_command(update, context, user_id, settings, ctx)
     elif key == "title_model":
@@ -343,10 +451,39 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     f"cron_model set to: {val}\n"
                     f"(uses current provider's API)"
                 )
+    elif key == "stream_mode":
+        val = value.strip().lower()
+        if val in {"default", "time", "chars"}:
+            update_user_setting(user_id, "stream_mode", val)
+            logger.info("%s set stream_mode = %s", ctx, val)
+            mode_desc = {
+                "default": "默认模式：时间+字符双重条件",
+                "time": "时间优先模式：每秒更新一次",
+                "chars": "字符优先模式：每100字符更新一次",
+            }
+            await update.message.reply_text(
+                f"stream_mode set to: {val}\n{mode_desc.get(val, '')}"
+            )
+        elif not val or val in {"off", "clear", "none"}:
+            update_user_setting(user_id, "stream_mode", "")
+            await update.message.reply_text(
+                "stream_mode cleared (will use default mode)\n"
+                "默认模式：时间+字符双重条件"
+            )
+        else:
+            current = settings.get("stream_mode", "") or "default"
+            await update.message.reply_text(
+                f"Current stream_mode: {current}\n"
+                "Usage: /set stream_mode <mode>\n\n"
+                "Available modes:\n"
+                "- default: 默认模式（时间+字符双重条件）\n"
+                "- time: 时间优先（每秒更新一次）\n"
+                "- chars: 字符优先（每100字符更新一次）"
+            )
     else:
         await update.message.reply_text(
             f"Unknown key: {key}\n\n"
-            "Available keys: base_url, api_key, model, temperature, token_limit, title_model, cron_model, voice, style, endpoint, tool, provider"
+            "Available keys: base_url, api_key, model, temperature, token_limit, title_model, cron_model, cron_tools, stream_mode, voice, style, endpoint, tool, cron_tool, provider"
         )
 
 

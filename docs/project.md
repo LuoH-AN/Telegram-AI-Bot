@@ -235,12 +235,14 @@ handlers 同时会调用：
 
 ## 7. 常量与限制
 
-`config/constants.py` 中关键限制：
+`config/constants.py` 与 `config/settings.py` 中关键限制：
 
 | 常量 | 值 |
 |---|---|
 | `MAX_MESSAGE_LENGTH` | 4096 |
-| `STREAM_UPDATE_INTERVAL` | 1.0s |
+| `STREAM_UPDATE_INTERVAL` | 0.35s（可用环境变量覆盖） |
+| `STREAM_MIN_UPDATE_CHARS` | 24（可用环境变量覆盖） |
+| `STREAM_FORCE_UPDATE_INTERVAL` | 1.2s（可用环境变量覆盖） |
 | `DB_SYNC_INTERVAL` | 30s |
 | `MODELS_PER_PAGE` | 5 |
 | `MAX_FILE_SIZE` | 20MB |
@@ -612,6 +614,8 @@ handlers 同时会调用：
 
 - 首个可见 chunk 立即更新
 - 后续按 `STREAM_UPDATE_INTERVAL` 节流
+- 默认要求新增文本达到 `STREAM_MIN_UPDATE_CHARS` 或命中自然断句再刷新
+- 为避免长时间无更新，超过 `STREAM_FORCE_UPDATE_INTERVAL` 强制刷新一次
 - 使用占位光标 `▌`
 
 ### 15.2 thinking/reasoning 处理

@@ -11,6 +11,7 @@ from config import (
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_ENDPOINT,
     DEFAULT_ENABLED_TOOLS,
+    DEFAULT_CRON_ENABLED_TOOLS,
 )
 from database import get_connection, get_dict_cursor
 from database.schema import create_tables
@@ -34,6 +35,11 @@ def load_from_database() -> None:
                             api_presets = json.loads(row["api_presets"])
                         except (json.JSONDecodeError, TypeError):
                             pass
+                    enabled_tools = row.get("enabled_tools") or DEFAULT_ENABLED_TOOLS
+                    derived_cron_tools = ",".join(
+                        t for t in (x.strip().lower() for x in enabled_tools.split(","))
+                        if t and t != "memory"
+                    )
                     settings = {
                         "api_key": row["api_key"] or "",
                         "base_url": row["base_url"] or "https://api.openai.com/v1",
@@ -41,7 +47,8 @@ def load_from_database() -> None:
                         "temperature": row["temperature"] or 0.7,
                         "token_limit": row.get("token_limit") or 0,
                         "current_persona": row.get("current_persona") or "default",
-                        "enabled_tools": row.get("enabled_tools") or DEFAULT_ENABLED_TOOLS,
+                        "enabled_tools": enabled_tools,
+                        "cron_enabled_tools": row.get("cron_enabled_tools") or derived_cron_tools,
                         "tts_voice": row.get("tts_voice") or DEFAULT_TTS_VOICE,
                         "tts_style": row.get("tts_style") or DEFAULT_TTS_STYLE,
                         "tts_endpoint": row.get("tts_endpoint") or DEFAULT_TTS_ENDPOINT,
@@ -191,9 +198,9 @@ def sync_to_database() -> None:
                         INSERT INTO user_settings (
                             user_id, api_key, base_url, model, temperature,
                             token_limit, current_persona, enabled_tools,
-                            tts_voice, tts_style, tts_endpoint, api_presets, title_model, cron_model
+                            cron_enabled_tools, tts_voice, tts_style, tts_endpoint, api_presets, title_model, cron_model
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (user_id) DO UPDATE SET
                             api_key = EXCLUDED.api_key,
                             base_url = EXCLUDED.base_url,
@@ -202,6 +209,7 @@ def sync_to_database() -> None:
                             token_limit = EXCLUDED.token_limit,
                             current_persona = EXCLUDED.current_persona,
                             enabled_tools = EXCLUDED.enabled_tools,
+                            cron_enabled_tools = EXCLUDED.cron_enabled_tools,
                             tts_voice = EXCLUDED.tts_voice,
                             tts_style = EXCLUDED.tts_style,
                             tts_endpoint = EXCLUDED.tts_endpoint,
@@ -211,7 +219,8 @@ def sync_to_database() -> None:
                     """, (
                         user_id, s["api_key"], s["base_url"],
                         s["model"], s["temperature"], s["token_limit"], s["current_persona"],
-                        s["enabled_tools"], s.get("tts_voice", DEFAULT_TTS_VOICE),
+                        s["enabled_tools"], s.get("cron_enabled_tools", DEFAULT_CRON_ENABLED_TOOLS),
+                        s.get("tts_voice", DEFAULT_TTS_VOICE),
                         s.get("tts_style", DEFAULT_TTS_STYLE),
                         s.get("tts_endpoint", DEFAULT_TTS_ENDPOINT),
                         api_presets_json,

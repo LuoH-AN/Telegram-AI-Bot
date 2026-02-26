@@ -105,9 +105,20 @@ class FetchTool(BaseTool):
         for _ in range(MAX_REDIRECTS + 1):
             resp = self._session.get(current_url, allow_redirects=False)
             if resp.status_code in {301, 302, 303, 307, 308}:
-                location = (resp.headers.get("location") or "").strip()
+                # Try multiple header name cases (some servers use different cases)
+                location = (
+                    resp.headers.get("location")
+                    or resp.headers.get("Location")
+                    or resp.headers.get("LOCATION")
+                    or ""
+                ).strip()
                 if not location:
-                    raise RuntimeError("Redirect response without location")
+                    # Some servers use 3xx for non-redirect purposes, treat as success
+                    logger.warning(
+                        "Redirect status %d without location header, treating as success: %s",
+                        resp.status_code, current_url
+                    )
+                    break
                 current_url = self._validate_external_url(urljoin(current_url, location))
                 continue
             break

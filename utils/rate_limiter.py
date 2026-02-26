@@ -110,6 +110,8 @@ class QueuedRateLimiter(BaseRateLimiter[int]):
         overall_time_period: float = 1.0,
         per_chat_max_rate: float = 1.0,
         per_chat_time_period: float = 1.0,
+        per_chat_edit_max_rate: float | None = None,
+        per_chat_edit_time_period: float = 1.0,
         max_retries: int = 8,
         retry_jitter: float = 0.4,
         queue_warn_threshold: int = 100,
@@ -122,12 +124,21 @@ class QueuedRateLimiter(BaseRateLimiter[int]):
             if per_chat_max_rate > 0 and per_chat_time_period > 0
             else 0.0
         )
+        if per_chat_edit_max_rate is None:
+            self._per_chat_edit_interval = self._per_chat_interval
+        else:
+            self._per_chat_edit_interval = (
+                per_chat_edit_time_period / per_chat_edit_max_rate
+                if per_chat_edit_max_rate > 0 and per_chat_edit_time_period > 0
+                else 0.0
+            )
         self._max_retries = max_retries
         self._retry_jitter = max(0.0, retry_jitter)
         self._queue_warn_threshold = max(1, queue_warn_threshold)
 
         self._global_next_at = 0.0
         self._chat_next_at: dict[int | str, float] = {}
+        self._chat_edit_next_at: dict[int | str, float] = {}
 
         self._queue: list[_QueueItem] = []
         self._pending_edits: dict[str, _QueueItem] = {}
@@ -160,9 +171,11 @@ class QueuedRateLimiter(BaseRateLimiter[int]):
             self._initialized = True
             logger.info(
                 "Telegram queued rate limiter enabled "
-                "(global_interval=%.3fs, per_chat_interval=%.3fs, max_retries=%d)",
+                "(global_interval=%.3fs, per_chat_interval=%.3fs, "
+                "per_chat_edit_interval=%.3fs, max_retries=%d)",
                 self._overall_interval,
                 self._per_chat_interval,
+                self._per_chat_edit_interval,
                 self._max_retries,
             )
 
@@ -188,6 +201,9 @@ class QueuedRateLimiter(BaseRateLimiter[int]):
 
             self._queue.clear()
             self._pending_edits.clear()
+            self._chat_next_at.clear()
+            self._chat_edit_next_at.clear()
+            self._global_next_at = 0.0
             self._worker = None
             self._condition = None
             self._initialized = False
@@ -315,8 +331,12 @@ class QueuedRateLimiter(BaseRateLimiter[int]):
         if self._overall_interval > 0:
             next_allowed = max(next_allowed, self._global_next_at)
 
-        if item.chat_key is not None and self._per_chat_interval > 0:
-            next_allowed = max(next_allowed, self._chat_next_at.get(item.chat_key, 0.0))
+        if item.chat_key is not None:
+            if item.endpoint in _EDIT_ENDPOINTS:
+                if self._per_chat_edit_interval > 0:
+                    next_allowed = max(next_allowed, self._chat_edit_next_at.get(item.chat_key, 0.0))
+            elif self._per_chat_interval > 0:
+                next_allowed = max(next_allowed, self._chat_next_at.get(item.chat_key, 0.0))
 
         if next_allowed <= now:
             return False
@@ -369,10 +389,16 @@ class QueuedRateLimiter(BaseRateLimiter[int]):
 
         # RetryAfter usually targets the current chat; avoid blocking all chats.
         if item.chat_key is not None:
-            self._chat_next_at[item.chat_key] = max(
-                self._chat_next_at.get(item.chat_key, 0.0),
-                item.ready_at,
-            )
+            if item.endpoint in _EDIT_ENDPOINTS:
+                self._chat_edit_next_at[item.chat_key] = max(
+                    self._chat_edit_next_at.get(item.chat_key, 0.0),
+                    item.ready_at,
+                )
+            else:
+                self._chat_next_at[item.chat_key] = max(
+                    self._chat_next_at.get(item.chat_key, 0.0),
+                    item.ready_at,
+                )
         else:
             self._global_next_at = max(self._global_next_at, item.ready_at)
 
@@ -427,9 +453,14 @@ class QueuedRateLimiter(BaseRateLimiter[int]):
         if self._overall_interval > 0:
             self._global_next_at = max(self._global_next_at, now) + self._overall_interval
 
-        if item.chat_key is not None and self._per_chat_interval > 0:
-            chat_next = self._chat_next_at.get(item.chat_key, 0.0)
-            self._chat_next_at[item.chat_key] = max(chat_next, now) + self._per_chat_interval
+        if item.chat_key is not None:
+            if item.endpoint in _EDIT_ENDPOINTS:
+                if self._per_chat_edit_interval > 0:
+                    chat_next = self._chat_edit_next_at.get(item.chat_key, 0.0)
+                    self._chat_edit_next_at[item.chat_key] = max(chat_next, now) + self._per_chat_edit_interval
+            elif self._per_chat_interval > 0:
+                chat_next = self._chat_next_at.get(item.chat_key, 0.0)
+                self._chat_next_at[item.chat_key] = max(chat_next, now) + self._per_chat_interval
 
     def _clear_dedup_if_owner(self, item: _QueueItem) -> None:
         """Remove dedup pointer only when it still points to this request."""

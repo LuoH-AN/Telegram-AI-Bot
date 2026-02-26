@@ -3,8 +3,19 @@
 import json
 import logging
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
+
+TOOL_CALL_MAX_WORKERS = 4
+# Tools with side effects/order sensitivity run serially within a batch.
+SERIAL_ONLY_TOOL_NAMES = {
+    "save_memory",
+    "cron_create",
+    "cron_delete",
+    "cron_run",
+    "shell_exec",
+}
 
 
 class BaseTool(ABC):
@@ -77,49 +88,83 @@ class ToolRegistry:
             for defn in tool.definitions():
                 name_map[defn["function"]["name"]] = tool
 
-        results = []
-        for tc in tool_calls:
+        # Keep output order stable to match input tool_calls order.
+        results: list[dict | None] = [None] * len(tool_calls)
+        runnable: list[tuple[int, object, BaseTool, str, dict]] = []
+        force_serial = False
+
+        for idx, tc in enumerate(tool_calls):
             tc_name = tc.name.strip() if tc.name else tc.name
+            if tc_name in SERIAL_ONLY_TOOL_NAMES:
+                force_serial = True
             tool = name_map.get(tc_name)
             if tool is None:
                 logger.warning(f"No enabled tool registered for '{tc_name}'")
-                results.append({
+                results[idx] = {
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": f"Error: Unknown tool '{tc_name}'",
-                })
+                }
                 continue
             try:
                 args = json.loads(tc.arguments)
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse tool call arguments: {e}")
-                results.append({
+                results[idx] = {
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": f"Error: Invalid arguments - {e}",
-                })
+                }
                 continue
+            runnable.append((idx, tc, tool, tc_name, args))
+
+        def _execute_one(item: tuple[int, object, BaseTool, str, dict]) -> tuple[int, dict]:
+            idx, tc, tool, tc_name, args = item
             try:
                 result = tool.execute(user_id, tc_name, args)
             except Exception as e:
                 logger.exception("[user=%d] tool execution failed: %s", user_id, tc_name)
-                results.append({
+                return idx, {
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": f"Error: Tool execution failed - {e}",
-                })
-                continue
+                }
             logger.info("[user=%d] tool call: %s(%s)", user_id, tc_name, json.dumps(args, ensure_ascii=False)[:200])
             if result is not None:
                 logger.info("[user=%d] tool result: %s (%d chars)", user_id, tc_name, len(result))
             else:
                 logger.info("[user=%d] tool result: %s -> OK (fire-and-forget)", user_id, tc_name)
-            results.append({
+            return idx, {
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": result if result is not None else "OK",
-            })
-        return results
+            }
+
+        if len(runnable) == 1 or force_serial:
+            if force_serial and len(runnable) > 1:
+                logger.info(
+                    "[user=%d] serial-only tool detected, executing %d tool calls serially",
+                    user_id,
+                    len(runnable),
+                )
+            for item in runnable:
+                idx, result = _execute_one(item)
+                results[idx] = result
+        elif runnable:
+            workers = min(TOOL_CALL_MAX_WORKERS, len(runnable))
+            logger.info(
+                "[user=%d] executing %d tool calls in parallel (workers=%d)",
+                user_id,
+                len(runnable),
+                workers,
+            )
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tool-call") as pool:
+                futures = [pool.submit(_execute_one, item) for item in runnable]
+                for future in futures:
+                    idx, result = future.result()
+                    results[idx] = result
+
+        return [result for result in results if result is not None]
 
     def get_instructions(self, enabled_tools: str | list[str] | None = None) -> str:
         """Concatenate filtered tools' instruction strings."""

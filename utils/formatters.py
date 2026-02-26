@@ -450,3 +450,442 @@ def split_message(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> list[str]:
         chunks.append(current_chunk)
 
     return chunks
+
+
+# ── HTML to Markdown conversion ──
+
+def html_to_markdown(html_content: str, base_url: str = "") -> str:
+    """Convert HTML content to Markdown format.
+
+    Handles:
+    - Links: <a href="url">text</a> → [text](url)
+    - Images: <img src="url" alt="alt"> → ![alt](url)
+    - Headings: <h1>-<h6> → # to ######
+    - Lists: <ul>, <ol>, <li>
+    - Tables: <table>, <tr>, <th>, <td>
+    - Code: <code>, <pre>
+    - Blockquotes: <blockquote>
+    - Bold/Italic: <strong>, <b>, <em>, <i>
+    - Line breaks and paragraphs
+
+    Args:
+        html_content: The HTML string to convert.
+        base_url: Optional base URL for resolving relative links.
+
+    Returns:
+        Markdown formatted string.
+    """
+    from urllib.parse import urljoin
+
+    if not html_content or not html_content.strip():
+        return ""
+
+    # Remove HTML comments (including Vue/Nuxt SSR markers like <!--[--> and <!--]-->)
+    html_content = re.sub(r"<!--\[?-->", "", html_content)
+    html_content = re.sub(r"<!--.*?-->", "", html_content, flags=re.DOTALL)
+
+    # Simple HTML parser using regex (no external dependencies)
+    # For complex HTML, consider using BeautifulSoup or html2text library
+
+    result = []
+    pos = 0
+    length = len(html_content)
+
+    # Track list state
+    list_stack = []  # Stack of ('ul'|'ol', counter)
+    in_pre = False
+    in_code = False
+
+    def resolve_url(url: str) -> str:
+        """Resolve relative URL to absolute."""
+        if not url:
+            return url
+        if url.startswith(("http://", "https://", "mailto:", "tel:", "#", "data:")):
+            return url
+        if base_url:
+            return urljoin(base_url, url)
+        return url
+
+    def get_attr(tag: str, attr: str) -> str:
+        """Extract attribute value from HTML tag."""
+        import re
+        pattern = rf'{attr}\s*=\s*["\']([^"\']*)["\']'
+        match = re.search(pattern, tag, re.IGNORECASE)
+        return match.group(1) if match else ""
+
+    def process_text(text: str) -> str:
+        """Process text content: decode entities, normalize whitespace."""
+        import html
+        # Decode HTML entities
+        text = html.unescape(text)
+        # Normalize whitespace (but preserve intentional line breaks in pre)
+        if not in_pre:
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\n\s*\n", "\n\n", text)
+        return text
+
+    def handle_tag(tag: str, is_closing: bool) -> str:
+        """Handle HTML tags and return Markdown equivalent."""
+        nonlocal in_pre, in_code
+
+        tag_lower = tag.lower()
+
+        # Skip processing inside pre
+        if in_pre and tag_lower != "pre":
+            return ""
+
+        # Self-closing or opening tags
+        if not is_closing:
+            if tag_lower == "h1":
+                return "\n\n# "
+            elif tag_lower == "h2":
+                return "\n\n## "
+            elif tag_lower == "h3":
+                return "\n\n### "
+            elif tag_lower == "h4":
+                return "\n\n#### "
+            elif tag_lower == "h5":
+                return "\n\n##### "
+            elif tag_lower == "h6":
+                return "\n\n###### "
+
+            elif tag_lower == "p":
+                return "\n\n"
+
+            elif tag_lower == "br":
+                return "\n"
+
+            elif tag_lower == "hr":
+                return "\n\n---\n\n"
+
+            elif tag_lower in ("strong", "b"):
+                return "**"
+            elif tag_lower in ("em", "i"):
+                return "*"
+
+            elif tag_lower == "code":
+                in_code = True
+                return "`"
+            elif tag_lower == "pre":
+                in_pre = True
+                return "\n\n```\n"
+
+            elif tag_lower == "blockquote":
+                return "\n\n> "
+
+            elif tag_lower == "a":
+                return "["  # Content follows, then ](url)
+
+            elif tag_lower == "img":
+                src = resolve_url(get_attr(tag, "src"))
+                alt = get_attr(tag, "alt") or "image"
+                return f"![{alt}]({src})"
+
+            elif tag_lower == "ul":
+                list_stack.append(("ul", 0))
+                return "\n\n"
+            elif tag_lower == "ol":
+                list_stack.append(("ol", 0))
+                return "\n\n"
+            elif tag_lower == "li":
+                if list_stack:
+                    list_type, counter = list_stack[-1]
+                    if list_type == "ol":
+                        counter += 1
+                        list_stack[-1] = ("ol", counter)
+                        indent = "  " * (len(list_stack) - 1)
+                        return f"\n{indent}{counter}. "
+                    else:
+                        indent = "  " * (len(list_stack) - 1)
+                        return f"\n{indent}- "
+
+            elif tag_lower == "table":
+                return "\n\n"
+            elif tag_lower == "thead":
+                return ""
+            elif tag_lower == "tbody":
+                return ""
+            elif tag_lower == "tr":
+                return "\n|"
+            elif tag_lower in ("th", "td"):
+                return " "
+
+            elif tag_lower == "div":
+                return "\n"
+            elif tag_lower == "span":
+                return ""
+
+            # Skip script, style, noscript content
+            elif tag_lower in ("script", "style", "noscript", "head", "meta", "link"):
+                return ""
+
+        # Closing tags
+        else:
+            if tag_lower in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                return "\n\n"
+
+            elif tag_lower == "p":
+                return "\n\n"
+
+            elif tag_lower in ("strong", "b"):
+                return "**"
+            elif tag_lower in ("em", "i"):
+                return "*"
+
+            elif tag_lower == "code":
+                in_code = False
+                return "`"
+            elif tag_lower == "pre":
+                in_pre = False
+                return "\n```\n\n"
+
+            elif tag_lower == "blockquote":
+                return "\n\n"
+
+            elif tag_lower == "a":
+                return "]()"  # Will be fixed with actual URL
+
+            elif tag_lower == "ul":
+                if list_stack:
+                    list_stack.pop()
+                return "\n\n"
+            elif tag_lower == "ol":
+                if list_stack:
+                    list_stack.pop()
+                return "\n\n"
+            elif tag_lower == "li":
+                return ""
+
+            elif tag_lower == "tr":
+                return ""
+            elif tag_lower in ("th", "td"):
+                return " |"
+            elif tag_lower == "table":
+                return "\n"
+
+            elif tag_lower == "div":
+                return "\n"
+            elif tag_lower == "span":
+                return ""
+
+        return ""
+
+    # Process HTML content
+    output = []
+
+    # Regex to find tags
+    tag_pattern = re.compile(r"<(/?)(\w+)([^>]*)>", re.IGNORECASE | re.DOTALL)
+
+    # Find all tags and their positions
+    matches = list(tag_pattern.finditer(html_content))
+
+    # Track links to insert URL after text
+    pending_link_url = None
+    last_pos = 0
+
+    for match in matches:
+        # Add text before this tag
+        text_before = html_content[last_pos:match.start()]
+        if text_before:
+            output.append(process_text(text_before))
+
+        last_pos = match.end()
+
+        is_closing = bool(match.group(1))
+        tag_name = match.group(2).lower()
+        full_tag = match.group(0)
+        attrs = match.group(3)
+
+        # Skip script/style content
+        if tag_name in ("script", "style", "noscript", "head"):
+            # Find closing tag
+            close_pattern = re.compile(rf"</{tag_name}\s*>", re.IGNORECASE)
+            close_match = close_pattern.search(html_content, last_pos)
+            if close_match:
+                last_pos = close_match.end()
+            continue
+
+        # Handle link: store URL for after text
+        if tag_name == "a" and not is_closing:
+            pending_link_url = resolve_url(get_attr(full_tag, "href"))
+            output.append("[")
+        elif tag_name == "a" and is_closing and pending_link_url:
+            output.append(f"]({pending_link_url})")
+            pending_link_url = None
+
+        # Handle image
+        elif tag_name == "img" and not is_closing:
+            src = resolve_url(get_attr(full_tag, "src"))
+            alt = get_attr(full_tag, "alt") or "image"
+            output.append(f"![{alt}]({src})")
+
+        # Handle headings
+        elif tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
+            if not is_closing:
+                level = int(tag_name[1])
+                output.append(f"\n\n{'#' * level} ")
+            else:
+                output.append("\n\n")
+
+        # Handle lists
+        elif tag_name == "ul":
+            if not is_closing:
+                list_stack.append(("ul", 0))
+                output.append("\n\n")
+            else:
+                if list_stack:
+                    list_stack.pop()
+                output.append("\n\n")
+        elif tag_name == "ol":
+            if not is_closing:
+                list_stack.append(("ol", 0))
+                output.append("\n\n")
+            else:
+                if list_stack:
+                    list_stack.pop()
+                output.append("\n\n")
+        elif tag_name == "li":
+            if not is_closing and list_stack:
+                list_type, counter = list_stack[-1]
+                indent = "  " * (len(list_stack) - 1)
+                if list_type == "ol":
+                    counter += 1
+                    list_stack[-1] = ("ol", counter)
+                    output.append(f"\n{indent}{counter}. ")
+                else:
+                    output.append(f"\n{indent}- ")
+
+        # Handle formatting
+        elif tag_name in ("strong", "b"):
+            output.append("**")
+        elif tag_name in ("em", "i"):
+            output.append("*")
+        elif tag_name == "code":
+            # Skip backticks if already inside <pre>
+            if not in_pre:
+                if not is_closing:
+                    in_code = True
+                output.append("`")
+                if is_closing:
+                    in_code = False
+        elif tag_name == "pre":
+            if not is_closing:
+                in_pre = True
+                output.append("\n\n```\n")
+            else:
+                in_pre = False
+                output.append("\n```\n\n")
+        elif tag_name == "blockquote":
+            if not is_closing:
+                output.append("\n\n> ")
+            else:
+                output.append("\n\n")
+
+        # Handle line breaks
+        elif tag_name == "br":
+            output.append("\n")
+        elif tag_name == "hr":
+            output.append("\n\n---\n\n")
+
+        # Handle paragraphs
+        elif tag_name == "p":
+            output.append("\n\n")
+
+        # Handle tables
+        elif tag_name == "table":
+            output.append("\n\n")
+        elif tag_name == "tr":
+            if not is_closing:
+                output.append("\n|")
+            else:
+                output.append("")  # Row already has content, just ensure clean end
+        elif tag_name in ("th", "td"):
+            if not is_closing:
+                output.append(" ")
+            else:
+                output.append(" |")
+
+        # Handle div/span (minimal impact)
+        elif tag_name == "div":
+            if is_closing:
+                output.append("\n")
+        elif tag_name == "span":
+            pass  # No markdown equivalent
+
+    # Add remaining text
+    if last_pos < len(html_content):
+        output.append(process_text(html_content[last_pos:]))
+
+    # Join and clean up
+    result = "".join(output)
+
+    # Clean up excessive newlines
+    result = re.sub(r"\n{3,}", "\n\n", result)
+
+    # Clean up spaces at start of lines
+    result = re.sub(r"^ +$", "", result, flags=re.MULTILINE)
+
+    # Clean up empty table cells markers
+    result = re.sub(r"\| +\|", "| |", result)
+
+    # Add header row separator for tables
+    # First, merge table rows that are separated by blank lines
+    def merge_table_rows(text: str) -> str:
+        lines = text.split("\n")
+        result_lines = []
+        in_table = False
+
+        for line in lines:
+            is_table_row = line.strip().startswith("|") and line.strip().endswith("|")
+
+            if is_table_row:
+                if not in_table:
+                    in_table = True
+                result_lines.append(line)
+            else:
+                # Non-table line
+                if in_table and line.strip() == "":
+                    # Skip blank lines inside table
+                    continue
+                in_table = False
+                result_lines.append(line)
+
+        return "\n".join(result_lines)
+
+    result = merge_table_rows(result)
+
+    # Add separator after first table row
+    def add_table_separator(text: str) -> str:
+        lines = text.split("\n")
+        result_lines = []
+        separator_added = False
+
+        for i, line in enumerate(lines):
+            result_lines.append(line)
+
+            is_table_row = line.strip().startswith("|") and line.strip().endswith("|")
+
+            if is_table_row:
+                if not separator_added:
+                    # Check if next line is also a table row
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line.startswith("|") and not next_line.startswith("|-"):
+                            cells = [c.strip() for c in line.split("|")[1:-1]]
+                            if cells:
+                                separator = "|" + "|".join(["---"] * len(cells)) + "|"
+                                result_lines.append(separator)
+                                separator_added = True
+            else:
+                # Reset for next table
+                separator_added = False
+
+        return "\n".join(result_lines)
+
+    result = add_table_separator(result)
+
+    # Fix pre+code: remove redundant backticks (shouldn't happen now, but keep as safety)
+    result = re.sub(r"```\n`\n", "```\n", result)
+    result = re.sub(r"\n`\n```\n", "\n```\n", result)
+
+    return result.strip()

@@ -59,6 +59,35 @@ def add_memory(user_id: int, content: str, source: str = "user") -> dict:
     return cache.add_memory(user_id, content, source, embedding=embedding)
 
 
+def update_memory(user_id: int, index: int, content: str) -> bool:
+    """Update a memory by index (1-based), preserving list order.
+
+    This uses delete + add under the hood so existing cache dirty-sync logic
+    can persist changes without introducing a dedicated "update" dirty path.
+    """
+    zero_index = index - 1
+    content = content.strip()
+    if not content:
+        return False
+
+    memories = cache.get_memories(user_id)
+    if not (0 <= zero_index < len(memories)):
+        return False
+
+    source = memories[zero_index].get("source", "user")
+    embedding = get_embedding(content)
+
+    # Remove old memory then add new one so DB sync naturally handles it.
+    cache.delete_memory(user_id, zero_index)
+    cache.add_memory(user_id, content, source, embedding=embedding)
+
+    # Keep edited memory at its original position instead of moving to end.
+    if zero_index < len(memories) - 1:
+        memories.insert(zero_index, memories.pop())
+
+    return True
+
+
 def delete_memory(user_id: int, index: int) -> bool:
     """Delete a memory by index (1-based for user display, converted to 0-based).
 

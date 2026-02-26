@@ -10,7 +10,15 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from config import MAX_MESSAGE_LENGTH, STREAM_UPDATE_INTERVAL
+from config import (
+    MAX_MESSAGE_LENGTH,
+    STREAM_UPDATE_INTERVAL,
+    STREAM_MIN_UPDATE_CHARS,
+    STREAM_FORCE_UPDATE_INTERVAL,
+    STREAM_UPDATE_MODE,
+    STREAM_TIME_MODE_INTERVAL,
+    STREAM_CHARS_MODE_INTERVAL,
+)
 from services import (
     get_user_settings,
     ensure_session,
@@ -81,6 +89,8 @@ TOOL_STATUS_MAP = {
     "page_content": "🌐 Extracting page content...",
 }
 
+STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
+
 
 def _estimate_tokens_str(text: str) -> int:
     """Rough token estimate: ~4 chars per token for English, ~2 for CJK."""
@@ -121,7 +131,7 @@ def _tool_dedup_key(tc):
     return f"{tc.name}:{tc.arguments}"
 
 
-async def _stream_response(client, messages, model, temperature, tools, bot_message, show_waiting=True):
+async def _stream_response(client, messages, model, temperature, tools, bot_message, show_waiting=True, stream_mode="default"):
     """Stream an AI response, updating bot_message in real-time.
 
     The synchronous OpenAI streaming iterator is wrapped with run_in_executor
@@ -130,6 +140,10 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
     Args:
         show_waiting: Show "Thinking for Xs" waiting indicator.  Set to False
                       on subsequent tool rounds to reduce Telegram message edits.
+        stream_mode: Update mode for streaming:
+                     - "default": original behavior (time + chars conditions)
+                     - "time": update every second regardless of chars
+                     - "chars": update every 100 chars regardless of time
 
     Returns:
         (full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason)
@@ -159,6 +173,7 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
     # Thinking/reasoning tracking
     thinking_start_time = None
     thinking_seconds = 0
+    thinking_locked = False
 
     # Generic waiting indicator ("Thinking for Xs" before content/reasoning arrives)
     waiting_start_time = loop.time()
@@ -225,8 +240,11 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
             # Build thinking prefix for display
             thinking_prefix = ""
             if thinking_start_time is not None and display_text:
-                # Finalize thinking duration when content first appears
-                thinking_seconds = max(1, int(current_time - thinking_start_time))
+                # Lock thinking duration when visible content first appears.
+                # Do not keep extending it while normal content continues streaming.
+                if not thinking_locked:
+                    thinking_seconds = max(1, int(current_time - thinking_start_time))
+                    thinking_locked = True
                 thinking_prefix = f"_Thought for {thinking_seconds}s_\n\n"
 
             # First visible chunk: update immediately, skip throttle interval
@@ -236,14 +254,30 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
                 last_update_time = current_time
                 last_update_length = len(display_text)
                 first_chunk = False
-            elif (
-                current_time - last_update_time >= STREAM_UPDATE_INTERVAL
-                and len(display_text) > last_update_length
-                and display_text
-            ):
-                await edit_message_safe(bot_message, thinking_prefix + display_text + " ▌")
-                last_update_time = current_time
-                last_update_length = len(display_text)
+            elif display_text and len(display_text) > last_update_length:
+                new_chars = len(display_text) - last_update_length
+                elapsed = current_time - last_update_time
+                ends_with_boundary = display_text[-1] in STREAM_BOUNDARY_CHARS
+
+                # Determine if we should update based on stream_mode
+                if stream_mode == "time":
+                    # Time mode: update every STREAM_TIME_MODE_INTERVAL seconds
+                    should_update = elapsed >= STREAM_TIME_MODE_INTERVAL
+                elif stream_mode == "chars":
+                    # Chars mode: update every STREAM_CHARS_MODE_INTERVAL characters
+                    should_update = new_chars >= STREAM_CHARS_MODE_INTERVAL
+                else:
+                    # Default mode: original behavior (time + chars OR force update)
+                    should_update = (
+                        (elapsed >= STREAM_UPDATE_INTERVAL and new_chars >= STREAM_MIN_UPDATE_CHARS)
+                        or (elapsed >= STREAM_UPDATE_INTERVAL and ends_with_boundary)
+                        or (elapsed >= STREAM_FORCE_UPDATE_INTERVAL)
+                    )
+
+                if should_update:
+                    await edit_message_safe(bot_message, thinking_prefix + display_text + " ▌")
+                    last_update_time = current_time
+                    last_update_length = len(display_text)
 
         if chunk.tool_calls:
             all_tool_calls.extend(chunk.tool_calls)
@@ -256,8 +290,8 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
     if waiting_task and not waiting_task.done():
         waiting_task.cancel()
 
-    # Finalize thinking seconds at stream end
-    if thinking_start_time is not None:
+    # Finalize thinking seconds at stream end only if no visible content ever appeared.
+    if thinking_start_time is not None and not thinking_locked:
         thinking_seconds = max(1, int(loop.time() - thinking_start_time))
 
     return full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason
@@ -393,6 +427,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         total_completion_tokens = 0
         total_thinking_seconds = 0
 
+        # Get user's stream_mode setting (default/time/chars)
+        user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
+
         # Tool call loop: stream response, process tools, re-call if needed
         last_text_response = ""  # fallback if final round is empty
         seen_tool_keys = set()   # dedup: prevent re-executing the same operation
@@ -403,6 +440,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _stream_response(
                 client, messages, settings["model"], settings["temperature"],
                 tools, bot_message, show_waiting=(round_num == 0),
+                stream_mode=user_stream_mode,
             )
             total_thinking_seconds += thinking_seconds
 
@@ -570,6 +608,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             full_response, usage_info, _, thinking_seconds, _ = await _stream_response(
                 client, messages, settings["model"], settings["temperature"],
                 None, bot_message, show_waiting=False,
+                stream_mode=user_stream_mode,
             )
             total_thinking_seconds += thinking_seconds
             if usage_info:

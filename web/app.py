@@ -14,6 +14,7 @@ from web.routes.usage import router as usage_router
 from web.routes.providers import router as providers_router
 from web.routes.sessions import router as sessions_router
 from web.routes.cron import router as cron_router
+from web.routes.memories import router as memories_router
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
     app.include_router(providers_router)
     app.include_router(sessions_router)
     app.include_router(cron_router)
+    app.include_router(memories_router)
 
     # Log all /api/ requests with user context
     @app.middleware("http")
@@ -62,6 +64,13 @@ def create_app() -> FastAPI:
         short = body.get("token", "")
         jwt_token = exchange_short_token(short)
         return {"token": jwt_token}
+
+    # Mount MCP server (share same port with web dashboard)
+    try:
+        from tools.mcp_server import mount_mcp_to_app
+        mount_mcp_to_app(app)
+    except Exception as e:
+        logger.warning("Failed to mount MCP server: %s", e)
 
     # Static files
     static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")

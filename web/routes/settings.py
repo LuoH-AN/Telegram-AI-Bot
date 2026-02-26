@@ -10,7 +10,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 ALLOWED_FIELDS = {
     "base_url", "model", "temperature",
-    "enabled_tools", "tts_voice", "tts_style", "tts_endpoint", "title_model", "cron_model",
+    "enabled_tools", "cron_enabled_tools",
+    "tts_voice", "tts_style", "tts_endpoint", "title_model", "cron_model",
 }
 
 
@@ -19,6 +20,7 @@ class SettingsUpdate(BaseModel):
     model: str | None = None
     temperature: float | None = None
     enabled_tools: str | None = None
+    cron_enabled_tools: str | None = None
     tts_voice: str | None = None
     tts_style: str | None = None
     tts_endpoint: str | None = None

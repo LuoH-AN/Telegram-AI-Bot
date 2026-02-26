@@ -50,6 +50,7 @@ from .export_service import (
 from .memory_service import (
     get_memories,
     add_memory,
+    update_memory,
     delete_memory,
     clear_memories,
     get_memory_count,
@@ -121,6 +122,7 @@ __all__ = [
     # Memory service
     "get_memories",
     "add_memory",
+    "update_memory",
     "delete_memory",
     "clear_memories",
     "get_memory_count",

@@ -13,15 +13,17 @@ import threading
 import time
 from urllib.parse import urlparse
 
+from utils import html_to_markdown
+
 from .registry import BaseTool
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONTENT_LENGTH = 15000
 MAX_CONTENT_LENGTH = 80000
-PAGE_TIMEOUT_MS = 30_000
-DEFAULT_WAIT = 2
-MAX_WAIT = 10
+PAGE_TIMEOUT_MS = 60_000
+DEFAULT_WAIT = 5
+MAX_WAIT = 15
 
 # Realistic Chrome UA to reduce bot detection
 _USER_AGENT = (
@@ -384,7 +386,7 @@ class PlaywrightTool(BaseTool):
             context = _new_stealth_context(browser)
             page = context.new_page()
             try:
-                page.goto(_url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
+                page.goto(_url, timeout=PAGE_TIMEOUT_MS, wait_until="networkidle")
                 if _wait > 0:
                     time.sleep(_wait)
                 cf_err = _wait_for_cf_pass(page)
@@ -435,27 +437,36 @@ class PlaywrightTool(BaseTool):
             context = _new_stealth_context(browser)
             page = context.new_page()
             try:
-                page.goto(_url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
+                # Use networkidle for better JS rendering on SPA sites
+                page.goto(_url, timeout=PAGE_TIMEOUT_MS, wait_until="networkidle")
                 if _wait > 0:
                     time.sleep(_wait)
                 cf_err = _wait_for_cf_pass(page)
                 if cf_err:
                     return ("cf_blocked", cf_err)
-                return ("ok", page.inner_text("body"))
+                # Get HTML content and convert to Markdown (preserves links)
+                html = page.content()
+                return ("ok", html, _url)
             finally:
                 page.close()
                 context.close()
 
         try:
-            status, result = _run_on_worker(_do, url, wait)
+            result = _run_on_worker(_do, url, wait)
         except Exception as e:
             logger.exception("page_content failed for '%s'", url)
             return f"Content extraction failed: {e}"
 
-        if status == "cf_blocked":
-            return result
+        if result[0] == "cf_blocked":
+            return result[1]
 
-        text = result
+        _, html, page_url = result
+
+        if not html or not html.strip():
+            return "Page returned empty content."
+
+        # Convert HTML to Markdown (preserves links, images, tables, etc.)
+        text = html_to_markdown(html, base_url=page_url)
 
         if not text or not text.strip():
             return "Page returned empty content."
