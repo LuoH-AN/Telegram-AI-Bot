@@ -193,10 +193,17 @@ def _execute_cron_task(bot, task: dict) -> None:
         # Build system prompt
         system_prompt = get_system_prompt(user_id)
         system_prompt += "\n\n" + get_datetime_prompt()
+        platform_hint = "this platform"
+        if hasattr(bot, "send_message"):
+            platform_hint = "Telegram"
+        elif hasattr(bot, "fetch_user"):
+            platform_hint = "Discord DM"
+
         system_prompt += (
             "\n\nYou are executing a scheduled task. Provide a concise, useful response. "
             "Use available tools (search, fetch, etc.) as needed to fulfill the task."
         )
+        system_prompt += f"\n\nScheduled task results are delivered via {platform_hint}."
         system_prompt += f"\n\nAllowed tools for this scheduled task: {enabled_tools or '(none)'}"
 
         messages = [
@@ -284,7 +291,7 @@ def _execute_cron_task(bot, task: dict) -> None:
         # Prepend task header
         result_text = f"[Scheduled: {task_name}]\n\n{final_text}"
 
-        # Send to user via Telegram
+        # Send to user via the active runtime platform
         _heartbeat_phase[0] = "sending message"
         _send_message(bot, user_id, result_text)
 
@@ -308,31 +315,46 @@ def _execute_cron_task(bot, task: dict) -> None:
 
 
 def _send_message(bot, chat_id: int, text: str) -> None:
-    """Send a message from a background thread.
-
-    Uses run_coroutine_threadsafe to schedule the send on the main event loop,
-    reusing the bot's existing httpx connection pool.  This avoids both
-    'Event loop is closed' errors and DNS resolution issues in containers.
-    """
+    """Send a cron result message using the active runtime platform."""
     from utils.formatters import markdown_to_telegram_html, split_message
-    from telegram.constants import ParseMode
-
-    html_text = markdown_to_telegram_html(text)
-
-    # Split if too long (Telegram limit 4096)
-    chunks = split_message(html_text, max_length=4096)
 
     loop = _main_loop
     if loop is None or loop.is_closed():
         logger.error("Main event loop not available, cannot send cron message")
         return
 
-    for chunk in chunks:
-        future = asyncio.run_coroutine_threadsafe(
-            bot.send_message(chat_id=chat_id, text=chunk, parse_mode=ParseMode.HTML),
-            loop,
-        )
+    # Telegram bot instance (python-telegram-bot)
+    if hasattr(bot, "send_message"):
+        from telegram.constants import ParseMode
+
+        html_text = markdown_to_telegram_html(text)
+        chunks = split_message(html_text, max_length=4096)
+        for chunk in chunks:
+            future = asyncio.run_coroutine_threadsafe(
+                bot.send_message(chat_id=chat_id, text=chunk, parse_mode=ParseMode.HTML),
+                loop,
+            )
+            future.result(timeout=60)
+        return
+
+    # Discord bot instance (discord.py)
+    if hasattr(bot, "fetch_user"):
+        chunks = split_message(text, max_length=2000)
+
+        async def _send_discord_dm() -> None:
+            user = bot.get_user(chat_id)
+            if user is None:
+                user = await bot.fetch_user(chat_id)
+            if user is None:
+                raise RuntimeError(f"Discord user {chat_id} not found")
+            for chunk in chunks:
+                await user.send(chunk)
+
+        future = asyncio.run_coroutine_threadsafe(_send_discord_dm(), loop)
         future.result(timeout=60)
+        return
+
+    logger.error("Unsupported bot type for cron delivery: %s", type(bot).__name__)
 
 
 def _scheduler_loop(bot) -> None:
@@ -396,13 +418,14 @@ def start_cron_scheduler(bot) -> None:
     _bot_ref = bot
     thread = threading.Thread(target=_scheduler_loop, args=(bot,), daemon=True)
     thread.start()
-    logger.info("Cron scheduler started (poll interval: %ds)", _POLL_INTERVAL)
+    platform = "telegram" if hasattr(bot, "send_message") else "discord" if hasattr(bot, "fetch_user") else "unknown"
+    logger.info("Cron scheduler started (platform=%s, poll interval=%ds)", platform, _POLL_INTERVAL)
 
 
 def run_cron_task(user_id: int, task_name: str) -> str:
     """Manually trigger a cron task by name. Called from CronTool.execute (sync thread).
 
-    Returns a status message. The actual AI execution + Telegram delivery
+    Returns a status message. The actual AI execution + platform delivery
     happens in a background thread (same as scheduled runs).
     """
     if _bot_ref is None:

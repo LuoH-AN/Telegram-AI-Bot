@@ -61,6 +61,7 @@ pinned: false
 - `!clear`
 - `!settings`
 - `!set <key> <value>`
+- `!export`
 - `!usage`
 - `!remember <text>`
 - `!memories`

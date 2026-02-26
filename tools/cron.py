@@ -16,7 +16,7 @@ CRON_CREATE_TOOL = {
         "description": (
             "Create a scheduled task that runs periodically. "
             "The prompt will be sent to the AI at the scheduled time, "
-            "and the result will be sent to the user via Telegram."
+            "and the result will be sent to the user on the current platform."
         ),
         "parameters": {
             "type": "object",
@@ -77,7 +77,7 @@ CRON_RUN_TOOL = {
     "type": "function",
     "function": {
         "name": "cron_run",
-        "description": "Manually trigger a scheduled task to run immediately. The result will be sent as a separate message.",
+        "description": "Manually trigger a scheduled task to run immediately. The result will be sent as a separate message on the current platform.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -180,7 +180,7 @@ class CronTool(BaseTool):
         return (
             "\n\nYou can manage scheduled tasks using cron tools "
             "(cron_create, cron_list, cron_delete, cron_run). "
-            "Tasks run on a cron schedule (UTC+8 Beijing time) and send results to the user via Telegram. "
+            "Tasks run on a cron schedule (UTC+8 Beijing time) and send results to the user on the current platform. "
             "Use cron_run to manually trigger a task immediately. "
             "The prompt can use tools like web_search. Max 10 tasks per user."
         )

@@ -17,6 +17,12 @@ from config import (
     DISCORD_BOT_TOKEN,
     DISCORD_COMMAND_PREFIX,
     HEALTH_CHECK_PORT,
+    STREAM_UPDATE_INTERVAL,
+    STREAM_MIN_UPDATE_CHARS,
+    STREAM_FORCE_UPDATE_INTERVAL,
+    STREAM_UPDATE_MODE,
+    STREAM_TIME_MODE_INTERVAL,
+    STREAM_CHARS_MODE_INTERVAL,
     MAX_FILE_SIZE,
     MAX_TEXT_CONTENT_LENGTH,
     MIME_TYPE_MAP,
@@ -48,6 +54,7 @@ from services import (
     get_total_tokens_all_personas,
     get_token_limit,
     get_usage_percentage,
+    export_to_markdown,
     set_token_limit,
     reset_token_usage,
     get_memories,
@@ -68,6 +75,7 @@ from services import (
     generate_session_title,
 )
 from services.log_service import record_ai_interaction, record_error
+from services.cron_service import start_cron_scheduler, set_main_loop
 from tools import (
     get_all_tools,
     process_tool_calls,
@@ -105,8 +113,11 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 DISCORD_MAX_MESSAGE_LENGTH = 2000
 MAX_TOOL_ROUNDS = 3
 TOOL_TIMEOUT = 30
+STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
+STREAM_PREVIEW_PREFIX = "[...]\n"
+CRON_SCHEDULER_STARTED = False
 
-AVAILABLE_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "playwright"]
+AVAILABLE_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"]
 TOOL_STATUS_MAP = {
     "web_search": "Searching...",
     "url_fetch": "Fetching page...",
@@ -114,6 +125,10 @@ TOOL_STATUS_MAP = {
     "tts_speak": "Generating voice...",
     "tts_list_voices": "Loading voices...",
     "shell_exec": "Running command...",
+    "cron_create": "Creating scheduled task...",
+    "cron_list": "Listing scheduled tasks...",
+    "cron_delete": "Deleting scheduled task...",
+    "cron_run": "Running scheduled task...",
     "page_screenshot": "Taking screenshot...",
     "page_content": "Extracting page content...",
 }
@@ -167,10 +182,12 @@ def _resolve_enabled_tools_for_discord(settings: dict) -> str:
 
 
 def _resolve_cron_tools_for_display(settings: dict) -> str:
-    explicit = settings.get("cron_enabled_tools", "")
+    explicit = _normalize_tools_csv(settings.get("cron_enabled_tools", ""))
     if explicit:
         return explicit
-    return "(auto: enabled tools without memory)"
+    derived = _normalize_tools_csv(settings.get("enabled_tools", ""))
+    derived_list = [t for t in derived.split(",") if t and t != "memory"]
+    return ",".join(derived_list)
 
 
 def _estimate_tokens_str(text: str) -> int:
@@ -193,6 +210,25 @@ def _estimate_tokens(messages: Sequence[dict]) -> int:
             )
         total += _estimate_tokens_str(str(content)) + 4
     return total
+
+
+def _normalize_stream_mode(mode: str | None) -> str:
+    current = (mode or "").strip().lower()
+    if current in {"default", "time", "chars"}:
+        return current
+    return "default"
+
+
+def _build_stream_preview(display_text: str, *, thinking_prefix: str = "", cursor: bool = True) -> str:
+    suffix = " ▌" if cursor else ""
+    text = f"{thinking_prefix}{display_text}{suffix}"
+    if len(text) <= DISCORD_MAX_MESSAGE_LENGTH:
+        return text
+
+    keep = DISCORD_MAX_MESSAGE_LENGTH - len(STREAM_PREVIEW_PREFIX)
+    if keep <= 0:
+        return STREAM_PREVIEW_PREFIX[:DISCORD_MAX_MESSAGE_LENGTH]
+    return STREAM_PREVIEW_PREFIX + text[-keep:]
 
 
 def _tool_dedup_key(tc: ToolCall) -> str:
@@ -254,34 +290,155 @@ async def _send_ctx_reply(ctx: commands.Context, text: str) -> None:
             await ctx.send(chunk)
 
 
-async def _run_completion_round(
+async def _run_stream_completion_round(
     user_id: int,
     messages: list[dict],
     model: str,
     temperature: float,
     tools: list[dict] | None,
-) -> tuple[str, dict | None, list[ToolCall]]:
+    placeholder: discord.Message,
+    *,
+    show_waiting: bool = True,
+    stream_mode: str = "default",
+) -> tuple[str, dict | None, list[ToolCall], int, str | None]:
     client = get_ai_client(user_id)
     loop = asyncio.get_running_loop()
+    mode = _normalize_stream_mode(stream_mode)
 
-    chunks = await loop.run_in_executor(
+    stream = await loop.run_in_executor(
         None,
-        lambda: list(
-            client.chat_completion(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                stream=False,
-                tools=tools,
-            )
+        lambda: client.chat_completion(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            stream=True,
+            tools=tools,
         ),
     )
 
-    if not chunks:
-        return "", None, []
+    full_response = ""
+    usage_info = None
+    all_tool_calls: list[ToolCall] = []
+    finish_reason = None
 
-    chunk = chunks[0]
-    return (chunk.content or "", chunk.usage, chunk.tool_calls or [])
+    last_update_time = 0.0
+    last_update_length = 0
+    first_visible_chunk = True
+
+    thinking_start_time = None
+    thinking_seconds = 0
+    thinking_locked = False
+
+    waiting_start_time = loop.time()
+    waiting_active = show_waiting
+
+    async def _update_waiting() -> None:
+        try:
+            while True:
+                await asyncio.sleep(1)
+                if not waiting_active:
+                    break
+                elapsed = max(1, int(loop.time() - waiting_start_time))
+                await _safe_edit_message(placeholder, f"Thinking for {elapsed}s")
+        except asyncio.CancelledError:
+            pass
+
+    waiting_task = asyncio.create_task(_update_waiting()) if show_waiting else None
+
+    end_marker = object()
+    it = iter(stream)
+
+    try:
+        while True:
+            chunk = await loop.run_in_executor(None, next, it, end_marker)
+            if chunk is end_marker:
+                break
+
+            if chunk.usage is not None:
+                usage_info = chunk.usage
+
+            current_time = loop.time()
+
+            if chunk.reasoning and thinking_start_time is None:
+                waiting_active = False
+                thinking_start_time = current_time
+                thinking_seconds = 1
+                await _safe_edit_message(placeholder, "Thought for 1s")
+                last_update_time = current_time
+
+            if thinking_start_time is not None:
+                new_seconds = max(1, int(current_time - thinking_start_time))
+                display_text_now = filter_thinking_content(full_response, streaming=True) if full_response else ""
+                if not display_text_now and new_seconds > thinking_seconds and current_time - last_update_time >= 1.0:
+                    thinking_seconds = new_seconds
+                    await _safe_edit_message(placeholder, f"Thought for {thinking_seconds}s")
+                    last_update_time = current_time
+
+            if chunk.content:
+                full_response += chunk.content
+                display_text = filter_thinking_content(full_response, streaming=True)
+
+                if not display_text and full_response.strip() and thinking_start_time is None:
+                    waiting_active = False
+                    thinking_start_time = current_time
+                    thinking_seconds = 1
+                    await _safe_edit_message(placeholder, "Thought for 1s")
+                    last_update_time = current_time
+
+                thinking_prefix = ""
+                if thinking_start_time is not None and display_text:
+                    if not thinking_locked:
+                        thinking_seconds = max(1, int(current_time - thinking_start_time))
+                        thinking_locked = True
+                    thinking_prefix = f"_Thought for {thinking_seconds}s_\n\n"
+
+                if first_visible_chunk and display_text:
+                    waiting_active = False
+                    await _safe_edit_message(
+                        placeholder,
+                        _build_stream_preview(display_text, thinking_prefix=thinking_prefix, cursor=True),
+                    )
+                    last_update_time = current_time
+                    last_update_length = len(display_text)
+                    first_visible_chunk = False
+                elif display_text and len(display_text) > last_update_length:
+                    new_chars = len(display_text) - last_update_length
+                    elapsed = current_time - last_update_time
+                    ends_with_boundary = display_text[-1] in STREAM_BOUNDARY_CHARS
+
+                    if mode == "time":
+                        should_update = elapsed >= STREAM_TIME_MODE_INTERVAL
+                    elif mode == "chars":
+                        should_update = new_chars >= STREAM_CHARS_MODE_INTERVAL
+                    else:
+                        should_update = (
+                            (elapsed >= STREAM_UPDATE_INTERVAL and new_chars >= STREAM_MIN_UPDATE_CHARS)
+                            or (elapsed >= STREAM_UPDATE_INTERVAL and ends_with_boundary)
+                            or (elapsed >= STREAM_FORCE_UPDATE_INTERVAL)
+                        )
+
+                    if should_update:
+                        await _safe_edit_message(
+                            placeholder,
+                            _build_stream_preview(display_text, thinking_prefix=thinking_prefix, cursor=True),
+                        )
+                        last_update_time = current_time
+                        last_update_length = len(display_text)
+
+            if chunk.tool_calls:
+                all_tool_calls.extend(chunk.tool_calls)
+
+            if chunk.finish_reason:
+                finish_reason = chunk.finish_reason
+    finally:
+        waiting_active = False
+        if waiting_task and not waiting_task.done():
+            waiting_task.cancel()
+
+    if thinking_start_time is not None and not thinking_locked:
+        thinking_seconds = max(1, int(loop.time() - thinking_start_time))
+
+    return full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason
 
 
 async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
@@ -504,6 +661,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
     settings = get_user_settings(user_id)
     enabled_tools = _resolve_enabled_tools_for_discord(settings)
+    user_stream_mode = _normalize_stream_mode(settings.get("stream_mode", "") or STREAM_UPDATE_MODE)
     session_id = ensure_session(user_id, persona_name)
     conversation = list(get_conversation(session_id))
 
@@ -547,18 +705,24 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         tools = get_all_tools(enabled_tools=enabled_tools)
         total_prompt_tokens = 0
         total_completion_tokens = 0
+        total_thinking_seconds = 0
         seen_tool_keys: set[str] = set()
         last_text_response = ""
         tool_results_pending = False
+        truncated_prefix = ""
 
         for round_num in range(MAX_TOOL_ROUNDS + 1):
-            full_response, usage_info, tool_calls = await _run_completion_round(
+            full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _run_stream_completion_round(
                 user_id,
                 messages,
                 settings["model"],
                 settings["temperature"],
                 tools,
+                placeholder,
+                show_waiting=(round_num == 0),
+                stream_mode=user_stream_mode,
             )
+            total_thinking_seconds += thinking_seconds
 
             if usage_info:
                 total_prompt_tokens += usage_info.get("prompt_tokens") or 0
@@ -581,12 +745,33 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 tool_results_pending = False
 
             if not tool_calls:
+                if finish_reason == "length" and round_num < MAX_TOOL_ROUNDS:
+                    logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
+                    truncated_text = full_response or ""
+                    truncated_prefix += truncated_text
+                    messages.append({"role": "assistant", "content": truncated_text})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Please continue and complete your response concisely.",
+                        }
+                    )
+                    continue
                 break
 
             status = _status_text(tool_calls)
-            display_text = filter_thinking_content(full_response).strip()
-            combined_status = f"{display_text}\n\n{status}".strip()
-            await _safe_edit_message(placeholder, combined_status[:DISCORD_MAX_MESSAGE_LENGTH])
+            display_text = filter_thinking_content(full_response, streaming=True).strip()
+            thinking_prefix = f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
+            if display_text:
+                status_text = _build_stream_preview(
+                    f"{display_text}\n\n{status}",
+                    thinking_prefix=thinking_prefix,
+                    cursor=False,
+                )
+            else:
+                status_text = _build_stream_preview(status, thinking_prefix=thinking_prefix, cursor=False)
+            await _safe_edit_message(placeholder, status_text)
+            tool_names = [tc.name for tc in tool_calls]
 
             new_tool_calls: list[ToolCall] = []
             dup_indices: set[int] = set()
@@ -600,6 +785,38 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
             if new_tool_calls:
                 effective_timeout = _effective_tool_timeout(new_tool_calls)
+                anim_active = True
+
+                async def _animate_tool_status() -> None:
+                    elapsed = 0
+                    try:
+                        while anim_active:
+                            await asyncio.sleep(2)
+                            if not anim_active:
+                                break
+                            elapsed += 2
+                            lines = []
+                            for name in tool_names:
+                                base = TOOL_STATUS_MAP.get(name, f"Running {name}...")
+                                lines.append(f"{base} ({elapsed}s)")
+                            animated = "\n".join(lines)
+                            if display_text:
+                                animated_text = _build_stream_preview(
+                                    f"{display_text}\n\n{animated}",
+                                    thinking_prefix=thinking_prefix,
+                                    cursor=False,
+                                )
+                            else:
+                                animated_text = _build_stream_preview(
+                                    animated,
+                                    thinking_prefix=thinking_prefix,
+                                    cursor=False,
+                                )
+                            await _safe_edit_message(placeholder, animated_text)
+                    except asyncio.CancelledError:
+                        pass
+
+                anim_task = asyncio.create_task(_animate_tool_status())
                 try:
                     executed_results = await asyncio.wait_for(
                         asyncio.get_running_loop().run_in_executor(
@@ -622,6 +839,9 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                         }
                         for tc in new_tool_calls
                     ]
+                finally:
+                    anim_active = False
+                    anim_task.cancel()
             else:
                 executed_results = []
 
@@ -677,24 +897,31 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                     "role": "user",
                     "content": (
                         "Please respond to the user based on the information above. "
-                        "Do not call more tools."
+                        "Do not attempt to call any more tools."
                     ),
                 }
             )
-            full_response, usage_info, _ = await _run_completion_round(
+            full_response, usage_info, _, thinking_seconds, _ = await _run_stream_completion_round(
                 user_id,
                 messages,
                 settings["model"],
                 settings["temperature"],
                 None,
+                placeholder,
+                show_waiting=False,
+                stream_mode=user_stream_mode,
             )
+            total_thinking_seconds += thinking_seconds
             if usage_info:
                 total_prompt_tokens += usage_info.get("prompt_tokens") or 0
                 total_completion_tokens += usage_info.get("completion_tokens") or 0
             if full_response.strip():
                 last_text_response = full_response
 
-        final_text = filter_thinking_content(last_text_response).strip()
+        combined_response = truncated_prefix + last_text_response if truncated_prefix else last_text_response
+        final_text = filter_thinking_content(combined_response).strip()
+        if not final_text and last_text_response:
+            final_text = filter_thinking_content(last_text_response).strip()
         final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools)
         if not final_text:
             final_text = "(Empty response)"
@@ -787,8 +1014,13 @@ bot = commands.Bot(command_prefix=DISCORD_COMMAND_PREFIX, intents=intents, help_
 
 @bot.event
 async def on_ready() -> None:
+    global CRON_SCHEDULER_STARTED
     if bot.user:
         logger.info("Discord bot logged in as %s (%s)", bot.user, bot.user.id)
+    if not CRON_SCHEDULER_STARTED:
+        set_main_loop(asyncio.get_running_loop())
+        start_cron_scheduler(bot)
+        CRON_SCHEDULER_STARTED = True
 
 
 @bot.event
@@ -828,17 +1060,22 @@ async def start_command(ctx: commands.Context) -> None:
         await _send_ctx_reply(
             ctx,
             "Welcome to AI Bot.\n\n"
-            "Set your API key first:\n"
+            "Please configure your API first:\n"
             f"{DISCORD_COMMAND_PREFIX}set api_key YOUR_API_KEY\n\n"
-            "Then send a message or mention the bot.",
+            "Optional:\n"
+            f"{DISCORD_COMMAND_PREFIX}set base_url <url>\n"
+            f"{DISCORD_COMMAND_PREFIX}set model <name>\n"
+            f"{DISCORD_COMMAND_PREFIX}set voice <name>\n"
+            f"{DISCORD_COMMAND_PREFIX}set style <style>\n\n"
+            f"Use {DISCORD_COMMAND_PREFIX}help for all commands.",
         )
         return
 
     persona = get_current_persona_name(user_id)
     await _send_ctx_reply(
         ctx,
-        f"Welcome back. Current persona: {persona}\n"
-        "Send a message to start chatting, or use help command.",
+        f"Welcome back. Current persona: {persona}\n\n"
+        "Send a text/image/file to chat, or use help command.",
     )
 
 
@@ -848,21 +1085,22 @@ async def help_command(ctx: commands.Context) -> None:
     await _send_ctx_reply(
         ctx,
         "AI Bot Help\n\n"
-        "Chat:\n"
-        "- DM the bot directly\n"
-        "- In servers, mention the bot or reply to bot message\n\n"
+        "Send text, image, or file to chat with AI.\n"
+        "In servers: mention the bot or reply to a bot message.\n"
+        "In DMs: direct chat works.\n\n"
         f"Commands ({p}):\n"
         f"{p}start\n"
         f"{p}help\n"
         f"{p}clear\n"
+        f"{p}persona ...\n"
+        f"{p}chat ...\n"
         f"{p}settings\n"
         f"{p}set <key> <value>\n"
+        f"{p}export\n"
         f"{p}usage\n"
         f"{p}remember <text>\n"
         f"{p}memories\n"
         f"{p}forget <num|all>\n"
-        f"{p}persona ...\n"
-        f"{p}chat ...\n"
         f"{p}web",
     )
 
@@ -891,7 +1129,7 @@ async def settings_command(ctx: commands.Context) -> None:
     prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
 
     enabled_tools = _resolve_enabled_tools_for_discord(settings) or "(none)"
-    cron_tools = _resolve_cron_tools_for_display(settings)
+    cron_tools = _resolve_cron_tools_for_display(settings) or "(none)"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
 
@@ -900,6 +1138,7 @@ async def settings_command(ctx: commands.Context) -> None:
     cron_model_raw = settings.get("cron_model", "")
     cron_model_display = cron_model_raw or "(current model)"
 
+    p = DISCORD_COMMAND_PREFIX
     text = (
         "Current Settings:\n\n"
         f"base_url: {settings['base_url']}\n"
@@ -915,7 +1154,11 @@ async def settings_command(ctx: commands.Context) -> None:
         f"tts_voice: {settings.get('tts_voice', '') or 'default'}\n"
         f"tts_style: {settings.get('tts_style', '') or 'default'}\n"
         f"tts_endpoint: {settings.get('tts_endpoint', '') or 'auto'}\n"
-        f"providers: {presets_info}"
+        f"providers: {presets_info}\n\n"
+        f"Use `{p}persona` to manage personas and prompts.\n"
+        f"Use `{p}chat` to manage chat sessions.\n"
+        f"Use `{p}set tool <name> <on|off>` to manage tools.\n"
+        f"Use `{p}set provider` to manage API providers."
     )
 
     await _send_ctx_reply(ctx, text)
@@ -934,17 +1177,20 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             "Keys:\n"
             "- base_url\n"
             "- api_key\n"
-            "- model\n"
+            "- model (no value to browse list)\n"
             "- temperature\n"
             "- token_limit\n"
             "- title_model [provider:]model\n"
             "- cron_model [provider:]model\n"
+            "- cron_tools <tool1,tool2,...>\n"
             "- stream_mode (default/time/chars)\n"
             "- voice\n"
             "- style\n"
             "- endpoint\n"
             "- tool <name> <on|off>\n"
+            "- cron_tool <name> <on|off>\n"
             "- provider save/load/delete/list\n\n"
+            f"For prompt, use `{p}persona prompt <text>`.\n"
             f"Example: {p}set model gpt-4o",
         )
         return
@@ -989,6 +1235,32 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
             return
 
+        if key == "cron_tool":
+            cron_tools = _resolve_cron_tools_for_display(settings)
+            enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
+            status = []
+            for tool in AVAILABLE_TOOLS:
+                icon = "[on]" if tool in enabled_list else "[off]"
+                status.append(f"{icon} {tool}")
+            await _send_ctx_reply(
+                ctx,
+                "Cron Tool Settings:\n\n"
+                + "\n".join(status)
+                + "\n\nUsage: set cron_tool <name> <on|off>",
+            )
+            return
+
+        if key == "cron_tools":
+            current = settings.get("cron_enabled_tools", "") or "(auto: chat tools without memory)"
+            await _send_ctx_reply(
+                ctx,
+                "Current cron_tools: "
+                + current
+                + "\nUsage: set cron_tools <tool1,tool2,...>\n"
+                "Use set cron_tools clear to reset to auto.",
+            )
+            return
+
         if key in {"voice", "style", "endpoint"}:
             setting_key = {
                 "voice": "tts_voice",
@@ -1001,6 +1273,19 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
         if key == "provider":
             await _show_provider_list(ctx, settings)
+            return
+
+        if key == "stream_mode":
+            current = settings.get("stream_mode", "") or "default"
+            await _send_ctx_reply(
+                ctx,
+                f"Current stream_mode: {current}\n"
+                "Usage: set stream_mode <mode>\n\n"
+                "Available modes:\n"
+                "- default: time + chars combined\n"
+                "- time: update by time interval\n"
+                "- chars: update by character interval",
+            )
             return
 
         await _send_ctx_reply(ctx, "Usage: set <key> <value>")
@@ -1041,6 +1326,14 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
     if key == "model":
         update_user_setting(user_id, "model", value)
         await _send_ctx_reply(ctx, f"model set to: {value}")
+        return
+
+    if key == "prompt":
+        await _send_ctx_reply(
+            ctx,
+            "Prompts are per-persona.\n"
+            f"Use {DISCORD_COMMAND_PREFIX}persona prompt <text> to update current persona prompt.",
+        )
         return
 
     if key == "temperature":
@@ -1147,33 +1440,142 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         await _send_ctx_reply(ctx, f"Tool {tool_name} set to {action}")
         return
 
+    if key == "cron_tool":
+        if len(args) < 3:
+            await _send_ctx_reply(ctx, "Usage: set cron_tool <name> <on|off>")
+            return
+
+        tool_name = args[1].lower()
+        action = args[2].lower()
+
+        if tool_name not in AVAILABLE_TOOLS:
+            await _send_ctx_reply(
+                ctx,
+                f"Unknown/unsupported tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}",
+            )
+            return
+
+        cron_tools = _resolve_cron_tools_for_display(settings)
+        enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
+
+        if action == "on":
+            if tool_name not in enabled_list:
+                enabled_list.append(tool_name)
+        elif action == "off":
+            if tool_name in enabled_list:
+                enabled_list.remove(tool_name)
+        else:
+            await _send_ctx_reply(ctx, "Action must be 'on' or 'off'")
+            return
+
+        new_enabled = _normalize_tools_csv(",".join(enabled_list))
+        update_user_setting(user_id, "cron_enabled_tools", new_enabled)
+        await _send_ctx_reply(ctx, f"Cron tool {tool_name} set to {action}")
+        return
+
+    if key == "cron_tools":
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none", "default"}:
+            update_user_setting(user_id, "cron_enabled_tools", "")
+            await _send_ctx_reply(
+                ctx,
+                "cron_tools cleared.\n"
+                "Now cron tasks will auto-use chat tools without memory.",
+            )
+            return
+
+        normalized = _normalize_tools_csv(val)
+        if not normalized:
+            await _send_ctx_reply(
+                ctx,
+                "No valid tools provided.\n"
+                f"Available: {', '.join(AVAILABLE_TOOLS)}",
+            )
+            return
+
+        requested = [t.strip().lower() for t in val.split(",") if t.strip()]
+        unknown = [t for t in requested if t not in AVAILABLE_TOOLS]
+        update_user_setting(user_id, "cron_enabled_tools", normalized)
+        if unknown:
+            await _send_ctx_reply(
+                ctx,
+                f"cron_tools set to: {normalized}\n"
+                f"Ignored unknown tools: {', '.join(sorted(set(unknown)))}",
+            )
+        else:
+            await _send_ctx_reply(ctx, f"cron_tools set to: {normalized}")
+        return
+
     if key == "provider":
         await _handle_provider_command(ctx, user_id, settings, list(args[1:]))
         return
 
     if key == "title_model":
-        if value.lower() in {"off", "clear", "none"}:
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none"}:
             update_user_setting(user_id, "title_model", "")
-            await _send_ctx_reply(ctx, "title_model cleared (uses current provider + model)")
+            await _send_ctx_reply(ctx, "title_model cleared (will use current provider + model)")
         else:
-            update_user_setting(user_id, "title_model", value)
-            await _send_ctx_reply(ctx, f"title_model set to: {value}")
+            update_user_setting(user_id, "title_model", val)
+            if ":" in val:
+                provider, model_name = val.split(":", 1)
+                presets = settings.get("api_presets", {})
+                found = any(k.lower() == provider.lower() for k in presets)
+                if found:
+                    await _send_ctx_reply(
+                        ctx,
+                        f"title_model set to: {val}\n"
+                        f"Provider: {provider} | Model: {model_name}",
+                    )
+                else:
+                    available = ", ".join(presets.keys()) if presets else "(none)"
+                    await _send_ctx_reply(
+                        ctx,
+                        f"title_model set to: {val}\n"
+                        f"Provider '{provider}' not found in presets.\n"
+                        f"Available: {available}\n"
+                        f"Use {DISCORD_COMMAND_PREFIX}set provider save <name> first.",
+                    )
+            else:
+                await _send_ctx_reply(
+                    ctx,
+                    f"title_model set to: {val}\n"
+                    "(uses current provider API)",
+                )
         return
 
     if key == "cron_model":
-        if value.lower() in {"off", "clear", "none"}:
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none"}:
             update_user_setting(user_id, "cron_model", "")
-            await _send_ctx_reply(
-                ctx,
-                "cron_model cleared. Note: cron delivery is currently Telegram-only.",
-            )
+            await _send_ctx_reply(ctx, "cron_model cleared (will use current provider + model)")
         else:
-            update_user_setting(user_id, "cron_model", value)
-            await _send_ctx_reply(
-                ctx,
-                f"cron_model set to: {value}\n"
-                "Note: cron delivery is currently Telegram-only.",
-            )
+            update_user_setting(user_id, "cron_model", val)
+            if ":" in val:
+                provider, model_name = val.split(":", 1)
+                presets = settings.get("api_presets", {})
+                found = any(k.lower() == provider.lower() for k in presets)
+                if found:
+                    await _send_ctx_reply(
+                        ctx,
+                        f"cron_model set to: {val}\n"
+                        f"Provider: {provider} | Model: {model_name}",
+                    )
+                else:
+                    available = ", ".join(presets.keys()) if presets else "(none)"
+                    await _send_ctx_reply(
+                        ctx,
+                        f"cron_model set to: {val}\n"
+                        f"Provider '{provider}' not found in presets.\n"
+                        f"Available: {available}\n"
+                        f"Use {DISCORD_COMMAND_PREFIX}set provider save <name> first.",
+                    )
+            else:
+                await _send_ctx_reply(
+                    ctx,
+                    f"cron_model set to: {val}\n"
+                    "(uses current provider API)",
+                )
         return
 
     if key == "stream_mode":
@@ -1183,19 +1585,32 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             await _send_ctx_reply(
                 ctx,
                 f"stream_mode set to: {mode}\n"
-                "Discord currently uses non-stream output, this setting still applies to Telegram.",
+                "Applies to both Telegram and Discord streaming output.",
             )
         elif mode in {"", "off", "clear", "none"}:
             update_user_setting(user_id, "stream_mode", "")
-            await _send_ctx_reply(ctx, "stream_mode cleared")
+            await _send_ctx_reply(
+                ctx,
+                "stream_mode cleared (will use default mode)\n"
+                "Default mode: time + chars combined",
+            )
         else:
-            await _send_ctx_reply(ctx, "stream_mode must be: default, time, or chars")
+            current = settings.get("stream_mode", "") or "default"
+            await _send_ctx_reply(
+                ctx,
+                f"Current stream_mode: {current}\n"
+                "Usage: set stream_mode <mode>\n\n"
+                "Available modes:\n"
+                "- default: time + chars combined\n"
+                "- time: update by time interval\n"
+                "- chars: update by character interval",
+            )
         return
 
     await _send_ctx_reply(
         ctx,
         f"Unknown key: {key}\n"
-        "Available: base_url, api_key, model, temperature, token_limit, title_model, cron_model, stream_mode, voice, style, endpoint, tool, provider",
+        "Available: base_url, api_key, model, temperature, token_limit, title_model, cron_model, cron_tools, stream_mode, voice, style, endpoint, tool, cron_tool, provider",
     )
 
 
@@ -1363,6 +1778,31 @@ async def usage_command(ctx: commands.Context, *args: str) -> None:
     message += f"\n\n--- All Personas ---\nTotal tokens: {total_all:,}"
 
     await _send_ctx_reply(ctx, message)
+
+
+@bot.command(name="export")
+async def export_command(ctx: commands.Context) -> None:
+    user_id = int(ctx.author.id)
+    persona_name = get_current_persona_name(user_id)
+    session_id = get_current_session_id(user_id, persona_name)
+
+    file_buffer = export_to_markdown(user_id, persona_name)
+    if file_buffer is None:
+        await _send_ctx_reply(
+            ctx,
+            f"No conversation history to export in current session (persona: '{persona_name}').",
+        )
+        return
+
+    filename = getattr(file_buffer, "name", None) or f"chat_export_{persona_name}.md"
+    file_buffer.seek(0)
+    discord_file = discord.File(file_buffer, filename=filename)
+
+    caption = f"Chat history export (Persona: {persona_name})"
+    if session_id is not None:
+        caption += f"\nSession ID: {session_id}"
+
+    await ctx.reply(caption, file=discord_file, mention_author=False)
 
 
 @bot.command(name="remember")
