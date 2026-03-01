@@ -8,6 +8,7 @@ import time
 
 from telegram import Update
 from telegram.constants import ChatAction
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from config import (
@@ -45,21 +46,69 @@ from tools import (
 from ai import get_ai_client, ToolCall
 from utils import filter_thinking_content, parse_raw_tool_calls, send_message_safe, edit_message_safe, get_datetime_prompt
 from handlers.common import should_respond_in_group, get_log_context
+from utils.platform_parity import (
+    SHARED_TOOL_STATUS_MAP,
+    build_api_key_required_message,
+    build_latex_guidance,
+    build_retry_message,
+    build_token_limit_reached_message,
+    format_log_context,
+)
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 3
 TOOL_TIMEOUT = 30  # seconds (default, may be extended by shell_exec)
+AI_STREAM_INIT_TIMEOUT = 25  # seconds waiting for stream object creation
+AI_STREAM_CHUNK_TIMEOUT = 45  # seconds waiting for next streamed chunk
+MAX_TOOL_ERROR_SNIPPETS = 3
+
+
+async def _send_screenshot_with_fallback(update: Update, image_data: bytes, filename: str, caption: str | None) -> None:
+    """Send screenshot as photo, fallback to document when Telegram rejects dimensions."""
+    photo_file = io.BytesIO(image_data)
+    photo_file.name = filename
+    try:
+        await update.message.reply_photo(photo=photo_file, caption=caption)
+        return
+    except BadRequest as e:
+        message = str(e or "")
+        if "invalid_dimensions" not in message.lower():
+            raise
+        logger.warning(
+            "Telegram rejected photo dimensions; retrying screenshot as document (file=%s, bytes=%d)",
+            filename,
+            len(image_data),
+        )
+
+    # Retry as document to bypass photo dimension constraints.
+    doc_file = io.BytesIO(image_data)
+    doc_file.name = filename
+    await update.message.reply_document(document=doc_file, caption=caption)
 
 
 def _effective_tool_timeout(tool_calls) -> int:
     """Return timeout for the handler-level wait_for.
 
     If any tool call is shell_exec with a custom timeout, use that (+ 5s buffer).
+    If any tool call is crawl4ai_fetch, align with timeout_ms (+ buffer).
     Playwright tools get an extended timeout for page load + CF challenge wait.
     Otherwise fall back to the default TOOL_TIMEOUT.
     """
-    _PLAYWRIGHT_TOOLS = {"page_screenshot", "page_content"}
+    _SLOW_WEB_TOOLS = {
+        "page_screenshot",
+        "page_content",
+        "crawl4ai_fetch",
+        "browser_start_session",
+        "browser_list_sessions",
+        "browser_close_session",
+        "browser_goto",
+        "browser_click",
+        "browser_type",
+        "browser_press",
+        "browser_wait_for",
+        "browser_get_state",
+    }
     timeout = TOOL_TIMEOUT
     for tc in tool_calls:
         if tc.name == "shell_exec":
@@ -70,24 +119,35 @@ def _effective_tool_timeout(tool_calls) -> int:
                     timeout = min(requested + 5, 125)
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
-        elif tc.name in _PLAYWRIGHT_TOOLS:
+        elif tc.name == "crawl4ai_fetch":
+            timeout = max(timeout, 60)
+            try:
+                args = json.loads(tc.arguments)
+                requested_ms = int(args.get("timeout_ms", 60000))
+                requested_sec = max(5, min(requested_ms, 180000)) // 1000
+                # Keep outer wait_for slightly larger than crawl4ai page timeout.
+                timeout = max(timeout, min(requested_sec + 15, 210))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        elif tc.name.startswith("browser_"):
+            timeout = max(timeout, 90)
+            try:
+                args = json.loads(tc.arguments)
+                requested_ms = 0
+                if tc.name == "browser_wait_for":
+                    requested_ms = int(args.get("timeout_ms", 10000)) + int(args.get("wait_ms", 0))
+                else:
+                    requested_ms = int(args.get("timeout_ms", 10000))
+                requested_wait = float(args.get("wait", 0))
+                requested_sec = int(max(0, min(requested_ms, 180000)) / 1000 + max(0.0, min(requested_wait, 30.0)))
+                timeout = max(timeout, min(requested_sec + 15, 210))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        elif tc.name in _SLOW_WEB_TOOLS:
             timeout = max(timeout, 60)
     return timeout
 
-TOOL_STATUS_MAP = {
-    "web_search": "🔍 Searching...",
-    "url_fetch": "🌐 Fetching page...",
-    "save_memory": "💾 Saving to memory...",
-    "tts_speak": "🎤 Generating voice...",
-    "tts_list_voices": "🎙️ Loading voices...",
-    "shell_exec": "💻 Running command...",
-    "cron_create": "⏰ Creating scheduled task...",
-    "cron_list": "📋 Listing scheduled tasks...",
-    "cron_delete": "🗑️ Deleting scheduled task...",
-    "cron_run": "▶️ Running scheduled task...",
-    "page_screenshot": "📸 Taking screenshot...",
-    "page_content": "🌐 Extracting page content...",
-}
+TOOL_STATUS_MAP = SHARED_TOOL_STATUS_MAP
 
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 
@@ -124,11 +184,41 @@ def _tool_dedup_key(tc):
         args = json.loads(tc.arguments)
     except Exception:
         return f"{tc.name}:{tc.arguments}"
+    if tc.name.startswith("browser_"):
+        # Stateful browser actions may legitimately repeat with same args.
+        return f"{tc.name}:{tc.id}"
     if tc.name == "url_fetch":
         return f"url_fetch:{args.get('url', '')}"
+    if tc.name == "crawl4ai_fetch":
+        return f"crawl4ai_fetch:{args.get('url', '')}"
     if tc.name == "web_search":
         return f"web_search:{args.get('query', '')}"
     return f"{tc.name}:{tc.arguments}"
+
+
+def _is_tool_error_text(text: str) -> bool:
+    """Heuristic: detect tool failures/timeouts from tool result text."""
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    return (
+        normalized.startswith("error:")
+        or "failed" in normalized
+        or "rejected" in normalized
+        or "timed out" in normalized
+    )
+
+
+def _build_empty_response_fallback(tool_error_snippets: list[str]) -> str:
+    """Build a user-facing fallback when the model returns empty content."""
+    if not tool_error_snippets:
+        return "(Empty response)"
+    lines = "\n".join(f"- {snippet}" for snippet in tool_error_snippets[:MAX_TOOL_ERROR_SNIPPETS])
+    return (
+        "The model returned an empty response. Recent tool results:\n"
+        f"{lines}\n"
+        "Please retry."
+    )
 
 
 async def _stream_response(client, messages, model, temperature, tools, bot_message, show_waiting=True, stream_mode="default"):
@@ -151,16 +241,23 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
     loop = asyncio.get_event_loop()
 
     # Start the streaming request in a thread to avoid blocking
-    stream = await loop.run_in_executor(
-        None,
-        lambda: client.chat_completion(
-            messages=messages,
-            model=model,
-            temperature=temperature,
-            stream=True,
-            tools=tools,
-        ),
-    )
+    try:
+        stream = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: client.chat_completion(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    stream=True,
+                    tools=tools,
+                ),
+            ),
+            timeout=AI_STREAM_INIT_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("AI stream initialization timed out after %ds", AI_STREAM_INIT_TIMEOUT)
+        return "", None, [], 0, "timeout"
 
     full_response = ""
     last_update_time = 0
@@ -196,99 +293,109 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
     _end = object()
     it = iter(stream)
 
-    while True:
-        chunk = await loop.run_in_executor(None, next, it, _end)
-        if chunk is _end:
-            break
+    try:
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    loop.run_in_executor(None, next, it, _end),
+                    timeout=AI_STREAM_CHUNK_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("AI stream stalled for %ds without chunks", AI_STREAM_CHUNK_TIMEOUT)
+                finish_reason = finish_reason or "timeout"
+                break
 
-        if chunk.usage is not None:
-            usage_info = chunk.usage
+            if chunk is _end:
+                break
 
-        current_time = loop.time()
+            if chunk.usage is not None:
+                usage_info = chunk.usage
 
-        # Detect thinking/reasoning (separate field, e.g. DeepSeek R1)
-        if chunk.reasoning and thinking_start_time is None:
-            waiting_active = False
-            thinking_start_time = current_time
-            thinking_seconds = 1
-            await edit_message_safe(bot_message, "Thought for 1s")
-            last_update_time = current_time
+            current_time = loop.time()
 
-        # Update thinking counter while still in thinking phase
-        if thinking_start_time is not None:
-            new_seconds = max(1, int(current_time - thinking_start_time))
-            display_text_now = filter_thinking_content(full_response, streaming=True) if full_response else ""
-            if not display_text_now and new_seconds > thinking_seconds:
-                thinking_seconds = new_seconds
-                if current_time - last_update_time >= 1.0:
-                    await edit_message_safe(bot_message, f"Thought for {thinking_seconds}s")
-                    last_update_time = current_time
-
-        if chunk.content:
-            full_response += chunk.content
-
-            display_text = filter_thinking_content(full_response, streaming=True)
-
-            # Detect thinking via <think> tags in content
-            if not display_text and full_response.strip() and thinking_start_time is None:
+            # Detect thinking/reasoning (separate field, e.g. DeepSeek R1)
+            if chunk.reasoning and thinking_start_time is None:
                 waiting_active = False
                 thinking_start_time = current_time
                 thinking_seconds = 1
                 await edit_message_safe(bot_message, "Thought for 1s")
                 last_update_time = current_time
 
-            # Build thinking prefix for display
-            thinking_prefix = ""
-            if thinking_start_time is not None and display_text:
-                # Lock thinking duration when visible content first appears.
-                # Do not keep extending it while normal content continues streaming.
-                if not thinking_locked:
-                    thinking_seconds = max(1, int(current_time - thinking_start_time))
-                    thinking_locked = True
-                thinking_prefix = f"_Thought for {thinking_seconds}s_\n\n"
+            # Update thinking counter while still in thinking phase
+            if thinking_start_time is not None:
+                new_seconds = max(1, int(current_time - thinking_start_time))
+                display_text_now = filter_thinking_content(full_response, streaming=True) if full_response else ""
+                if not display_text_now and new_seconds > thinking_seconds:
+                    thinking_seconds = new_seconds
+                    if current_time - last_update_time >= 1.0:
+                        await edit_message_safe(bot_message, f"Thought for {thinking_seconds}s")
+                        last_update_time = current_time
 
-            # First visible chunk: update immediately, skip throttle interval
-            if first_chunk and display_text:
-                waiting_active = False
-                await edit_message_safe(bot_message, thinking_prefix + display_text + " ▌")
-                last_update_time = current_time
-                last_update_length = len(display_text)
-                first_chunk = False
-            elif display_text and len(display_text) > last_update_length:
-                new_chars = len(display_text) - last_update_length
-                elapsed = current_time - last_update_time
-                ends_with_boundary = display_text[-1] in STREAM_BOUNDARY_CHARS
+            if chunk.content:
+                full_response += chunk.content
 
-                # Determine if we should update based on stream_mode
-                if stream_mode == "time":
-                    # Time mode: update every STREAM_TIME_MODE_INTERVAL seconds
-                    should_update = elapsed >= STREAM_TIME_MODE_INTERVAL
-                elif stream_mode == "chars":
-                    # Chars mode: update every STREAM_CHARS_MODE_INTERVAL characters
-                    should_update = new_chars >= STREAM_CHARS_MODE_INTERVAL
-                else:
-                    # Default mode: original behavior (time + chars OR force update)
-                    should_update = (
-                        (elapsed >= STREAM_UPDATE_INTERVAL and new_chars >= STREAM_MIN_UPDATE_CHARS)
-                        or (elapsed >= STREAM_UPDATE_INTERVAL and ends_with_boundary)
-                        or (elapsed >= STREAM_FORCE_UPDATE_INTERVAL)
-                    )
+                display_text = filter_thinking_content(full_response, streaming=True)
 
-                if should_update:
+                # Detect thinking via <think> tags in content
+                if not display_text and full_response.strip() and thinking_start_time is None:
+                    waiting_active = False
+                    thinking_start_time = current_time
+                    thinking_seconds = 1
+                    await edit_message_safe(bot_message, "Thought for 1s")
+                    last_update_time = current_time
+
+                # Build thinking prefix for display
+                thinking_prefix = ""
+                if thinking_start_time is not None and display_text:
+                    # Lock thinking duration when visible content first appears.
+                    # Do not keep extending it while normal content continues streaming.
+                    if not thinking_locked:
+                        thinking_seconds = max(1, int(current_time - thinking_start_time))
+                        thinking_locked = True
+                    thinking_prefix = f"_Thought for {thinking_seconds}s_\n\n"
+
+                # First visible chunk: update immediately, skip throttle interval
+                if first_chunk and display_text:
+                    waiting_active = False
                     await edit_message_safe(bot_message, thinking_prefix + display_text + " ▌")
                     last_update_time = current_time
                     last_update_length = len(display_text)
+                    first_chunk = False
+                elif display_text and len(display_text) > last_update_length:
+                    new_chars = len(display_text) - last_update_length
+                    elapsed = current_time - last_update_time
+                    ends_with_boundary = display_text[-1] in STREAM_BOUNDARY_CHARS
 
-        if chunk.tool_calls:
-            all_tool_calls.extend(chunk.tool_calls)
+                    # Determine if we should update based on stream_mode
+                    if stream_mode == "time":
+                        # Time mode: update every STREAM_TIME_MODE_INTERVAL seconds
+                        should_update = elapsed >= STREAM_TIME_MODE_INTERVAL
+                    elif stream_mode == "chars":
+                        # Chars mode: update every STREAM_CHARS_MODE_INTERVAL characters
+                        should_update = new_chars >= STREAM_CHARS_MODE_INTERVAL
+                    else:
+                        # Default mode: original behavior (time + chars OR force update)
+                        should_update = (
+                            (elapsed >= STREAM_UPDATE_INTERVAL and new_chars >= STREAM_MIN_UPDATE_CHARS)
+                            or (elapsed >= STREAM_UPDATE_INTERVAL and ends_with_boundary)
+                            or (elapsed >= STREAM_FORCE_UPDATE_INTERVAL)
+                        )
 
-        if chunk.finish_reason:
-            finish_reason = chunk.finish_reason
+                    if should_update:
+                        await edit_message_safe(bot_message, thinking_prefix + display_text + " ▌")
+                        last_update_time = current_time
+                        last_update_length = len(display_text)
 
-    # Clean up waiting indicator
-    waiting_active = False
-    if waiting_task and not waiting_task.done():
-        waiting_task.cancel()
+            if chunk.tool_calls:
+                all_tool_calls.extend(chunk.tool_calls)
+
+            if chunk.finish_reason:
+                finish_reason = chunk.finish_reason
+    finally:
+        # Clean up waiting indicator
+        waiting_active = False
+        if waiting_task and not waiting_task.done():
+            waiting_task.cancel()
 
     # Finalize thinking seconds at stream end only if no visible content ever appeared.
     if thinking_start_time is not None and not thinking_locked:
@@ -349,16 +456,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
     if not internal_call:
         # Check if API key is set
         if not has_api_key(user_id):
-            await update.message.reply_text(
-                "Please set your OpenAI API key first:\n/set api_key YOUR_API_KEY"
-            )
+            await update.message.reply_text(build_api_key_required_message("/"))
             return
 
     # Freeze persona/session snapshot for this request to avoid cross-session writes.
     persona_name = get_current_persona_name(user_id)
     session_id = ensure_session(user_id, persona_name)
     if session_id is None:
-        await update.message.reply_text("Error. Please retry.")
+        await update.message.reply_text(build_retry_message())
         return
     conversation = list(get_conversation(session_id))
 
@@ -366,10 +471,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         # Check token limit (per-persona)
         remaining = get_remaining_tokens(user_id, persona_name)
         if remaining is not None and remaining <= 0:
-            await update.message.reply_text(
-                f"Persona '{persona_name}' 已达到 token 上限。\n"
-                "使用 /usage 查看用量，或 /set token_limit <数字> 调整上限。"
-            )
+            await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
             return
 
         # Show typing indicator
@@ -405,14 +507,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         # Add tool instructions (fallback hints)
         system_prompt += get_tool_instructions(enabled_tools=enabled_tools)
 
-        # Instruct AI to avoid LaTeX (Telegram cannot render it)
-        system_prompt += (
-            "\n\nIMPORTANT: Do NOT use LaTeX math notation ($...$ or $$...$$) in your responses. "
-            "Telegram cannot render LaTeX. Instead, use plain text and Unicode symbols for math: "
-            "use × instead of \\times, ÷ instead of \\div, √ instead of \\sqrt, "
-            "use a/b instead of \\frac{a}{b}, use superscript characters (²³) and subscript characters (₁₂) when possible, "
-            "use → ≤ ≥ ≠ ≈ ∞ π α β etc. directly."
-        )
+        # Instruct AI to avoid LaTeX delimiters on chat platforms.
+        system_prompt += build_latex_guidance()
 
         # Build messages with system prompt
         messages = [{"role": "system", "content": system_prompt}]
@@ -434,6 +530,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         last_text_response = ""  # fallback if final round is empty
         seen_tool_keys = set()   # dedup: prevent re-executing the same operation
         tool_results_pending = False
+        tool_error_snippets: list[str] = []
         truncated_prefix = ""    # accumulated text from truncated responses
         for round_num in range(MAX_TOOL_ROUNDS + 1):
 
@@ -482,7 +579,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             display_text = filter_thinking_content(full_response, streaming=True)
             tool_names = [tc.name for tc in tool_calls]
             status_lines = [
-                TOOL_STATUS_MAP.get(name, f"⚙️ Running {name}...")
+                TOOL_STATUS_MAP.get(name, f"Running {name}...")
                 for name in tool_names
             ]
             status_text = "\n".join(status_lines)
@@ -519,7 +616,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                             elapsed += 2
                             lines = []
                             for name in tool_names:
-                                base = TOOL_STATUS_MAP.get(name, f"⚙️ Running {name}...")
+                                base = TOOL_STATUS_MAP.get(name, f"Running {name}...")
                                 lines.append(f"{base} ({elapsed}s)")
                             animated_text = "\n".join(lines)
                             if display_text:
@@ -572,6 +669,17 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             if not tool_results:
                 logger.warning("%s tool calls produced no results", ctx)
                 break
+
+            for tr in tool_results:
+                content = (tr.get("content") or "").strip()
+                if not _is_tool_error_text(content):
+                    continue
+                snippet = content[:200] + ("..." if len(content) > 200 else "")
+                if snippet in tool_error_snippets:
+                    continue
+                tool_error_snippets.append(snippet)
+                if len(tool_error_snippets) > MAX_TOOL_ERROR_SNIPPETS:
+                    tool_error_snippets = tool_error_snippets[-MAX_TOOL_ERROR_SNIPPETS:]
 
             # Build assistant message with tool_calls for the conversation
             # Strip thinking content — sending <think> tags back as content
@@ -641,11 +749,12 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             image_data = job.get("image")
             if not image_data:
                 continue
-            photo_file = io.BytesIO(image_data)
-            photo_file.name = job.get("filename", f"screenshot_{idx}.png")
+            filename = job.get("filename", f"screenshot_{idx}.png")
             try:
-                await update.message.reply_photo(
-                    photo=photo_file,
+                await _send_screenshot_with_fallback(
+                    update,
+                    image_data=image_data,
+                    filename=filename,
                     caption=job.get("caption"),
                 )
             except Exception:
@@ -664,7 +773,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools)
 
         if not final_text:
-            final_text = "(Empty response)"
+            final_text = _build_empty_response_fallback(tool_error_snippets)
 
         # Build display text with thinking duration prefix (italic)
         thinking_prefix = f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
@@ -716,7 +825,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
     except Exception as e:
         logger.exception("%s AI API error", ctx)
-        await edit_message_safe(bot_message, "Error. Please retry.")
+        await edit_message_safe(bot_message, build_retry_message())
         from services.log_service import record_error
         record_error(user_id, str(e), "chat handler", settings.get("model"), persona_name)
 
@@ -728,6 +837,8 @@ async def _generate_and_set_title(user_id: int, session_id: int, user_message: s
         title = await generate_session_title(user_id, user_message, ai_response)
         if title:
             cache.update_session_title(session_id, title)
-            logger.info("[user=%d] Auto-generated session title: %s", user_id, title)
+            sctx = format_log_context(platform="telegram", user_id=user_id, scope="system", chat_id=0)
+            logger.info("%s auto-generated session title: %s", sctx, title)
     except Exception as e:
-        logger.warning("[user=%d] Failed to auto-generate title: %s", user_id, e)
+        sctx = format_log_context(platform="telegram", user_id=user_id, scope="system", chat_id=0)
+        logger.warning("%s failed to auto-generate title: %s", sctx, e)

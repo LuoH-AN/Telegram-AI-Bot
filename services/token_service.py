@@ -1,10 +1,12 @@
 """Token usage tracking service."""
 
 from cache import cache
+from .state_sync_service import refresh_user_state_from_db
 
 
 def get_token_usage(user_id: int, persona_name: str = None) -> dict:
     """Get token usage for the current or specified persona."""
+    refresh_user_state_from_db(user_id)
     return cache.get_token_usage(user_id, persona_name)
 
 
@@ -15,6 +17,7 @@ def add_token_usage(user_id: int, prompt_tokens: int, completion_tokens: int, pe
 
 def get_token_limit(user_id: int, persona_name: str = None) -> int:
     """Get token limit for the current or specified persona."""
+    refresh_user_state_from_db(user_id)
     return cache.get_token_limit(user_id, persona_name)
 
 
@@ -30,11 +33,13 @@ def reset_token_usage(user_id: int, persona_name: str = None) -> None:
 
 def get_total_tokens_all_personas(user_id: int) -> int:
     """Get total tokens across all personas."""
+    refresh_user_state_from_db(user_id)
     return cache.get_total_tokens_all_personas(user_id)
 
 
 def get_remaining_tokens(user_id: int, persona_name: str = None) -> int | None:
     """Get remaining tokens for the current persona, or None if no limit."""
+    refresh_user_state_from_db(user_id)
     limit = cache.get_token_limit(user_id, persona_name)
     if limit == 0:
         return None
@@ -44,6 +49,7 @@ def get_remaining_tokens(user_id: int, persona_name: str = None) -> int | None:
 
 def get_usage_percentage(user_id: int, persona_name: str = None) -> float | None:
     """Get usage percentage for the current persona, or None if no limit."""
+    refresh_user_state_from_db(user_id)
     limit = cache.get_token_limit(user_id, persona_name)
     if limit == 0:
         return None

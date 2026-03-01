@@ -1,41 +1,26 @@
-"""Fetch tool — retrieve content from URLs via direct request."""
+"""Fetch tool — retrieve content from URLs via Jina Reader."""
 
-import json
 import logging
 import ipaddress
+import os
 import socket
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
-import tls_client
-import trafilatura
+import requests
 
 from .registry import BaseTool
 
 logger = logging.getLogger(__name__)
 
-MAX_REDIRECTS = 5
+_JINA_READER_BASE_URL = "https://r.jina.ai/"
+_TIMEOUT = 30
 
 
 class FetchTool(BaseTool):
-    """Fetch URL content via direct HTTP request + text extraction."""
+    """Fetch URL content via Jina Reader."""
 
     def __init__(self):
-        self._session = tls_client.Session(
-            client_identifier="chrome_124",
-            random_tls_extension_order=True,
-        )
-        self._session.headers.update(
-            {
-                "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-                "upgrade-insecure-requests": "1",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "accept-language": "zh-CN,zh;q=0.9",
-            }
-        )
-        self._session.timeout_seconds = 30
+        self._jina_api_key = os.getenv("JINA_API_KEY", "").strip()
 
     @property
     def name(self) -> str:
@@ -48,9 +33,8 @@ class FetchTool(BaseTool):
                 "function": {
                     "name": "url_fetch",
                     "description": (
-                        "Fetch content from a URL via direct HTTP request. "
-                        "Best for static pages and API endpoints. "
-                        "For JS-heavy pages that need browser rendering, use page_content instead."
+                        "Fetch content from a URL via Jina Reader. "
+                        "Returns cleaned text/Markdown content."
                     ),
                     "parameters": {
                         "type": "object",
@@ -91,7 +75,7 @@ class FetchTool(BaseTool):
         max_length = max(200, min(max_length, 50000))
 
         try:
-            text = self._fetch_direct(url)
+            text = self._fetch_via_jina(url)
         except Exception as e:
             logger.exception("url_fetch failed for '%s'", url)
             return f"Fetch failed: {e}"
@@ -100,63 +84,22 @@ class FetchTool(BaseTool):
             text = text[:max_length] + "\n...(truncated)"
         return text
 
-    def _fetch_direct(self, url: str) -> str:
-        current_url = url
-        for _ in range(MAX_REDIRECTS + 1):
-            resp = self._session.get(current_url, allow_redirects=False)
-            if resp.status_code in {301, 302, 303, 307, 308}:
-                # Try multiple header name cases (some servers use different cases)
-                location = (
-                    resp.headers.get("location")
-                    or resp.headers.get("Location")
-                    or resp.headers.get("LOCATION")
-                    or ""
-                ).strip()
-                if not location:
-                    # Some servers use 3xx for non-redirect purposes, treat as success
-                    logger.warning(
-                        "Redirect status %d without location header, treating as success: %s",
-                        resp.status_code, current_url
-                    )
-                    break
-                current_url = self._validate_external_url(urljoin(current_url, location))
-                continue
-            break
-        else:
-            raise RuntimeError("Too many redirects")
+    def _fetch_via_jina(self, url: str) -> str:
+        headers = {}
+        if self._jina_api_key:
+            headers["Authorization"] = f"Bearer {self._jina_api_key}"
+
+        # Jina Reader expects the target URL appended after the base endpoint.
+        reader_url = f"{_JINA_READER_BASE_URL}{url}"
+        resp = requests.get(reader_url, headers=headers, timeout=_TIMEOUT)
 
         if resp.status_code >= 400:
-            if resp.status_code == 403:
-                raise RuntimeError(
-                    "HTTP 403 Forbidden (likely blocked by WAF/Cloudflare)"
-                )
-            raise RuntimeError(f"HTTP {resp.status_code}")
+            raise RuntimeError(f"Jina Reader HTTP {resp.status_code}")
 
-        content_type = resp.headers.get("content-type", "").lower()
-
-        # Detect HTML when content-type is missing
-        raw = resp.text.lstrip()[:15].lower()
-        if not content_type and (
-            raw.startswith("<!doctype html") or raw.startswith("<html")
-        ):
-            content_type = "text/html"
-
-        # Empty content-type with non-HTML body: try as plain text
-        if not content_type:
-            return resp.text
-
-        if "application/json" in content_type:
-            try:
-                return json.dumps(resp.json(), indent=2, ensure_ascii=False)
-            except Exception:
-                return resp.text
-        elif "text/html" in content_type:
-            extracted = trafilatura.extract(resp.text)
-            return extracted if extracted else resp.text
-        elif content_type.startswith("text/"):
-            return resp.text
-        else:
-            raise RuntimeError(f"Unsupported content type: {content_type}")
+        text = resp.text.strip()
+        if not text:
+            raise RuntimeError("Empty response from Jina Reader")
+        return text
 
     @staticmethod
     def _validate_external_url(url: str) -> str:
@@ -193,7 +136,6 @@ class FetchTool(BaseTool):
 
     def get_instruction(self) -> str:
         return (
-            "\n\nYou have the url_fetch tool to retrieve content from URLs.\n"
-            "Use it for static pages and API endpoints.\n"
-            "For JS-heavy pages that need browser rendering, use page_content instead.\n"
+            "\n\nYou have the url_fetch tool to retrieve content from URLs via Jina Reader.\n"
+            "Search results only provide snippets; use url_fetch to read full page content.\n"
         )

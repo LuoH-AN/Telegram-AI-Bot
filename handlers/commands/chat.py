@@ -6,6 +6,11 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
+from utils.platform_parity import (
+    build_chat_commands_message,
+    build_chat_no_sessions_message,
+    build_chat_unknown_subcommand_message,
+)
 
 from services import (
     get_current_persona_name,
@@ -96,14 +101,7 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         try:
             index = int(subcmd)
         except ValueError:
-            await update.message.reply_text(
-                "Unknown subcommand. Usage:\n\n"
-                "/chat - list sessions\n"
-                "/chat new [title] - new session\n"
-                "/chat <num> - switch session\n"
-                "/chat rename <title> - rename\n"
-                "/chat delete <num> - delete"
-            )
+            await update.message.reply_text(build_chat_unknown_subcommand_message("/"))
             return
 
         if switch_session(user_id, index, persona_name):
@@ -129,10 +127,7 @@ async def _list_sessions(update: Update, user_id: int, persona_name: str) -> Non
     current_id = get_current_session_id(user_id, persona_name)
 
     if not sessions:
-        await update.message.reply_text(
-            f"No sessions for persona '{persona_name}'.\n"
-            "Send a message to create one automatically, or use /chat new"
-        )
+        await update.message.reply_text(build_chat_no_sessions_message(persona_name, "/"))
         return
 
     lines = [f"Sessions (persona: {persona_name})\n"]
@@ -143,9 +138,6 @@ async def _list_sessions(update: Update, user_id: int, persona_name: str) -> Non
         lines.append(f"{marker}{i}. {title} ({msg_count} msgs)")
 
     lines.append("")
-    lines.append("/chat <num> - switch")
-    lines.append("/chat new - new session")
-    lines.append("/chat rename <title> - rename")
-    lines.append("/chat delete <num> - delete")
+    lines.append(build_chat_commands_message("/"))
 
     await update.message.reply_text("\n".join(lines))

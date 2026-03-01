@@ -162,6 +162,10 @@ gemen/
 | `TELEGRAM_BOT_TOKEN` | 是 | Telegram Bot Token |
 | `DISCORD_BOT_TOKEN` | Discord 模式需要 | Discord Bot Token |
 | `DISCORD_COMMAND_PREFIX` | 否 | Discord 命令前缀（默认 `!`） |
+| `DISCORD_API_BASE` | 否 | Discord API 反代基址（示例 `https://your-proxy.example.com`） |
+| `DISCORD_GATEWAY_BASE` | 否 | Discord Gateway 反代地址（示例 `wss://your-proxy.example.com/gateway`） |
+| `DISCORD_CDN_BASE` | 否 | Discord CDN 反代地址（文件/媒体下载，示例 `https://your-proxy.example.com/cdn`） |
+| `DISCORD_INVITE_BASE` | 否 | 邀请链接域名（仅影响生成的链接显示） |
 | `DATABASE_URL` | 是 | PostgreSQL 连接字符串 |
 | `OPENAI_API_KEY` | 否 | 默认 API 密钥 |
 | `OPENAI_BASE_URL` | 否 | 默认 API 地址 |
@@ -174,6 +178,10 @@ gemen/
 | `TELEGRAM_SEND_PER_CHAT_RATE` | 否 | 单 chat 发送速率（默认 1 req/s） |
 | `TELEGRAM_SEND_MAX_RETRIES` | 否 | `RetryAfter` 最大重试次数（默认 8） |
 | `PORT` | 否 | 健康检查端口 (默认 8080) |
+
+Discord 反代注意事项：
+- `DISCORD_GATEWAY_BASE` 必须是 `ws://` 或 `wss://`，并且反代必须支持 WebSocket Upgrade。
+- `DISCORD_API_BASE` 和 `DISCORD_CDN_BASE` 需要透传原始路径与查询参数。
 
 ## 部署
 
@@ -194,6 +202,9 @@ docker build -t gemen .
 docker run -d \
   -e TELEGRAM_BOT_TOKEN=your_token \
   -e DISCORD_BOT_TOKEN=your_discord_token \
+  -e DISCORD_API_BASE=https://your-proxy.example.com \
+  -e DISCORD_GATEWAY_BASE=wss://your-proxy.example.com/gateway \
+  -e DISCORD_CDN_BASE=https://your-proxy.example.com/cdn \
   -e DATABASE_URL=postgresql://... \
   -e OPENAI_API_KEY=sk-xxx \
   gemen
@@ -201,6 +212,9 @@ docker run -d \
 # Discord only (override default CMD)
 docker run -d \
   -e DISCORD_BOT_TOKEN=your_discord_token \
+  -e DISCORD_API_BASE=https://your-proxy.example.com \
+  -e DISCORD_GATEWAY_BASE=wss://your-proxy.example.com/gateway \
+  -e DISCORD_CDN_BASE=https://your-proxy.example.com/cdn \
   -e DATABASE_URL=postgresql://... \
   -e OPENAI_API_KEY=sk-xxx \
   gemen python discord_bot.py

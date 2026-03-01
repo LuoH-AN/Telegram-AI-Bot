@@ -13,7 +13,9 @@ from .wikipedia import WikipediaTool
 from .tts import TTSTool, drain_pending_tts_jobs
 from .shell import ShellTool
 from .cron import CronTool
-from .playwright_tool import PlaywrightTool, drain_pending_screenshots
+from .playwright import PlaywrightTool, drain_pending_screenshots
+from .crawl4ai import Crawl4AITool
+from .browser_agent import BrowserAgentTool
 
 # Register all tools
 registry.register(MemoryTool())
@@ -24,6 +26,8 @@ registry.register(TTSTool())
 registry.register(ShellTool())
 registry.register(CronTool())
 registry.register(PlaywrightTool())
+registry.register(Crawl4AITool())
+registry.register(BrowserAgentTool())
 
 # Public API for Telegram Bot (existing method)
 get_all_tools = registry.get_definitions

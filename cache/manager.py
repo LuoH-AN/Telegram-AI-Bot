@@ -183,6 +183,24 @@ class CacheManager:
             persona["current_session_id"] = None
         self._personas_cache[user_id][persona["name"]] = persona
 
+    def replace_user_personas(self, user_id: int, personas: list[dict]) -> None:
+        """Replace all personas for a user from database state."""
+        replaced: dict[str, dict] = {}
+        for persona in personas:
+            p = dict(persona)
+            if "name" not in p:
+                continue
+            if "current_session_id" not in p:
+                p["current_session_id"] = None
+            replaced[p["name"]] = p
+
+        if "default" not in replaced:
+            default = get_default_persona()
+            default["current_session_id"] = None
+            replaced["default"] = default
+
+        self._personas_cache[user_id] = replaced
+
     # Session cache methods
     def get_sessions(self, user_id: int, persona_name: str = None) -> list[dict]:
         """Get all sessions for a user's persona."""
@@ -351,6 +369,22 @@ class CacheManager:
     def set_token_usage(self, user_id: int, persona_name: str, usage: dict) -> None:
         """Set token usage for a persona (used during loading)."""
         self._persona_tokens_cache[(user_id, persona_name)] = usage
+
+    def replace_user_token_usage(self, user_id: int, usage_by_persona: dict[str, dict]) -> None:
+        """Replace all token usage records for one user from database state."""
+        keys_to_delete = [k for k in self._persona_tokens_cache if k[0] == user_id]
+        for key in keys_to_delete:
+            del self._persona_tokens_cache[key]
+
+        for persona_name, usage in usage_by_persona.items():
+            merged = get_default_token_usage()
+            merged.update({
+                "prompt_tokens": usage.get("prompt_tokens", 0) or 0,
+                "completion_tokens": usage.get("completion_tokens", 0) or 0,
+                "total_tokens": usage.get("total_tokens", 0) or 0,
+                "token_limit": usage.get("token_limit", 0) or 0,
+            })
+            self._persona_tokens_cache[(user_id, persona_name)] = merged
 
     def get_token_limit(self, user_id: int, persona_name: str = None) -> int:
         """Get token limit for a persona."""

@@ -1,1058 +1,1845 @@
-/* Gemen Dashboard — Frontend Logic */
 (function () {
   "use strict";
 
-  // ── Auth ──
-  const params = new URLSearchParams(location.search);
-  const urlToken = params.get("token");
-  let token = localStorage.getItem("gemen_token");
+  const DEFAULT_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright", "crawl4ai", "browser_agent"];
+  const SETTINGS_TEXT_FIELDS = [
+    "base_url",
+    "model",
+    "title_model",
+    "cron_model",
+    "tts_voice",
+    "tts_style",
+    "tts_endpoint",
+  ];
 
-  // If a short token is in the URL, exchange it for a JWT
-  if (urlToken) {
-    history.replaceState(null, "", location.pathname);
-    fetch("/api/auth/exchange", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: urlToken }),
-    })
-      .then((r) => r.ok ? r.json() : Promise.reject(new Error("Token exchange failed")))
-      .then((data) => {
-        localStorage.setItem("gemen_token", data.token);
-        location.reload();
-      })
-      .catch(() => {
-        // Short token invalid/expired — show login
-        document.getElementById("loginOverlay").style.display = "flex";
-        document.getElementById("mainContent").style.display = "none";
-      });
-    return; // stop — page will reload after exchange
+  const state = {
+    token: null,
+    activePane: "general",
+    personas: null,
+    providers: null,
+    usage: null,
+    logsPage: 1,
+    logsPages: 1,
+    selectedModel: "",
+    availableTools: DEFAULT_TOOLS.slice(),
+  };
+
+  function $(id) {
+    return document.getElementById(id);
   }
 
-  const $login = document.getElementById("loginOverlay");
-  const $main = document.getElementById("mainContent");
-
-  if (!token) {
-    $login.style.display = "flex";
-    $main.style.display = "none";
-    return; // stop here
+  function esc(value) {
+    const div = document.createElement("div");
+    div.textContent = value == null ? "" : String(value);
+    return div.innerHTML;
   }
-  $login.style.display = "none";
-  $main.style.display = "block";
 
-  // ── API Client ──
-  async function api(path, opts = {}) {
+  function formatNum(n) {
+    if (n == null || Number.isNaN(Number(n))) {
+      return "0";
+    }
+    return Number(n).toLocaleString();
+  }
+
+  function formatDate(value) {
+    if (!value) {
+      return "-";
+    }
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      return String(value);
+    }
+    return d.toLocaleString();
+  }
+
+  function toIsoFromDatetimeLocal(value) {
+    if (!value) {
+      return null;
+    }
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      return null;
+    }
+    return d.toISOString();
+  }
+
+  let toastTimer = null;
+  function toast(message, type) {
+    const node = $("toast");
+    node.textContent = message;
+    node.className = "toast show" + (type ? " " + type : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      node.className = "toast";
+    }, 2600);
+  }
+
+  function logout() {
+    localStorage.removeItem("gemen_token");
+    location.reload();
+  }
+
+  async function request(path, options = {}, responseType = "json") {
+    const headers = {
+      Authorization: "Bearer " + state.token,
+      ...(options.headers || {}),
+    };
+
+    const hasBody = options.body !== undefined && options.body !== null;
+    const isFormData = hasBody && options.body instanceof FormData;
+    if (!headers["Content-Type"] && hasBody && !isFormData) {
+      headers["Content-Type"] = "application/json";
+    }
+
     const res = await fetch(path, {
-      ...opts,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-        ...(opts.headers || {}),
-      },
+      ...options,
+      headers,
     });
+
     if (res.status === 401) {
-      localStorage.removeItem("gemen_token");
-      location.reload();
+      logout();
       throw new Error("Unauthorized");
     }
+
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail || res.statusText);
+      let detail = "Request failed";
+      try {
+        const body = await res.json();
+        detail = body.detail || body.error || JSON.stringify(body);
+      } catch {
+        try {
+          detail = await res.text();
+        } catch {
+          detail = res.statusText || detail;
+        }
+      }
+      throw new Error(detail);
+    }
+
+    if (responseType === "blob") {
+      return res.blob();
+    }
+    if (responseType === "text") {
+      return res.text();
+    }
+    if (res.status === 204) {
+      return null;
     }
     return res.json();
   }
 
-  // ── Toast ──
-  let toastTimer;
-  function toast(msg, type) {
-    const el = document.getElementById("toast");
-    el.textContent = msg;
-    el.className = "toast show" + (type ? " " + type : "");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (el.className = "toast"), 3000);
+  async function apiGet(path) {
+    return request(path, { method: "GET" });
   }
 
-  // ── Theme ──
-  const THEME_KEY = "theme";
-  function applyTheme(t) {
-    if (t === "system") {
-      const sys = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-      document.documentElement.setAttribute("data-theme", sys);
-    } else {
-      document.documentElement.setAttribute("data-theme", t);
+  async function apiPost(path, payload) {
+    return request(path, { method: "POST", body: JSON.stringify(payload || {}) });
+  }
+
+  async function apiPut(path, payload) {
+    return request(path, { method: "PUT", body: JSON.stringify(payload || {}) });
+  }
+
+  async function apiDelete(path) {
+    return request(path, { method: "DELETE" });
+  }
+
+  function parseIncomingShortToken() {
+    const queryToken = new URLSearchParams(location.search).get("token");
+    const hashToken = new URLSearchParams((location.hash || "").replace(/^#/, "")).get("token");
+    return queryToken || hashToken;
+  }
+
+  async function exchangeShortToken(shortToken) {
+    const response = await fetch("/api/auth/exchange", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: shortToken }),
+    });
+    if (!response.ok) {
+      throw new Error("Token exchange failed");
     }
-    document.querySelectorAll(".theme-btn").forEach((b) => {
-      b.classList.toggle("active", b.dataset.theme === t);
-    });
-    localStorage.setItem(THEME_KEY, t);
+    const data = await response.json();
+    return data.token;
   }
-  document.querySelectorAll(".theme-btn").forEach((btn) => {
-    btn.addEventListener("click", () => applyTheme(btn.dataset.theme));
-  });
-  applyTheme(localStorage.getItem(THEME_KEY) || "dark");
 
-  // ── Main Tabs ──
-  const $subTabRow = document.getElementById("settingsSubTabs");
-
-  document.querySelectorAll(".tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
-      btn.classList.add("active");
-      const panel = document.getElementById("tab-" + btn.dataset.tab);
-      if (panel) panel.classList.add("active");
-
-      // Show/hide sub-tab row
-      if ($subTabRow) {
-        $subTabRow.style.display = btn.dataset.tab === "settings" ? "flex" : "none";
+  async function setupAuth() {
+    const shortToken = parseIncomingShortToken();
+    if (shortToken) {
+      history.replaceState(null, "", location.pathname);
+      try {
+        const jwtToken = await exchangeShortToken(shortToken);
+        localStorage.setItem("gemen_token", jwtToken);
+        location.reload();
+        return false;
+      } catch {
+        localStorage.removeItem("gemen_token");
       }
+    }
 
-      // Lazy-load tab data
-      if (btn.dataset.tab === "logs") loadLogs();
-      if (btn.dataset.tab === "usage") loadUsage();
+    state.token = localStorage.getItem("gemen_token");
+    if (!state.token) {
+      $("loginOverlay").style.display = "flex";
+      $("mainApp").hidden = true;
+      return false;
+    }
+
+    $("loginOverlay").style.display = "none";
+    $("mainApp").hidden = false;
+    return true;
+  }
+
+  function getAvailableTools() {
+    if (!Array.isArray(state.availableTools) || !state.availableTools.length) {
+      return DEFAULT_TOOLS.slice();
+    }
+
+    const seen = new Set();
+    const tools = [];
+    state.availableTools.forEach((tool) => {
+      const name = String(tool || "").trim().toLowerCase();
+      if (!name || seen.has(name)) {
+        return;
+      }
+      seen.add(name);
+      tools.push(name);
     });
-  });
+    return tools.length ? tools : DEFAULT_TOOLS.slice();
+  }
 
-  // ── Sub-Tabs ──
-  document.querySelectorAll(".sub-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".sub-tab-btn").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".sub-tab-panel").forEach((p) => p.classList.remove("active"));
-      btn.classList.add("active");
-      const panel = document.getElementById("subtab-" + btn.dataset.subtab);
-      if (panel) panel.classList.add("active");
+  function normalizeToolsCsv(csv) {
+    const available = getAvailableTools();
+    const seen = new Set();
+    const list = [];
+    String(csv || "")
+      .split(",")
+      .map((x) => x.trim().toLowerCase())
+      .forEach((tool) => {
+        if (!tool || !available.includes(tool) || seen.has(tool)) {
+          return;
+        }
+        seen.add(tool);
+        list.push(tool);
+      });
+    return list.join(",");
+  }
 
-      // Lazy-load sub-tab data
-      if (btn.dataset.subtab === "providers") loadProviders();
-      if (btn.dataset.subtab === "memories") loadMemories();
-      if (btn.dataset.subtab === "conversations") loadConversationPersonas();
-      if (btn.dataset.subtab === "cron") loadCronTasks();
+  function renderToolGrid(containerId, toolsCsv) {
+    const selected = new Set(normalizeToolsCsv(toolsCsv).split(",").filter(Boolean));
+    const node = $(containerId);
+    node.innerHTML = "";
+
+    getAvailableTools().forEach((tool) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tool-item";
+      button.dataset.tool = tool;
+      button.textContent = tool;
+
+      const active = selected.has(tool);
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+
+      button.addEventListener("click", () => {
+        const next = !button.classList.contains("is-active");
+        button.classList.toggle("is-active", next);
+        button.setAttribute("aria-pressed", next ? "true" : "false");
+      });
+
+      node.appendChild(button);
     });
-  });
+  }
 
-  // ═════════════════════════════
-  //  SETTINGS — Save logic
-  // ═════════════════════════════
-
-  const SETTINGS_FIELDS = [
-    "base_url", "model", "temperature", "title_model", "cron_model",
-    "tts_voice", "tts_style", "tts_endpoint",
-  ];
-  const ALL_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"];
+  function collectToolCsv(containerId) {
+    const values = [];
+    document.querySelectorAll("#" + containerId + " .tool-item.is-active").forEach((button) => {
+      values.push(button.dataset.tool || "");
+    });
+    return normalizeToolsCsv(values.join(","));
+  }
 
   async function loadSettings() {
-    try {
-      const data = await api("/api/settings");
-      SETTINGS_FIELDS.forEach((key) => {
-        const el = document.getElementById("cfg-" + key);
-        if (el && data[key] !== undefined && data[key] !== null) {
-          el.value = data[key];
-        }
-      });
-      const chatTools = normalizeToolsCsv(data.enabled_tools || "");
-      const cronTools = normalizeToolsCsv(
-        data.cron_enabled_tools || removeToolFromCsv(chatTools, "memory")
-      );
-      renderToolGrid("toolGrid", chatTools);
-      renderToolGrid("cronToolGrid", cronTools);
-    } catch (e) {
-      toast("Failed to load settings: " + e.message, "error");
+    const settings = await apiGet("/api/settings");
+    if (Array.isArray(settings.available_tools) && settings.available_tools.length) {
+      state.availableTools = settings.available_tools;
     }
-  }
 
-  function normalizeToolsCsv(enabledStr) {
-    const seen = new Set();
-    const ordered = [];
-    String(enabledStr || "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .forEach((name) => {
-        if (!name || !ALL_TOOLS.includes(name) || seen.has(name)) return;
-        seen.add(name);
-        ordered.push(name);
-      });
-    return ordered.join(",");
-  }
-
-  function removeToolFromCsv(enabledStr, toolName) {
-    return String(enabledStr || "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter((name) => name && name !== toolName)
-      .join(",");
-  }
-
-  function renderToolGrid(gridId, enabledStr) {
-    const enabled = new Set(
-      normalizeToolsCsv(enabledStr).split(",").map((s) => s.trim()).filter(Boolean)
-    );
-    const grid = document.getElementById(gridId);
-    if (!grid) return;
-    grid.innerHTML = "";
-    ALL_TOOLS.forEach((tool) => {
-      const label = document.createElement("label");
-      label.className = "tool-toggle";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = enabled.has(tool);
-      cb.dataset.tool = tool;
-      const span = document.createElement("span");
-      span.textContent = tool;
-      label.appendChild(cb);
-      label.appendChild(span);
-      grid.appendChild(label);
-    });
-  }
-
-  function collectSettingsBody() {
-    const body = {};
-    SETTINGS_FIELDS.forEach((key) => {
-      const el = document.getElementById("cfg-" + key);
-      if (!el) return;
-      let val = el.value.trim();
-      if (key === "temperature") val = parseFloat(val) || 0;
-      else if (key === "token_limit") val = parseInt(val, 10) || 0;
-      body[key] = val;
-    });
-    // Collect chat tools
-    const chatTools = [];
-    document.querySelectorAll("#toolGrid input[type=checkbox]").forEach((cb) => {
-      if (cb.checked) chatTools.push(cb.dataset.tool);
+    SETTINGS_TEXT_FIELDS.forEach((field) => {
+      const input = $("cfg-" + field);
+      if (input) {
+        input.value = settings[field] == null ? "" : String(settings[field]);
+      }
     });
 
-    // Collect cron tools
-    const cronTools = [];
-    document.querySelectorAll("#cronToolGrid input[type=checkbox]").forEach((cb) => {
-      if (cb.checked) cronTools.push(cb.dataset.tool);
-    });
+    $("cfg-temperature").value = settings.temperature == null ? "" : String(settings.temperature);
+    $("cfg-stream_mode").value = settings.stream_mode || "";
+    $("cfg-api_key").value = "";
+    $("cfg-api_key-mask").textContent = settings.has_api_key
+      ? "Current key: " + (settings.api_key_masked || "***")
+      : "Not set";
 
-    body.enabled_tools = normalizeToolsCsv(chatTools.join(","));
-    body.cron_enabled_tools = normalizeToolsCsv(cronTools.join(","));
-    return body;
+    renderToolGrid("toolGrid", settings.enabled_tools || "");
+    renderToolGrid("cronToolGrid", settings.cron_enabled_tools || "");
   }
 
   async function saveSettings() {
-    try {
-      const body = collectSettingsBody();
-      await api("/api/settings", { method: "PUT", body: JSON.stringify(body) });
-      toast("Settings saved", "success");
-    } catch (e) {
-      toast("Save failed: " + e.message, "error");
+    const body = {
+      temperature: Number($("cfg-temperature").value || 0.7),
+      stream_mode: $("cfg-stream_mode").value.trim(),
+      enabled_tools: collectToolCsv("toolGrid"),
+      cron_enabled_tools: collectToolCsv("cronToolGrid"),
+    };
+
+    SETTINGS_TEXT_FIELDS.forEach((field) => {
+      body[field] = $("cfg-" + field).value.trim();
+    });
+
+    const apiKey = $("cfg-api_key").value.trim();
+    if (apiKey) {
+      body.api_key = apiKey;
     }
+
+    await apiPut("/api/settings", body);
+    $("cfg-api_key").value = "";
+    toast("Settings saved", "success");
+    await loadSettings();
   }
 
-  // Wire all save buttons to the same save function
-  document.getElementById("btnSaveSettings").addEventListener("click", saveSettings);
-  document.getElementById("btnSaveTools").addEventListener("click", saveSettings);
-  document.getElementById("btnSaveTTS").addEventListener("click", saveSettings);
+  function sortedPersonaNames() {
+    if (!state.personas) {
+      return [];
+    }
+    return Object.keys(state.personas.personas || {}).sort((a, b) => {
+      if (a === "default") return -1;
+      if (b === "default") return 1;
+      return a.localeCompare(b);
+    });
+  }
 
-  // ═════════════════════════════
-  //  PERSONAS
-  // ═════════════════════════════
+  function refreshPersonaSelectors() {
+    const names = sortedPersonaNames();
+
+    const sessionSelect = $("sessionPersonaSelect");
+    const prevSession = sessionSelect.value;
+    sessionSelect.innerHTML = "";
+    names.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      sessionSelect.appendChild(option);
+    });
+    if (names.includes(prevSession)) {
+      sessionSelect.value = prevSession;
+    } else if (state.personas && names.includes(state.personas.current)) {
+      sessionSelect.value = state.personas.current;
+    }
+
+    const usageSelect = $("usagePersonaSelect");
+    const prevUsage = usageSelect.value;
+    usageSelect.innerHTML = "";
+    names.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      usageSelect.appendChild(option);
+    });
+    if (names.includes(prevUsage)) {
+      usageSelect.value = prevUsage;
+    } else if (state.usage && names.includes(state.usage.current_persona)) {
+      usageSelect.value = state.usage.current_persona;
+    }
+  }
 
   async function loadPersonas() {
-    try {
-      const data = await api("/api/personas");
-      const list = document.getElementById("personaList");
-      list.innerHTML = "";
-      const names = Object.keys(data.personas).sort((a, b) =>
-        a === "default" ? -1 : b === "default" ? 1 : a.localeCompare(b)
-      );
-      names.forEach((name) => {
-        const p = data.personas[name];
-        const card = document.createElement("div");
-        card.className = "persona-card";
+    const data = await apiGet("/api/personas");
+    state.personas = data;
 
-        const header = document.createElement("div");
-        header.className = "persona-card-header";
+    const tbody = $("personaTableBody");
+    tbody.innerHTML = "";
 
-        const nameEl = document.createElement("div");
-        nameEl.className = "persona-card-name";
-        nameEl.textContent = name;
-        if (name === data.current) {
-          const badge = document.createElement("span");
-          badge.className = "badge badge-green";
-          badge.textContent = "active";
-          badge.style.marginLeft = "8px";
-          nameEl.appendChild(badge);
+    sortedPersonaNames().forEach((name) => {
+      const persona = data.personas[name];
+      const row = document.createElement("tr");
+
+      const currentCell = document.createElement("td");
+      currentCell.className = "row-current";
+      currentCell.textContent = data.current === name ? "*" : "";
+
+      const nameCell = document.createElement("td");
+      nameCell.textContent = name;
+
+      const promptCell = document.createElement("td");
+      const textarea = document.createElement("textarea");
+      textarea.rows = 3;
+      textarea.value = persona.system_prompt || "";
+      promptCell.appendChild(textarea);
+
+      const actionCell = document.createElement("td");
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+
+      const switchBtn = document.createElement("button");
+      switchBtn.className = "btn";
+      switchBtn.type = "button";
+      switchBtn.textContent = "Switch";
+      switchBtn.addEventListener("click", async () => {
+        try {
+          await apiPost("/api/personas/" + encodeURIComponent(name) + "/switch", {});
+          toast("Switched persona: " + name, "success");
+          await loadPersonas();
+          await loadUsage();
+          $("sessionPersonaSelect").value = name;
+          await loadSessions(name);
+        } catch (err) {
+          toast("Switch failed: " + err.message, "error");
         }
+      });
 
-        const actions = document.createElement("div");
-        actions.className = "action-row";
-
-        const saveBtn = document.createElement("button");
-        saveBtn.className = "btn-sm outline";
-        saveBtn.textContent = "Save";
-        saveBtn.addEventListener("click", async () => {
-          const ta = card.querySelector("textarea");
-          try {
-            await api("/api/personas/" + encodeURIComponent(name), {
-              method: "PUT",
-              body: JSON.stringify({ system_prompt: ta.value }),
-            });
-            toast("Persona updated", "success");
-          } catch (e) {
-            toast("Update failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(saveBtn);
-
-        if (name !== "default") {
-          const delBtn = document.createElement("button");
-          delBtn.className = "btn-sm danger";
-          delBtn.textContent = "Delete";
-          delBtn.addEventListener("click", async () => {
-            if (!confirm("Delete persona '" + name + "'?")) return;
-            try {
-              await api("/api/personas/" + encodeURIComponent(name), { method: "DELETE" });
-              toast("Persona deleted", "success");
-              loadPersonas();
-            } catch (e) {
-              toast("Delete failed: " + e.message, "error");
-            }
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "btn";
+      saveBtn.type = "button";
+      saveBtn.textContent = "Save Prompt";
+      saveBtn.addEventListener("click", async () => {
+        try {
+          await apiPut("/api/personas/" + encodeURIComponent(name), {
+            system_prompt: textarea.value,
           });
-          actions.appendChild(delBtn);
+          toast("Prompt updated: " + name, "success");
+          await loadPersonas();
+        } catch (err) {
+          toast("Update failed: " + err.message, "error");
         }
-
-        header.appendChild(nameEl);
-        header.appendChild(actions);
-        card.appendChild(header);
-
-        const promptWrap = document.createElement("div");
-        promptWrap.className = "persona-card-prompt";
-        const ta = document.createElement("textarea");
-        ta.className = "server-input";
-        ta.rows = 3;
-        ta.value = p.system_prompt || "";
-        promptWrap.appendChild(ta);
-        card.appendChild(promptWrap);
-
-        list.appendChild(card);
       });
-    } catch (e) {
-      toast("Failed to load personas: " + e.message, "error");
-    }
-  }
 
-  document.getElementById("btnCreatePersona").addEventListener("click", async () => {
-    const nameInput = document.getElementById("newPersonaName");
-    const name = nameInput.value.trim();
-    if (!name) return toast("Enter a persona name", "error");
-    try {
-      await api("/api/personas", { method: "POST", body: JSON.stringify({ name }) });
-      nameInput.value = "";
-      toast("Persona created", "success");
-      loadPersonas();
-    } catch (e) {
-      toast("Create failed: " + e.message, "error");
-    }
-  });
+      actions.appendChild(switchBtn);
+      actions.appendChild(saveBtn);
 
-  // ═════════════════════════════
-  //  MEMORIES
-  // ═════════════════════════════
-
-  async function loadMemories() {
-    try {
-      const data = await api("/api/memories");
-      const list = document.getElementById("memoryList");
-      const empty = document.getElementById("memoryEmpty");
-      list.innerHTML = "";
-
-      if (!data.memories.length) {
-        empty.style.display = "block";
-        return;
-      }
-      empty.style.display = "none";
-
-      data.memories.forEach((m) => {
-        const card = document.createElement("div");
-        card.className = "persona-card";
-
-        const header = document.createElement("div");
-        header.className = "persona-card-header";
-
-        const nameEl = document.createElement("div");
-        nameEl.className = "persona-card-name";
-        nameEl.textContent = "Memory #" + m.index;
-        if (m.source) {
-          const badge = document.createElement("span");
-          badge.className = "badge badge-accent";
-          badge.textContent = m.source;
-          badge.style.marginLeft = "8px";
-          nameEl.appendChild(badge);
-        }
-
-        const actions = document.createElement("div");
-        actions.className = "action-row";
-
-        const saveBtn = document.createElement("button");
-        saveBtn.className = "btn-sm outline";
-        saveBtn.textContent = "Save";
-        saveBtn.addEventListener("click", async () => {
-          const ta = card.querySelector("textarea");
-          const content = ta.value.trim();
-          if (!content) return toast("Memory content cannot be empty", "error");
-          try {
-            await api("/api/memories/" + m.index, {
-              method: "PUT",
-              body: JSON.stringify({ content }),
-            });
-            toast("Memory updated", "success");
-            loadMemories();
-          } catch (e) {
-            toast("Update failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(saveBtn);
-
+      if (name !== "default") {
         const delBtn = document.createElement("button");
-        delBtn.className = "btn-sm danger";
+        delBtn.className = "btn danger";
+        delBtn.type = "button";
         delBtn.textContent = "Delete";
         delBtn.addEventListener("click", async () => {
-          if (!confirm("Delete this memory?")) return;
-          try {
-            await api("/api/memories/" + m.index, { method: "DELETE" });
-            toast("Memory deleted", "success");
-            loadMemories();
-          } catch (e) {
-            toast("Delete failed: " + e.message, "error");
+          if (!confirm("Delete persona '" + name + "'?")) {
+            return;
           }
-        });
-        actions.appendChild(delBtn);
-
-        header.appendChild(nameEl);
-        header.appendChild(actions);
-        card.appendChild(header);
-
-        const contentWrap = document.createElement("div");
-        contentWrap.className = "persona-card-prompt";
-        const ta = document.createElement("textarea");
-        ta.className = "server-input";
-        ta.rows = 3;
-        ta.value = m.content || "";
-        contentWrap.appendChild(ta);
-        card.appendChild(contentWrap);
-
-        list.appendChild(card);
-      });
-    } catch (e) {
-      toast("Failed to load memories: " + e.message, "error");
-    }
-  }
-
-  document.getElementById("btnAddMemory").addEventListener("click", async () => {
-    const input = document.getElementById("newMemoryContent");
-    const content = input.value.trim();
-    if (!content) return toast("Enter memory content", "error");
-    try {
-      await api("/api/memories", {
-        method: "POST",
-        body: JSON.stringify({ content }),
-      });
-      input.value = "";
-      toast("Memory added", "success");
-      loadMemories();
-    } catch (e) {
-      toast("Add failed: " + e.message, "error");
-    }
-  });
-
-  document.getElementById("btnClearMemories").addEventListener("click", async () => {
-    if (!confirm("Clear all memories?")) return;
-    try {
-      const data = await api("/api/memories", { method: "DELETE" });
-      toast("Cleared " + (data.cleared || 0) + " memories", "success");
-      loadMemories();
-    } catch (e) {
-      toast("Clear failed: " + e.message, "error");
-    }
-  });
-
-  // ═════════════════════════════
-  //  PROVIDERS
-  // ═════════════════════════════
-
-  async function loadProviders() {
-    try {
-      const data = await api("/api/providers");
-      const list = document.getElementById("providerList");
-      const empty = document.getElementById("providerEmpty");
-      list.innerHTML = "";
-      const names = Object.keys(data.providers);
-      if (!names.length) {
-        empty.style.display = "block";
-        return;
-      }
-      empty.style.display = "none";
-      names.sort().forEach((name) => {
-        const p = data.providers[name];
-        const card = document.createElement("div");
-        card.className = "provider-card";
-
-        const header = document.createElement("div");
-        header.className = "provider-card-header";
-
-        const nameEl = document.createElement("div");
-        nameEl.className = "provider-card-name";
-        nameEl.textContent = name;
-
-        const actions = document.createElement("div");
-        actions.className = "action-row";
-
-        // Load button
-        const loadBtn = document.createElement("button");
-        loadBtn.className = "btn-sm accent";
-        loadBtn.textContent = "Load";
-        loadBtn.addEventListener("click", async () => {
           try {
-            await api("/api/providers/" + encodeURIComponent(name) + "/load", { method: "POST" });
-            toast("Provider loaded — settings updated", "success");
-            loadSettings();
-          } catch (e) {
-            toast("Load failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(loadBtn);
-
-        // Delete button
-        const delBtn = document.createElement("button");
-        delBtn.className = "btn-sm danger";
-        delBtn.textContent = "Delete";
-        delBtn.addEventListener("click", async () => {
-          if (!confirm("Delete provider '" + name + "'?")) return;
-          try {
-            await api("/api/providers/" + encodeURIComponent(name), { method: "DELETE" });
-            toast("Provider deleted", "success");
-            loadProviders();
-          } catch (e) {
-            toast("Delete failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(delBtn);
-
-        header.appendChild(nameEl);
-        header.appendChild(actions);
-        card.appendChild(header);
-
-        // Details
-        const details = [
-          { label: "base_url", value: p.base_url },
-          { label: "model", value: p.model },
-          { label: "api_key", value: p.api_key },
-        ];
-        details.forEach((d) => {
-          if (d.value) {
-            const det = document.createElement("div");
-            det.className = "provider-card-detail";
-            det.textContent = d.label + ": " + d.value;
-            card.appendChild(det);
-          }
-        });
-
-        list.appendChild(card);
-      });
-    } catch (e) {
-      toast("Failed to load providers: " + e.message, "error");
-    }
-  }
-
-  document.getElementById("btnCreateProvider").addEventListener("click", async () => {
-    const name = document.getElementById("prov-name").value.trim();
-    const apiKey = document.getElementById("prov-api_key").value.trim();
-    const baseUrl = document.getElementById("prov-base_url").value.trim();
-    const model = document.getElementById("prov-model").value.trim();
-    if (!name) return toast("Enter a provider name", "error");
-    if (!apiKey) return toast("Enter an API key", "error");
-    if (!baseUrl) return toast("Enter a base URL", "error");
-    try {
-      await api("/api/providers", {
-        method: "POST",
-        body: JSON.stringify({ name, api_key: apiKey, base_url: baseUrl, model }),
-      });
-      document.getElementById("prov-name").value = "";
-      document.getElementById("prov-api_key").value = "";
-      document.getElementById("prov-base_url").value = "";
-      document.getElementById("prov-model").value = "";
-      toast("Provider created", "success");
-      loadProviders();
-    } catch (e) {
-      toast("Create failed: " + e.message, "error");
-    }
-  });
-
-  // ═════════════════════════════
-  //  CONVERSATIONS (Sessions)
-  // ═════════════════════════════
-
-  async function loadConversationPersonas() {
-    try {
-      const data = await api("/api/personas");
-      const select = document.getElementById("convPersonaSelect");
-      const current = select.value;
-      select.innerHTML = '<option value="">Select persona...</option>';
-      const names = Object.keys(data.personas).sort((a, b) =>
-        a === "default" ? -1 : b === "default" ? 1 : a.localeCompare(b)
-      );
-      names.forEach((name) => {
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        select.appendChild(opt);
-      });
-      // Restore previous selection
-      if (current && names.includes(current)) {
-        select.value = current;
-        loadSessions(current);
-      }
-    } catch (e) {
-      toast("Failed to load personas: " + e.message, "error");
-    }
-  }
-
-  document.getElementById("convPersonaSelect").addEventListener("change", (e) => {
-    const persona = e.target.value;
-    if (persona) {
-      loadSessions(persona);
-    } else {
-      document.getElementById("sessionList").innerHTML = "";
-      document.getElementById("sessionsEmpty").style.display = "none";
-    }
-  });
-
-  async function loadSessions(persona) {
-    try {
-      const data = await api("/api/sessions?persona=" + encodeURIComponent(persona));
-      const list = document.getElementById("sessionList");
-      const empty = document.getElementById("sessionsEmpty");
-      list.innerHTML = "";
-      if (!data.sessions.length) {
-        empty.style.display = "block";
-        return;
-      }
-      empty.style.display = "none";
-      // Show newest first
-      const sessions = data.sessions.slice().reverse();
-      sessions.forEach((s) => {
-        const card = document.createElement("div");
-        card.className = "session-card";
-
-        const header = document.createElement("div");
-        header.className = "session-card-header";
-
-        const titleEl = document.createElement("div");
-        titleEl.className = "session-card-title";
-        titleEl.textContent = s.title || "Untitled";
-
-        const metaRow = document.createElement("div");
-        metaRow.style.display = "flex";
-        metaRow.style.alignItems = "center";
-        metaRow.style.gap = "8px";
-
-        const meta = document.createElement("div");
-        meta.className = "session-card-meta";
-        const time = s.created_at ? new Date(s.created_at).toLocaleString() : "";
-        meta.textContent = time + " · " + s.message_count + " msgs";
-
-        const delBtn = document.createElement("button");
-        delBtn.className = "btn-sm danger";
-        delBtn.textContent = "Delete";
-        delBtn.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          if (!confirm("Delete this conversation?")) return;
-          try {
-            await api("/api/sessions/" + s.id, { method: "DELETE" });
-            toast("Session deleted", "success");
-            loadSessions(persona);
+            await apiDelete("/api/personas/" + encodeURIComponent(name));
+            toast("Persona deleted", "success");
+            await loadPersonas();
+            await loadUsage();
+            await loadSessions($("sessionPersonaSelect").value);
           } catch (err) {
             toast("Delete failed: " + err.message, "error");
           }
         });
+        actions.appendChild(delBtn);
+      }
 
-        metaRow.appendChild(meta);
-        metaRow.appendChild(delBtn);
+      actionCell.appendChild(actions);
 
-        header.appendChild(titleEl);
-        header.appendChild(metaRow);
-        card.appendChild(header);
+      row.appendChild(currentCell);
+      row.appendChild(nameCell);
+      row.appendChild(promptCell);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
 
-        // Messages area (lazy-loaded on click)
-        const msgArea = document.createElement("div");
-        msgArea.className = "session-messages";
-        card.appendChild(msgArea);
+    refreshPersonaSelectors();
+    refreshModelProviderSelect();
+  }
 
-        card.addEventListener("click", async () => {
-          // Toggle
-          if (msgArea.classList.contains("open")) {
-            msgArea.classList.remove("open");
-            return;
-          }
-          // Load messages
-          try {
-            const msgData = await api("/api/sessions/" + s.id + "/messages");
-            msgArea.innerHTML = "";
-            if (!msgData.messages.length) {
-              msgArea.innerHTML = '<div class="empty-state" style="padding:12px">No messages.</div>';
-            } else {
-              msgData.messages.forEach((m) => {
-                const msgEl = document.createElement("div");
-                msgEl.className = "session-msg";
-                const roleEl = document.createElement("div");
-                roleEl.className = "session-msg-role " + m.role;
-                roleEl.textContent = m.role;
-                const contentEl = document.createElement("div");
-                contentEl.className = "session-msg-content";
-                contentEl.textContent = m.content;
-                msgEl.appendChild(roleEl);
-                msgEl.appendChild(contentEl);
-                msgArea.appendChild(msgEl);
-              });
-            }
-            msgArea.classList.add("open");
-          } catch (err) {
-            toast("Failed to load messages: " + err.message, "error");
-          }
-        });
+  async function createPersona() {
+    const name = $("persona-create-name").value.trim();
+    const prompt = $("persona-create-prompt").value.trim();
 
-        list.appendChild(card);
+    if (!name) {
+      toast("Persona name required", "error");
+      return;
+    }
+
+    await apiPost("/api/personas", {
+      name,
+      system_prompt: prompt || undefined,
+    });
+
+    $("persona-create-name").value = "";
+    $("persona-create-prompt").value = "";
+    toast("Persona created", "success");
+    await loadPersonas();
+  }
+
+  async function loadSessions(personaName) {
+    const persona = personaName || $("sessionPersonaSelect").value;
+    if (!persona) {
+      $("sessionTableBody").innerHTML = "";
+      $("sessionMessages").textContent = "No persona selected.";
+      return;
+    }
+
+    const data = await apiGet("/api/sessions?persona=" + encodeURIComponent(persona));
+    const tbody = $("sessionTableBody");
+    tbody.innerHTML = "";
+
+    const sessions = (data.sessions || []).slice().reverse();
+    sessions.forEach((session) => {
+      const row = document.createElement("tr");
+
+      const currentCell = document.createElement("td");
+      currentCell.className = "row-current";
+      currentCell.textContent = session.is_current ? "*" : "";
+
+      const titleCell = document.createElement("td");
+      const titleInput = document.createElement("input");
+      titleInput.type = "text";
+      titleInput.value = session.title || "New Chat";
+      titleCell.appendChild(titleInput);
+
+      const msgCell = document.createElement("td");
+      msgCell.textContent = formatNum(session.message_count);
+
+      const createdCell = document.createElement("td");
+      createdCell.textContent = formatDate(session.created_at);
+
+      const actionCell = document.createElement("td");
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+
+      const viewBtn = document.createElement("button");
+      viewBtn.className = "btn";
+      viewBtn.type = "button";
+      viewBtn.textContent = "View";
+      viewBtn.addEventListener("click", async () => {
+        await loadSessionMessages(session.id);
       });
-    } catch (e) {
-      toast("Failed to load sessions: " + e.message, "error");
+
+      const switchBtn = document.createElement("button");
+      switchBtn.className = "btn";
+      switchBtn.type = "button";
+      switchBtn.textContent = "Switch";
+      switchBtn.addEventListener("click", async () => {
+        try {
+          await apiPost("/api/sessions/" + session.id + "/switch", {});
+          toast("Session switched", "success");
+          await loadSessions(persona);
+          await loadUsage();
+        } catch (err) {
+          toast("Switch failed: " + err.message, "error");
+        }
+      });
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "btn";
+      saveBtn.type = "button";
+      saveBtn.textContent = "Rename";
+      saveBtn.addEventListener("click", async () => {
+        const title = titleInput.value.trim();
+        if (!title) {
+          toast("Title cannot be empty", "error");
+          return;
+        }
+        try {
+          await apiPut("/api/sessions/" + session.id + "/title", { title });
+          toast("Session renamed", "success");
+          await loadSessions(persona);
+        } catch (err) {
+          toast("Rename failed: " + err.message, "error");
+        }
+      });
+
+      const exportBtn = document.createElement("button");
+      exportBtn.className = "btn";
+      exportBtn.type = "button";
+      exportBtn.textContent = "Export";
+      exportBtn.addEventListener("click", async () => {
+        try {
+          await exportSessionMarkdown(session.id, session.title || "session");
+        } catch (err) {
+          toast("Export failed: " + err.message, "error");
+        }
+      });
+
+      const clearBtn = document.createElement("button");
+      clearBtn.className = "btn";
+      clearBtn.type = "button";
+      clearBtn.textContent = "Clear";
+      clearBtn.addEventListener("click", async () => {
+        if (!confirm("Clear this session messages?")) {
+          return;
+        }
+        try {
+          await apiPost("/api/sessions/" + session.id + "/clear", { reset_usage: false });
+          toast("Session cleared", "success");
+          await loadSessions(persona);
+          await loadSessionMessages(session.id);
+        } catch (err) {
+          toast("Clear failed: " + err.message, "error");
+        }
+      });
+
+      const clearResetBtn = document.createElement("button");
+      clearResetBtn.className = "btn";
+      clearResetBtn.type = "button";
+      clearResetBtn.textContent = "Clear+Reset";
+      clearResetBtn.addEventListener("click", async () => {
+        if (!confirm("Clear this session and reset persona usage?")) {
+          return;
+        }
+        try {
+          await apiPost("/api/sessions/" + session.id + "/clear", { reset_usage: true });
+          toast("Session cleared, usage reset", "success");
+          await loadSessions(persona);
+          await loadUsage();
+          await loadSessionMessages(session.id);
+        } catch (err) {
+          toast("Clear+reset failed: " + err.message, "error");
+        }
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn danger";
+      delBtn.type = "button";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("Delete this session?")) {
+          return;
+        }
+        try {
+          await apiDelete("/api/sessions/" + session.id);
+          toast("Session deleted", "success");
+          await loadSessions(persona);
+          $("sessionMessages").textContent = "Select a session to view messages.";
+        } catch (err) {
+          toast("Delete failed: " + err.message, "error");
+        }
+      });
+
+      actions.appendChild(viewBtn);
+      actions.appendChild(switchBtn);
+      actions.appendChild(saveBtn);
+      actions.appendChild(exportBtn);
+      actions.appendChild(clearBtn);
+      actions.appendChild(clearResetBtn);
+      actions.appendChild(delBtn);
+      actionCell.appendChild(actions);
+
+      row.appendChild(currentCell);
+      row.appendChild(titleCell);
+      row.appendChild(msgCell);
+      row.appendChild(createdCell);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
+
+    if (!sessions.length) {
+      const row = document.createElement("tr");
+      row.innerHTML = "<td colspan='5'>No sessions yet.</td>";
+      tbody.appendChild(row);
     }
   }
 
-  // ═════════════════════════════
-  //  CRON TASKS
-  // ═════════════════════════════
+  async function loadSessionMessages(sessionId) {
+    try {
+      const data = await apiGet("/api/sessions/" + sessionId + "/messages");
+      const lines = [];
+      (data.messages || []).forEach((message, idx) => {
+        lines.push("[" + (idx + 1) + "] " + (message.role || "unknown"));
+        lines.push(String(message.content || ""));
+        lines.push("");
+      });
+      $("sessionMessages").textContent = lines.length ? lines.join("\n") : "No messages in this session.";
+    } catch (err) {
+      $("sessionMessages").textContent = "Failed to load messages: " + err.message;
+    }
+  }
+
+  async function exportSessionMarkdown(sessionId, title) {
+    const blob = await request("/api/sessions/" + sessionId + "/export", { method: "GET" }, "blob");
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const safe = String(title || "session").replace(/[^a-zA-Z0-9._-]+/g, "_");
+    anchor.href = url;
+    anchor.download = safe + ".md";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast("Session exported", "success");
+  }
+
+  async function createSession() {
+    const persona = $("sessionPersonaSelect").value;
+    if (!persona) {
+      toast("Select a persona first", "error");
+      return;
+    }
+    const title = $("sessionNewTitle").value.trim();
+    await apiPost("/api/sessions", {
+      persona,
+      title,
+      switch_to_new: true,
+    });
+    $("sessionNewTitle").value = "";
+    toast("Session created", "success");
+    await loadSessions(persona);
+  }
+
+  async function loadMemories() {
+    const data = await apiGet("/api/memories");
+    const tbody = $("memoryTableBody");
+    tbody.innerHTML = "";
+
+    (data.memories || []).forEach((memory) => {
+      const row = document.createElement("tr");
+
+      const indexCell = document.createElement("td");
+      indexCell.textContent = String(memory.index);
+
+      const contentCell = document.createElement("td");
+      const textarea = document.createElement("textarea");
+      textarea.rows = 2;
+      textarea.value = memory.content || "";
+      contentCell.appendChild(textarea);
+
+      const sourceCell = document.createElement("td");
+      sourceCell.textContent = memory.source || "user";
+
+      const actionCell = document.createElement("td");
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "btn";
+      saveBtn.type = "button";
+      saveBtn.textContent = "Save";
+      saveBtn.addEventListener("click", async () => {
+        try {
+          await apiPut("/api/memories/" + memory.index, { content: textarea.value.trim() });
+          toast("Memory updated", "success");
+          await loadMemories();
+        } catch (err) {
+          toast("Update failed: " + err.message, "error");
+        }
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn danger";
+      delBtn.type = "button";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("Delete this memory?")) {
+          return;
+        }
+        try {
+          await apiDelete("/api/memories/" + memory.index);
+          toast("Memory deleted", "success");
+          await loadMemories();
+        } catch (err) {
+          toast("Delete failed: " + err.message, "error");
+        }
+      });
+
+      actions.appendChild(saveBtn);
+      actions.appendChild(delBtn);
+      actionCell.appendChild(actions);
+
+      row.appendChild(indexCell);
+      row.appendChild(contentCell);
+      row.appendChild(sourceCell);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
+
+    if (!data.memories || !data.memories.length) {
+      const row = document.createElement("tr");
+      row.innerHTML = "<td colspan='4'>No memories.</td>";
+      tbody.appendChild(row);
+    }
+  }
+
+  async function addMemory() {
+    const content = $("memoryNewContent").value.trim();
+    if (!content) {
+      toast("Memory content required", "error");
+      return;
+    }
+    await apiPost("/api/memories", { content });
+    $("memoryNewContent").value = "";
+    toast("Memory added", "success");
+    await loadMemories();
+  }
+
+  async function clearAllMemories() {
+    if (!confirm("Clear all memories?")) {
+      return;
+    }
+    await apiDelete("/api/memories");
+    toast("All memories cleared", "success");
+    await loadMemories();
+  }
+
+  async function loadProviders() {
+    const data = await apiGet("/api/providers");
+    state.providers = data.providers || {};
+
+    const tbody = $("providerTableBody");
+    tbody.innerHTML = "";
+
+    const names = Object.keys(state.providers).sort((a, b) => a.localeCompare(b));
+    names.forEach((name) => {
+      const provider = state.providers[name];
+      const row = document.createElement("tr");
+
+      const nameCell = document.createElement("td");
+      nameCell.textContent = name;
+
+      const keyCell = document.createElement("td");
+      keyCell.textContent = provider.api_key || "";
+
+      const baseCell = document.createElement("td");
+      baseCell.textContent = provider.base_url || "";
+
+      const modelCell = document.createElement("td");
+      modelCell.textContent = provider.model || "";
+
+      const actionCell = document.createElement("td");
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+
+      const loadBtn = document.createElement("button");
+      loadBtn.className = "btn";
+      loadBtn.type = "button";
+      loadBtn.textContent = "Load";
+      loadBtn.addEventListener("click", async () => {
+        try {
+          await apiPost("/api/providers/" + encodeURIComponent(name) + "/load", {});
+          toast("Provider loaded", "success");
+          await loadSettings();
+          await loadUsage();
+        } catch (err) {
+          toast("Load failed: " + err.message, "error");
+        }
+      });
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "btn";
+      editBtn.type = "button";
+      editBtn.textContent = "Edit";
+      editBtn.addEventListener("click", () => {
+        $("providerName").value = name;
+        $("providerApiKey").value = "";
+        $("providerBaseUrl").value = provider.base_url || "";
+        $("providerModel").value = provider.model || "";
+        toast("Editing provider: " + name);
+      });
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "btn danger";
+      deleteBtn.type = "button";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.addEventListener("click", async () => {
+        if (!confirm("Delete provider '" + name + "'?")) {
+          return;
+        }
+        try {
+          await apiDelete("/api/providers/" + encodeURIComponent(name));
+          toast("Provider deleted", "success");
+          await loadProviders();
+          refreshModelProviderSelect();
+        } catch (err) {
+          toast("Delete failed: " + err.message, "error");
+        }
+      });
+
+      actions.appendChild(loadBtn);
+      actions.appendChild(editBtn);
+      actions.appendChild(deleteBtn);
+      actionCell.appendChild(actions);
+
+      row.appendChild(nameCell);
+      row.appendChild(keyCell);
+      row.appendChild(baseCell);
+      row.appendChild(modelCell);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
+
+    if (!names.length) {
+      const row = document.createElement("tr");
+      row.innerHTML = "<td colspan='5'>No providers configured.</td>";
+      tbody.appendChild(row);
+    }
+
+    refreshModelProviderSelect();
+  }
+
+  function providerFormValues() {
+    return {
+      name: $("providerName").value.trim(),
+      api_key: $("providerApiKey").value.trim(),
+      base_url: $("providerBaseUrl").value.trim(),
+      model: $("providerModel").value.trim(),
+    };
+  }
+
+  function clearProviderForm() {
+    $("providerName").value = "";
+    $("providerApiKey").value = "";
+    $("providerBaseUrl").value = "";
+    $("providerModel").value = "";
+  }
+
+  async function createProvider() {
+    const values = providerFormValues();
+    if (!values.name || !values.api_key || !values.base_url) {
+      toast("Name, api_key, base_url are required", "error");
+      return;
+    }
+    await apiPost("/api/providers", values);
+    clearProviderForm();
+    toast("Provider created", "success");
+    await loadProviders();
+  }
+
+  async function updateProvider() {
+    const values = providerFormValues();
+    if (!values.name) {
+      toast("Provider name required", "error");
+      return;
+    }
+
+    const body = {};
+    if (values.api_key) body.api_key = values.api_key;
+    if (values.base_url) body.base_url = values.base_url;
+    if (values.model) body.model = values.model;
+
+    if (!Object.keys(body).length) {
+      toast("Provide at least one field to update", "error");
+      return;
+    }
+
+    await apiPut("/api/providers/" + encodeURIComponent(values.name), body);
+    clearProviderForm();
+    toast("Provider updated", "success");
+    await loadProviders();
+  }
+
+  async function saveCurrentProvider() {
+    const name = $("providerSaveName").value.trim();
+    if (!name) {
+      toast("Provider name required", "error");
+      return;
+    }
+    await apiPost("/api/providers/save-current", { name });
+    $("providerSaveName").value = "";
+    toast("Current config saved as provider", "success");
+    await loadProviders();
+  }
+
+  function refreshModelProviderSelect() {
+    const select = $("modelProviderSelect");
+    const prev = select.value;
+    select.innerHTML = "";
+
+    const currentOption = document.createElement("option");
+    currentOption.value = "current";
+    currentOption.textContent = "current";
+    select.appendChild(currentOption);
+
+    const names = Object.keys(state.providers || {}).sort((a, b) => a.localeCompare(b));
+    names.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    });
+
+    if (["current", ...names].includes(prev)) {
+      select.value = prev;
+    } else {
+      select.value = "current";
+    }
+  }
+
+  async function fetchModels() {
+    const source = $("modelProviderSelect").value;
+    const query = source && source !== "current" ? "?provider=" + encodeURIComponent(source) : "";
+    const data = await apiGet("/api/models" + query);
+
+    $("modelsCurrentModel").value = data.current_model || "";
+
+    const list = $("modelsList");
+    list.innerHTML = "";
+    state.selectedModel = "";
+    $("modelsSelectedModel").value = "";
+
+    (data.models || []).forEach((modelName) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "model-item" + (modelName === data.current_model ? " active" : "");
+      btn.textContent = modelName;
+      btn.addEventListener("click", () => {
+        state.selectedModel = modelName;
+        $("modelsSelectedModel").value = modelName;
+        document.querySelectorAll(".model-item").forEach((node) => {
+          node.classList.toggle("active", node.textContent === modelName);
+        });
+      });
+      list.appendChild(btn);
+    });
+
+    if (!data.models || !data.models.length) {
+      list.textContent = "No models returned.";
+    }
+
+    toast("Models fetched: " + formatNum(data.count || 0), "success");
+  }
+
+  async function applySelectedModel() {
+    if (!state.selectedModel) {
+      toast("Select a model first", "error");
+      return;
+    }
+    await apiPut("/api/settings", { model: state.selectedModel });
+    toast("Model updated: " + state.selectedModel, "success");
+    await loadSettings();
+  }
 
   async function loadCronTasks() {
-    try {
-      const data = await api("/api/cron");
-      const list = document.getElementById("cronList");
-      const empty = document.getElementById("cronEmpty");
-      list.innerHTML = "";
-      if (!data.tasks.length) {
-        empty.style.display = "block";
-        return;
-      }
-      empty.style.display = "none";
-      data.tasks.forEach((t) => {
-        const card = document.createElement("div");
-        card.className = "persona-card";
+    const data = await apiGet("/api/cron");
+    const tbody = $("cronTableBody");
+    tbody.innerHTML = "";
 
-        const header = document.createElement("div");
-        header.className = "persona-card-header";
+    (data.tasks || []).forEach((task) => {
+      const row = document.createElement("tr");
 
-        const nameEl = document.createElement("div");
-        nameEl.className = "persona-card-name";
-        nameEl.textContent = t.name;
-        const badge = document.createElement("span");
-        badge.className = "badge " + (t.enabled ? "badge-green" : "badge-red");
-        badge.textContent = t.enabled ? "enabled" : "disabled";
-        badge.style.marginLeft = "8px";
-        nameEl.appendChild(badge);
+      const nameCell = document.createElement("td");
+      nameCell.textContent = task.name || "";
 
-        const cronInfo = document.createElement("span");
-        cronInfo.style.cssText = "margin-left:8px;font-size:0.8em;opacity:0.6;font-family:monospace";
-        cronInfo.textContent = t.cron_expression;
-        nameEl.appendChild(cronInfo);
+      const cronCell = document.createElement("td");
+      const cronInput = document.createElement("input");
+      cronInput.type = "text";
+      cronInput.value = task.cron_expression || "";
+      cronCell.appendChild(cronInput);
 
-        const actions = document.createElement("div");
-        actions.className = "action-row";
+      const promptCell = document.createElement("td");
+      const promptInput = document.createElement("textarea");
+      promptInput.rows = 2;
+      promptInput.value = task.prompt || "";
+      promptCell.appendChild(promptInput);
 
-        // Toggle enabled
-        const toggleBtn = document.createElement("button");
-        toggleBtn.className = "btn-sm outline";
-        toggleBtn.textContent = t.enabled ? "Disable" : "Enable";
-        toggleBtn.addEventListener("click", async () => {
-          try {
-            await api("/api/cron/" + encodeURIComponent(t.name), {
-              method: "PUT",
-              body: JSON.stringify({ enabled: !t.enabled }),
-            });
-            toast(t.enabled ? "Task disabled" : "Task enabled", "success");
-            loadCronTasks();
-          } catch (e) {
-            toast("Toggle failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(toggleBtn);
+      const enabledCell = document.createElement("td");
+      enabledCell.textContent = task.enabled ? "on" : "off";
 
-        // Run now
-        const runBtn = document.createElement("button");
-        runBtn.className = "btn-sm accent";
-        runBtn.textContent = "Run";
-        runBtn.addEventListener("click", async () => {
-          try {
-            await api("/api/cron/" + encodeURIComponent(t.name) + "/run", { method: "POST" });
-            toast("Task triggered — result will be sent via Telegram", "success");
-          } catch (e) {
-            toast("Run failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(runBtn);
+      const lastRunCell = document.createElement("td");
+      lastRunCell.textContent = formatDate(task.last_run_at);
 
-        // Save
-        const saveBtn = document.createElement("button");
-        saveBtn.className = "btn-sm outline";
-        saveBtn.textContent = "Save";
-        saveBtn.addEventListener("click", async () => {
-          const cronInput = card.querySelector(".cron-expr-input");
-          const promptInput = card.querySelector(".cron-prompt-input");
-          try {
-            await api("/api/cron/" + encodeURIComponent(t.name), {
-              method: "PUT",
-              body: JSON.stringify({
-                cron_expression: cronInput.value.trim(),
-                prompt: promptInput.value.trim(),
-              }),
-            });
-            toast("Task updated", "success");
-            loadCronTasks();
-          } catch (e) {
-            toast("Update failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(saveBtn);
+      const actionCell = document.createElement("td");
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
 
-        // Delete
-        const delBtn = document.createElement("button");
-        delBtn.className = "btn-sm danger";
-        delBtn.textContent = "Delete";
-        delBtn.addEventListener("click", async () => {
-          if (!confirm("Delete task '" + t.name + "'?")) return;
-          try {
-            await api("/api/cron/" + encodeURIComponent(t.name), { method: "DELETE" });
-            toast("Task deleted", "success");
-            loadCronTasks();
-          } catch (e) {
-            toast("Delete failed: " + e.message, "error");
-          }
-        });
-        actions.appendChild(delBtn);
-
-        header.appendChild(nameEl);
-        header.appendChild(actions);
-        card.appendChild(header);
-
-        // Editable fields
-        const body = document.createElement("div");
-        body.className = "persona-card-prompt";
-
-        const cronRow = document.createElement("div");
-        cronRow.className = "config-row";
-        cronRow.style.marginBottom = "8px";
-        const cronLabel = document.createElement("label");
-        cronLabel.textContent = "cron";
-        cronLabel.style.minWidth = "50px";
-        const cronInput = document.createElement("input");
-        cronInput.type = "text";
-        cronInput.className = "server-input cron-expr-input";
-        cronInput.value = t.cron_expression;
-        cronRow.appendChild(cronLabel);
-        cronRow.appendChild(cronInput);
-        body.appendChild(cronRow);
-
-        const promptTa = document.createElement("textarea");
-        promptTa.className = "server-input cron-prompt-input";
-        promptTa.rows = 3;
-        promptTa.value = t.prompt;
-        body.appendChild(promptTa);
-
-        if (t.last_run_at) {
-          const lastRun = document.createElement("div");
-          lastRun.style.cssText = "font-size:0.8em;opacity:0.5;margin-top:6px";
-          lastRun.textContent = "Last run: " + new Date(t.last_run_at).toLocaleString();
-          body.appendChild(lastRun);
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "btn";
+      saveBtn.type = "button";
+      saveBtn.textContent = "Save";
+      saveBtn.addEventListener("click", async () => {
+        try {
+          await apiPut("/api/cron/" + encodeURIComponent(task.name), {
+            cron_expression: cronInput.value.trim(),
+            prompt: promptInput.value,
+            enabled: task.enabled,
+          });
+          toast("Cron task updated", "success");
+          await loadCronTasks();
+        } catch (err) {
+          toast("Update failed: " + err.message, "error");
         }
-
-        card.appendChild(body);
-        list.appendChild(card);
       });
-    } catch (e) {
-      toast("Failed to load cron tasks: " + e.message, "error");
-    }
-  }
 
-  document.getElementById("btnCreateCron").addEventListener("click", async () => {
-    const name = document.getElementById("cron-name").value.trim();
-    const expr = document.getElementById("cron-expression").value.trim();
-    const prompt = document.getElementById("cron-prompt").value.trim();
-    if (!name) return toast("Enter a task name", "error");
-    if (!expr) return toast("Enter a cron expression", "error");
-    if (!prompt) return toast("Enter a prompt", "error");
-    try {
-      await api("/api/cron", {
-        method: "POST",
-        body: JSON.stringify({ name: name, cron_expression: expr, prompt: prompt }),
+      const toggleBtn = document.createElement("button");
+      toggleBtn.className = "btn";
+      toggleBtn.type = "button";
+      toggleBtn.textContent = task.enabled ? "Disable" : "Enable";
+      toggleBtn.addEventListener("click", async () => {
+        try {
+          await apiPut("/api/cron/" + encodeURIComponent(task.name), {
+            enabled: !task.enabled,
+          });
+          toast("Cron task toggled", "success");
+          await loadCronTasks();
+        } catch (err) {
+          toast("Toggle failed: " + err.message, "error");
+        }
       });
-      document.getElementById("cron-name").value = "";
-      document.getElementById("cron-expression").value = "";
-      document.getElementById("cron-prompt").value = "";
-      toast("Task created", "success");
-      loadCronTasks();
-    } catch (e) {
-      toast("Create failed: " + e.message, "error");
-    }
-  });
 
-  // ═════════════════════════════
-  //  LOGS TAB
-  // ═════════════════════════════
+      const runBtn = document.createElement("button");
+      runBtn.className = "btn";
+      runBtn.type = "button";
+      runBtn.textContent = "Run";
+      runBtn.addEventListener("click", async () => {
+        try {
+          const res = await apiPost("/api/cron/" + encodeURIComponent(task.name) + "/run", {});
+          toast(res.message || "Task executed", "success");
+          await loadCronTasks();
+        } catch (err) {
+          toast("Run failed: " + err.message, "error");
+        }
+      });
 
-  let logsPage = 1;
-  const LOGS_LIMIT = 50;
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn danger";
+      delBtn.type = "button";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("Delete cron task '" + task.name + "'?")) {
+          return;
+        }
+        try {
+          await apiDelete("/api/cron/" + encodeURIComponent(task.name));
+          toast("Cron task deleted", "success");
+          await loadCronTasks();
+        } catch (err) {
+          toast("Delete failed: " + err.message, "error");
+        }
+      });
 
-  document.getElementById("logTypeFilter").addEventListener("change", () => {
-    logsPage = 1;
-    loadLogs();
-  });
+      actions.appendChild(saveBtn);
+      actions.appendChild(toggleBtn);
+      actions.appendChild(runBtn);
+      actions.appendChild(delBtn);
+      actionCell.appendChild(actions);
 
-  async function loadLogs() {
-    const type = document.getElementById("logTypeFilter").value;
-    const qs = new URLSearchParams({ page: logsPage, limit: LOGS_LIMIT });
-    if (type) qs.set("type", type);
-    try {
-      const data = await api("/api/logs?" + qs);
-      const body = document.getElementById("logsBody");
-      const empty = document.getElementById("logsEmpty");
-      const tableWrap = document.getElementById("logsTableWrap");
-      body.innerHTML = "";
-      if (!data.logs.length) {
-        tableWrap.style.display = "none";
-        empty.style.display = "block";
-      } else {
-        tableWrap.style.display = "";
-        empty.style.display = "none";
-        data.logs.forEach((log) => {
-          const tr = document.createElement("tr");
-          const time = log.created_at ? new Date(log.created_at).toLocaleString() : "";
-          const typeBadge = log.log_type === "error"
-            ? '<span class="badge badge-red">error</span>'
-            : '<span class="badge badge-accent">ai</span>';
-          const tools = log.tool_calls ? JSON.parse(log.tool_calls).join(", ") : "";
-          const latency = log.latency_ms != null ? log.latency_ms + "ms" : "";
-          const tokens = log.total_tokens != null ? log.total_tokens : "";
-          const error = log.error_message
-            ? (log.error_message.length > 60 ? log.error_message.slice(0, 60) + "..." : log.error_message)
-            : "";
-          tr.innerHTML =
-            "<td>" + esc(time) + "</td>" +
-            "<td>" + typeBadge + "</td>" +
-            "<td>" + esc(log.model || "") + "</td>" +
-            "<td>" + esc(String(tokens)) + "</td>" +
-            "<td>" + esc(tools) + "</td>" +
-            "<td>" + esc(latency) + "</td>" +
-            "<td>" + esc(log.persona_name || "") + "</td>" +
-            "<td>" + esc(error) + "</td>";
-          body.appendChild(tr);
-        });
-      }
-      renderLogsPagination(data.page, data.pages);
-    } catch (e) {
-      toast("Failed to load logs: " + e.message, "error");
+      row.appendChild(nameCell);
+      row.appendChild(cronCell);
+      row.appendChild(promptCell);
+      row.appendChild(enabledCell);
+      row.appendChild(lastRunCell);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
+
+    if (!data.tasks || !data.tasks.length) {
+      const row = document.createElement("tr");
+      row.innerHTML = "<td colspan='6'>No cron tasks.</td>";
+      tbody.appendChild(row);
     }
   }
 
-  function renderLogsPagination(current, total) {
-    const el = document.getElementById("logsPagination");
-    el.innerHTML = "";
-    if (total <= 1) return;
-    const prev = document.createElement("button");
-    prev.className = "btn-sm outline";
-    prev.textContent = "Prev";
-    prev.disabled = current <= 1;
-    prev.addEventListener("click", () => { logsPage--; loadLogs(); });
+  async function createCronTask() {
+    const name = $("cronName").value.trim();
+    const cron = $("cronExpression").value.trim();
+    const prompt = $("cronPrompt").value.trim();
 
-    const info = document.createElement("span");
-    info.className = "page-info";
-    info.textContent = current + " / " + total;
+    if (!name || !cron || !prompt) {
+      toast("name, cron_expression, prompt are required", "error");
+      return;
+    }
 
-    const next = document.createElement("button");
-    next.className = "btn-sm outline";
-    next.textContent = "Next";
-    next.disabled = current >= total;
-    next.addEventListener("click", () => { logsPage++; loadLogs(); });
+    await apiPost("/api/cron", {
+      name,
+      cron_expression: cron,
+      prompt,
+    });
 
-    el.appendChild(prev);
-    el.appendChild(info);
-    el.appendChild(next);
+    $("cronName").value = "";
+    $("cronExpression").value = "";
+    $("cronPrompt").value = "";
+    toast("Cron task created", "success");
+    await loadCronTasks();
   }
 
-  // ═════════════════════════════
-  //  USAGE TAB
-  // ═════════════════════════════
+  function syncUsageControlFromState() {
+    if (!state.usage) {
+      return;
+    }
+
+    const usageSelect = $("usagePersonaSelect");
+    const persona = usageSelect.value || state.usage.current_persona;
+    const perPersona = state.usage.per_persona || [];
+    const row = perPersona.find((item) => item.persona === persona);
+    $("usageTokenLimit").value = row ? String(row.token_limit || 0) : "0";
+  }
 
   async function loadUsage() {
-    try {
-      const data = await api("/api/usage");
-      const stats = document.getElementById("usageStats");
-      const limit = data.token_limit || 0;
-      const total = data.total_all_personas || 0;
-      const pct = data.usage_percentage;
-      const persona = data.current_persona || "default";
+    const data = await apiGet("/api/usage");
+    state.usage = data;
 
-      let html =
-        '<div class="stat-card">' +
-          '<div class="stat-label">All Personas Total</div>' +
-          '<div class="stat-value accent">' + formatNum(total) + "</div>" +
-        "</div>" +
-        '<div class="stat-card">' +
-          '<div class="stat-label">Current: ' + esc(persona) + '</div>' +
-          '<div class="stat-value">' + (limit ? formatNum(limit) : "Unlimited") + "</div>" +
-        "</div>";
+    const summary = [];
+    summary.push("Current Persona: " + (data.current_persona || "default"));
+    summary.push("Total Tokens (All Personas): " + formatNum(data.total_all_personas || 0));
+    summary.push("Current Token Limit: " + (data.token_limit ? formatNum(data.token_limit) : "unlimited"));
+    summary.push("Remaining: " + (data.remaining == null ? "unlimited" : formatNum(data.remaining)));
+    summary.push("Usage Percentage: " + (data.usage_percentage == null ? "n/a" : data.usage_percentage.toFixed(1) + "%"));
+    $("usageSummary").textContent = summary.join("\n");
 
-      if (limit) {
-        html +=
-          '<div class="stat-card">' +
-            '<div class="stat-label">Remaining</div>' +
-            '<div class="stat-value green">' + formatNum(data.remaining) + "</div>" +
-          "</div>" +
-          '<div class="stat-card">' +
-            '<div class="stat-label">Usage</div>' +
-            '<div class="stat-value">' + (pct != null ? pct.toFixed(1) + "%" : "N/A") + "</div>" +
-            '<div class="progress-bar"><div class="progress-bar-fill" style="width:' + (pct || 0) + '%;background-color:' + usageColor(pct || 0) + '"></div></div>' +
-          "</div>";
-      }
-      stats.innerHTML = html;
+    refreshPersonaSelectors();
+    $("usagePersonaSelect").value = data.current_persona || "default";
+    syncUsageControlFromState();
 
-      // Per-persona table
-      const body = document.getElementById("usageBody");
-      body.innerHTML = "";
-      (data.per_persona || []).forEach((p) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML =
-          "<td>" + esc(p.persona) + "</td>" +
-          "<td>" + formatNum(p.prompt_tokens) + "</td>" +
-          "<td>" + formatNum(p.completion_tokens) + "</td>" +
-          "<td>" + formatNum(p.total_tokens) + "</td>" +
-          "<td>" + (p.token_limit ? formatNum(p.token_limit) : "∞") + "</td>";
-        body.appendChild(tr);
+    const tbody = $("usageTableBody");
+    tbody.innerHTML = "";
+
+    (data.per_persona || []).forEach((item) => {
+      const row = document.createElement("tr");
+
+      const personaCell = document.createElement("td");
+      personaCell.textContent = item.persona;
+
+      const promptCell = document.createElement("td");
+      promptCell.textContent = formatNum(item.prompt_tokens);
+
+      const completionCell = document.createElement("td");
+      completionCell.textContent = formatNum(item.completion_tokens);
+
+      const totalCell = document.createElement("td");
+      totalCell.textContent = formatNum(item.total_tokens);
+
+      const limitCell = document.createElement("td");
+      const limitInput = document.createElement("input");
+      limitInput.type = "number";
+      limitInput.min = "0";
+      limitInput.step = "1";
+      limitInput.value = String(item.token_limit || 0);
+      limitCell.appendChild(limitInput);
+
+      const actionCell = document.createElement("td");
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+
+      const setBtn = document.createElement("button");
+      setBtn.className = "btn";
+      setBtn.type = "button";
+      setBtn.textContent = "Set Limit";
+      setBtn.addEventListener("click", async () => {
+        try {
+          await apiPut("/api/usage/token-limit", {
+            persona: item.persona,
+            token_limit: Number(limitInput.value || 0),
+          });
+          toast("Token limit updated", "success");
+          await loadUsage();
+        } catch (err) {
+          toast("Set limit failed: " + err.message, "error");
+        }
       });
-    } catch (e) {
-      toast("Failed to load usage: " + e.message, "error");
+
+      const resetBtn = document.createElement("button");
+      resetBtn.className = "btn";
+      resetBtn.type = "button";
+      resetBtn.textContent = "Reset";
+      resetBtn.addEventListener("click", async () => {
+        if (!confirm("Reset usage for persona '" + item.persona + "'?")) {
+          return;
+        }
+        try {
+          await apiPost("/api/usage/reset", { persona: item.persona });
+          toast("Usage reset", "success");
+          await loadUsage();
+        } catch (err) {
+          toast("Reset failed: " + err.message, "error");
+        }
+      });
+
+      actions.appendChild(setBtn);
+      actions.appendChild(resetBtn);
+      actionCell.appendChild(actions);
+
+      row.appendChild(personaCell);
+      row.appendChild(promptCell);
+      row.appendChild(completionCell);
+      row.appendChild(totalCell);
+      row.appendChild(limitCell);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
+
+    if (!data.per_persona || !data.per_persona.length) {
+      const row = document.createElement("tr");
+      row.innerHTML = "<td colspan='6'>No usage rows.</td>";
+      tbody.appendChild(row);
     }
   }
 
-  // ── Helpers ──
-  function esc(s) {
-    const d = document.createElement("div");
-    d.textContent = s;
-    return d.innerHTML;
-  }
-  function formatNum(n) {
-    if (n == null) return "0";
-    return Number(n).toLocaleString();
-  }
-  function usageColor(pct) {
-    // Light green (low) → dark red (high)
-    const p = Math.min(100, Math.max(0, pct)) / 100;
-    const r = Math.round(52 + (185 - 52) * p);   // 34→b9 (green→red)
-    const g = Math.round(211 - (211 - 50) * p);   // d3→32
-    const b = Math.round(153 - (153 - 50) * p);   // 99→32
-    return "rgb(" + r + "," + g + "," + b + ")";
+  async function setUsageLimitFromControls() {
+    const persona = $("usagePersonaSelect").value;
+    const tokenLimit = Number($("usageTokenLimit").value || 0);
+    await apiPut("/api/usage/token-limit", {
+      persona,
+      token_limit: tokenLimit,
+    });
+    toast("Token limit updated", "success");
+    await loadUsage();
   }
 
-  // ── Init ──
-  loadSettings();
-  loadPersonas();
+  async function resetUsageFromControls() {
+    const persona = $("usagePersonaSelect").value;
+    if (!confirm("Reset usage for persona '" + persona + "'?")) {
+      return;
+    }
+    await apiPost("/api/usage/reset", { persona });
+    toast("Usage reset", "success");
+    await loadUsage();
+  }
+
+  function buildLogsFilterPayload() {
+    const type = $("logTypeFilter").value || null;
+    const before = toIsoFromDatetimeLocal($("logBefore").value);
+    const after = toIsoFromDatetimeLocal($("logAfter").value);
+    return {
+      type,
+      before,
+      after,
+    };
+  }
+
+  async function loadLogs() {
+    const type = $("logTypeFilter").value;
+    const params = new URLSearchParams();
+    params.set("page", String(state.logsPage));
+    params.set("limit", "50");
+    if (type) {
+      params.set("type", type);
+    }
+
+    const data = await apiGet("/api/logs?" + params.toString());
+    state.logsPage = data.page || 1;
+    state.logsPages = data.pages || 1;
+
+    const tbody = $("logsTableBody");
+    tbody.innerHTML = "";
+
+    (data.logs || []).forEach((log) => {
+      const row = document.createElement("tr");
+
+      const checkCell = document.createElement("td");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "log-select";
+      checkbox.dataset.logId = String(log.id);
+      checkCell.appendChild(checkbox);
+
+      const createdCell = document.createElement("td");
+      createdCell.textContent = formatDate(log.created_at);
+
+      const typeCell = document.createElement("td");
+      typeCell.textContent = log.log_type || "";
+
+      const modelCell = document.createElement("td");
+      modelCell.textContent = log.model || "";
+
+      const tokenCell = document.createElement("td");
+      tokenCell.textContent = formatNum(log.total_tokens || 0);
+
+      const latencyCell = document.createElement("td");
+      latencyCell.textContent = log.latency_ms != null ? String(log.latency_ms) + "ms" : "-";
+
+      const personaCell = document.createElement("td");
+      personaCell.textContent = log.persona_name || "";
+
+      const msgCell = document.createElement("td");
+      msgCell.textContent = log.error_message || "";
+
+      const actionCell = document.createElement("td");
+      const btn = document.createElement("button");
+      btn.className = "btn danger";
+      btn.type = "button";
+      btn.textContent = "Delete";
+      btn.addEventListener("click", async () => {
+        try {
+          await apiDelete("/api/logs/" + log.id);
+          toast("Log deleted", "success");
+          await loadLogs();
+        } catch (err) {
+          toast("Delete failed: " + err.message, "error");
+        }
+      });
+      actionCell.appendChild(btn);
+
+      row.appendChild(checkCell);
+      row.appendChild(createdCell);
+      row.appendChild(typeCell);
+      row.appendChild(modelCell);
+      row.appendChild(tokenCell);
+      row.appendChild(latencyCell);
+      row.appendChild(personaCell);
+      row.appendChild(msgCell);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
+
+    if (!data.logs || !data.logs.length) {
+      const row = document.createElement("tr");
+      row.innerHTML = "<td colspan='9'>No logs.</td>";
+      tbody.appendChild(row);
+    }
+
+    $("logsPageInfo").textContent = String(data.page || 1) + " / " + String(data.pages || 1);
+    $("btnLogsPrev").disabled = (data.page || 1) <= 1;
+    $("btnLogsNext").disabled = (data.page || 1) >= (data.pages || 1);
+    $("logCheckAll").checked = false;
+  }
+
+  async function deleteSelectedLogs() {
+    const selected = Array.from(document.querySelectorAll(".log-select:checked"));
+    if (!selected.length) {
+      toast("No logs selected", "error");
+      return;
+    }
+
+    if (!confirm("Delete " + selected.length + " selected logs?")) {
+      return;
+    }
+
+    for (const node of selected) {
+      const id = Number(node.dataset.logId);
+      if (!id) {
+        continue;
+      }
+      await apiDelete("/api/logs/" + id);
+    }
+
+    toast("Selected logs deleted", "success");
+    await loadLogs();
+  }
+
+  async function deleteFilteredLogs() {
+    const payload = buildLogsFilterPayload();
+    if (!payload.before && !payload.after) {
+      toast("Set before/after filter first", "error");
+      return;
+    }
+
+    if (!confirm("Delete logs by current filters?")) {
+      return;
+    }
+
+    const res = await apiPost("/api/logs/delete", payload);
+    toast("Deleted " + formatNum(res.deleted || 0) + " logs", "success");
+    await loadLogs();
+  }
+
+  async function keepLatestLogs() {
+    const keep = Number($("logKeepLatest").value || "");
+    if (Number.isNaN(keep) || keep < 0) {
+      toast("Enter a valid Keep Latest number", "error");
+      return;
+    }
+
+    const payload = {
+      type: $("logTypeFilter").value || null,
+      keep_latest: keep,
+    };
+
+    if (!confirm("Keep latest " + keep + " logs and delete older ones?")) {
+      return;
+    }
+
+    const res = await apiPost("/api/logs/delete", payload);
+    toast("Deleted " + formatNum(res.deleted || 0) + " logs", "success");
+    await loadLogs();
+  }
+
+  async function clearLogsByType() {
+    const type = $("logTypeFilter").value || null;
+    const label = type ? "type '" + type + "'" : "all types";
+    if (!confirm("Clear logs for " + label + "?")) {
+      return;
+    }
+
+    const res = await apiPost("/api/logs/delete", {
+      type,
+      clear_all: true,
+    });
+    toast("Deleted " + formatNum(res.deleted || 0) + " logs", "success");
+    await loadLogs();
+  }
+
+  async function exportBackup() {
+    const payload = await apiGet("/api/backup/export");
+    const data = JSON.stringify(payload, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "gemen-backup-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+
+    $("backupResult").textContent = "Backup exported at " + new Date().toLocaleString();
+    toast("Backup exported", "success");
+  }
+
+  async function importBackup() {
+    const file = $("backupFileInput").files && $("backupFileInput").files[0];
+    if (!file) {
+      toast("Choose a backup file first", "error");
+      return;
+    }
+
+    const mode = $("backupImportMode").value || "replace";
+    const text = await file.text();
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      toast("Invalid JSON file", "error");
+      return;
+    }
+
+    if (!confirm("Import backup in '" + mode + "' mode?")) {
+      return;
+    }
+
+    const result = await apiPost("/api/backup/import", {
+      mode,
+      payload,
+    });
+
+    $("backupResult").textContent = JSON.stringify(result, null, 2);
+    toast("Backup imported", "success");
+    await reloadAll();
+  }
+
+  function setActivePane(name) {
+    state.activePane = name;
+    document.querySelectorAll(".nav-btn").forEach((button) => {
+      button.classList.toggle("active", button.dataset.pane === name);
+    });
+    document.querySelectorAll(".pane").forEach((pane) => {
+      pane.classList.toggle("active", pane.id === "pane-" + name);
+    });
+    loadPaneData(name).catch((err) => {
+      toast("Load failed: " + err.message, "error");
+    });
+  }
+
+  async function loadPaneData(name) {
+    if (name === "general") {
+      await loadSettings();
+      return;
+    }
+    if (name === "personas") {
+      await loadPersonas();
+      return;
+    }
+    if (name === "sessions") {
+      await loadPersonas();
+      await loadSessions($("sessionPersonaSelect").value);
+      return;
+    }
+    if (name === "memories") {
+      await loadMemories();
+      return;
+    }
+    if (name === "providers") {
+      await loadProviders();
+      return;
+    }
+    if (name === "models") {
+      await loadProviders();
+      refreshModelProviderSelect();
+      return;
+    }
+    if (name === "cron") {
+      await loadCronTasks();
+      return;
+    }
+    if (name === "usage") {
+      await loadUsage();
+      return;
+    }
+    if (name === "logs") {
+      await loadLogs();
+    }
+  }
+
+  async function reloadAll() {
+    await loadSettings();
+    await loadPersonas();
+    await loadProviders();
+    await loadUsage();
+    await loadMemories();
+    await loadCronTasks();
+    await loadSessions($("sessionPersonaSelect").value || (state.personas ? state.personas.current : ""));
+    if (state.activePane === "logs") {
+      await loadLogs();
+    }
+  }
+
+  function wireEvents() {
+    document.querySelectorAll(".nav-btn").forEach((button) => {
+      button.addEventListener("click", () => setActivePane(button.dataset.pane));
+    });
+
+    const logoutButton = $("btnLogout");
+    if (logoutButton) {
+      logoutButton.addEventListener("click", logout);
+    }
+
+    const refreshAllButton = $("btnRefreshAll");
+    if (refreshAllButton) {
+      refreshAllButton.addEventListener("click", async () => {
+        try {
+          await reloadAll();
+          toast("Refreshed", "success");
+        } catch (err) {
+          toast("Refresh failed: " + err.message, "error");
+        }
+      });
+    }
+
+    $("btnSaveGeneral").addEventListener("click", async () => {
+      try {
+        await saveSettings();
+      } catch (err) {
+        toast("Save failed: " + err.message, "error");
+      }
+    });
+
+    $("btnPersonaCreate").addEventListener("click", async () => {
+      try {
+        await createPersona();
+      } catch (err) {
+        toast("Create failed: " + err.message, "error");
+      }
+    });
+
+    $("btnSessionCreate").addEventListener("click", async () => {
+      try {
+        await createSession();
+      } catch (err) {
+        toast("Create failed: " + err.message, "error");
+      }
+    });
+
+    $("btnSessionRefresh").addEventListener("click", async () => {
+      try {
+        await loadSessions($("sessionPersonaSelect").value);
+      } catch (err) {
+        toast("Load failed: " + err.message, "error");
+      }
+    });
+
+    $("sessionPersonaSelect").addEventListener("change", async () => {
+      try {
+        await loadSessions($("sessionPersonaSelect").value);
+      } catch (err) {
+        toast("Load failed: " + err.message, "error");
+      }
+    });
+
+    $("btnAddMemory").addEventListener("click", async () => {
+      try {
+        await addMemory();
+      } catch (err) {
+        toast("Add failed: " + err.message, "error");
+      }
+    });
+
+    $("btnClearMemories").addEventListener("click", async () => {
+      try {
+        await clearAllMemories();
+      } catch (err) {
+        toast("Clear failed: " + err.message, "error");
+      }
+    });
+
+    $("btnProviderCreate").addEventListener("click", async () => {
+      try {
+        await createProvider();
+      } catch (err) {
+        toast("Create failed: " + err.message, "error");
+      }
+    });
+
+    $("btnProviderUpdate").addEventListener("click", async () => {
+      try {
+        await updateProvider();
+      } catch (err) {
+        toast("Update failed: " + err.message, "error");
+      }
+    });
+
+    $("btnProviderSaveCurrent").addEventListener("click", async () => {
+      try {
+        await saveCurrentProvider();
+      } catch (err) {
+        toast("Save failed: " + err.message, "error");
+      }
+    });
+
+    $("btnModelFetch").addEventListener("click", async () => {
+      try {
+        await fetchModels();
+      } catch (err) {
+        toast("Fetch models failed: " + err.message, "error");
+      }
+    });
+
+    $("btnModelUseSelected").addEventListener("click", async () => {
+      try {
+        await applySelectedModel();
+      } catch (err) {
+        toast("Apply failed: " + err.message, "error");
+      }
+    });
+
+    $("btnCronCreate").addEventListener("click", async () => {
+      try {
+        await createCronTask();
+      } catch (err) {
+        toast("Create failed: " + err.message, "error");
+      }
+    });
+
+    $("btnUsageRefresh").addEventListener("click", async () => {
+      try {
+        await loadUsage();
+      } catch (err) {
+        toast("Load failed: " + err.message, "error");
+      }
+    });
+
+    $("usagePersonaSelect").addEventListener("change", () => {
+      syncUsageControlFromState();
+    });
+
+    $("btnUsageSetLimit").addEventListener("click", async () => {
+      try {
+        await setUsageLimitFromControls();
+      } catch (err) {
+        toast("Set limit failed: " + err.message, "error");
+      }
+    });
+
+    $("btnUsageReset").addEventListener("click", async () => {
+      try {
+        await resetUsageFromControls();
+      } catch (err) {
+        toast("Reset failed: " + err.message, "error");
+      }
+    });
+
+    $("btnLogsRefresh").addEventListener("click", async () => {
+      try {
+        await loadLogs();
+      } catch (err) {
+        toast("Load failed: " + err.message, "error");
+      }
+    });
+
+    $("btnLogsPrev").addEventListener("click", async () => {
+      if (state.logsPage <= 1) {
+        return;
+      }
+      state.logsPage -= 1;
+      try {
+        await loadLogs();
+      } catch (err) {
+        toast("Load failed: " + err.message, "error");
+      }
+    });
+
+    $("btnLogsNext").addEventListener("click", async () => {
+      if (state.logsPage >= state.logsPages) {
+        return;
+      }
+      state.logsPage += 1;
+      try {
+        await loadLogs();
+      } catch (err) {
+        toast("Load failed: " + err.message, "error");
+      }
+    });
+
+    $("logTypeFilter").addEventListener("change", async () => {
+      state.logsPage = 1;
+      try {
+        await loadLogs();
+      } catch (err) {
+        toast("Load failed: " + err.message, "error");
+      }
+    });
+
+    $("logCheckAll").addEventListener("change", (event) => {
+      const checked = event.target.checked;
+      document.querySelectorAll(".log-select").forEach((node) => {
+        node.checked = checked;
+      });
+    });
+
+    $("btnLogsDeleteSelected").addEventListener("click", async () => {
+      try {
+        await deleteSelectedLogs();
+      } catch (err) {
+        toast("Delete failed: " + err.message, "error");
+      }
+    });
+
+    $("btnLogsDeleteFiltered").addEventListener("click", async () => {
+      try {
+        await deleteFilteredLogs();
+      } catch (err) {
+        toast("Delete failed: " + err.message, "error");
+      }
+    });
+
+    $("btnLogsKeepLatest").addEventListener("click", async () => {
+      try {
+        await keepLatestLogs();
+      } catch (err) {
+        toast("Operation failed: " + err.message, "error");
+      }
+    });
+
+    $("btnLogsClearAll").addEventListener("click", async () => {
+      try {
+        await clearLogsByType();
+      } catch (err) {
+        toast("Clear failed: " + err.message, "error");
+      }
+    });
+
+    $("btnBackupExport").addEventListener("click", async () => {
+      try {
+        await exportBackup();
+      } catch (err) {
+        toast("Export failed: " + err.message, "error");
+      }
+    });
+
+    $("btnBackupImport").addEventListener("click", async () => {
+      try {
+        await importBackup();
+      } catch (err) {
+        toast("Import failed: " + err.message, "error");
+      }
+    });
+  }
+
+  async function init() {
+    const ok = await setupAuth();
+    if (!ok) {
+      return;
+    }
+
+    wireEvents();
+
+    try {
+      await loadSettings();
+      await loadPersonas();
+      await loadProviders();
+      await loadUsage();
+      await loadSessions($("sessionPersonaSelect").value || (state.personas ? state.personas.current : ""));
+      await loadMemories();
+      await loadCronTasks();
+      setActivePane("general");
+    } catch (err) {
+      toast("Initialization failed: " + err.message, "error");
+    }
+  }
+
+  init();
 })();

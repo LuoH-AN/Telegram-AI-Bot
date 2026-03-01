@@ -13,7 +13,18 @@ logger = logging.getLogger(__name__)
 _CST = timezone(timedelta(hours=8))
 _POLL_INTERVAL = 30  # seconds
 _MAX_TOOL_ROUNDS = 5
-_ALL_TOOL_NAMES = {"memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"}
+_ALL_TOOL_NAMES = {
+    "memory",
+    "search",
+    "fetch",
+    "wikipedia",
+    "tts",
+    "shell",
+    "cron",
+    "playwright",
+    "crawl4ai",
+    "browser_agent",
+}
 
 # Track currently running tasks to prevent duplicate execution
 _running_tasks: set[tuple[int, str]] = set()  # (user_id, task_name)

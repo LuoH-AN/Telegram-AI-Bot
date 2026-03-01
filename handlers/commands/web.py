@@ -8,6 +8,11 @@ from telegram.ext import ContextTypes
 from config import WEB_BASE_URL
 from web.auth import create_short_token
 from handlers.common import get_log_context
+from utils.platform_parity import (
+    build_web_dashboard_message,
+    build_web_dm_failed_message,
+    build_web_dm_sent_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +25,9 @@ async def web_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info("%s /web", ctx)
 
     token = create_short_token(user_id)
-    url = f"{WEB_BASE_URL}/?token={token}"
-    text = f"Open the Gemen dashboard:\n{url}\n\nThis link is single-use and expires in 10 minutes."
+    # Include both query + hash token to handle clients that strip URL fragments.
+    url = f"{WEB_BASE_URL.rstrip('/')}/?token={token}#token={token}"
+    text = build_web_dashboard_message(url)
 
     if chat_type in ("group", "supergroup"):
         # Send via private message to avoid leaking the token in group chat
@@ -31,10 +37,8 @@ async def web_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 text=text,
                 disable_web_page_preview=True,
             )
-            await update.message.reply_text("Dashboard link sent to your DM.")
+            await update.message.reply_text(build_web_dm_sent_message())
         except Exception:
-            await update.message.reply_text(
-                "Could not send DM. Please start a private chat with me first, then retry."
-            )
+            await update.message.reply_text(build_web_dm_failed_message())
     else:
         await update.message.reply_text(text, disable_web_page_preview=True)

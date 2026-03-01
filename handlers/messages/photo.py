@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from services import (
     has_api_key,
+    get_current_persona_name,
     get_remaining_tokens,
 )
 from utils import edit_message_safe
@@ -16,6 +17,11 @@ from handlers.common import (
     should_respond_in_group,
     get_log_context,
     collect_media_group_messages,
+)
+from utils.platform_parity import (
+    build_api_key_required_message,
+    build_retry_message,
+    build_token_limit_reached_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,17 +50,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     if not has_api_key(user_id):
-        await update.message.reply_text(
-            "Please set your OpenAI API key first:\n/set api_key YOUR_API_KEY"
-        )
+        await update.message.reply_text(build_api_key_required_message("/"))
         return
 
-    remaining = get_remaining_tokens(user_id)
+    persona_name = get_current_persona_name(user_id)
+    remaining = get_remaining_tokens(user_id, persona_name)
     if remaining is not None and remaining <= 0:
-        await update.message.reply_text(
-            "You've reached your token limit. "
-            "Use /usage to check usage or /set token_limit <number> to increase it."
-        )
+        await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
         return
 
     caption = next((m.caption for m in grouped_messages if m.caption), "") or ""
@@ -92,7 +94,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
 
         if not image_parts:
-            await edit_message_safe(bot_message, "Error. Please retry.")
+            await edit_message_safe(bot_message, build_retry_message())
             return
 
         user_content = list(image_parts)
@@ -109,4 +111,4 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     except Exception:
         logger.exception("%s error processing image", ctx)
-        await edit_message_safe(bot_message, "Error. Please retry.")
+        await edit_message_safe(bot_message, build_retry_message())

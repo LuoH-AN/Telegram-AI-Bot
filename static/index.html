@@ -1,311 +1,485 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gemen Dashboard</title>
+  <title>Gemen Control</title>
   <link rel="stylesheet" href="/static/custom.css">
 </head>
 <body>
-  <!-- Background decorations -->
-  <div class="bg-grid"></div>
-  <div class="bg-glow"></div>
+  <div class="bg-layer" aria-hidden="true"></div>
 
-  <!-- Login overlay (shown when no token) -->
   <div class="login-overlay" id="loginOverlay">
-    <div class="login-box">
-      <h2>Gemen Dashboard</h2>
-      <p>Send <code>/web</code> in Telegram to get a login link.</p>
+    <div class="login-panel glass">
+      <h1>Gemen Control</h1>
+      <p>Send <code>/web</code> to get a login link.</p>
     </div>
   </div>
 
-  <!-- Main content -->
-  <div class="admin-wrapper" id="mainContent" style="display:none">
-    <!-- Header -->
-    <div class="dash-header">
-      <div>
-        <div class="logo-row">
-          <div class="logo-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
-          </div>
-          <div>
-            <div class="logo-name">Gemen</div>
-          </div>
-        </div>
-        <div class="logo-sub">AI Bot Dashboard</div>
-      </div>
-      <div class="theme-row">
-        <button class="theme-btn" data-theme="light" title="Light">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+  <div class="app-shell" id="mainApp" hidden>
+    <div class="chrome-row">
+      <nav class="liquid-nav glass" aria-label="Navigation">
+        <button class="nav-btn active" data-pane="general" type="button" title="General" aria-label="General">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 10.5L12 3l9 7.5"></path>
+            <path d="M6 9.5V20h12V9.5"></path>
+          </svg>
         </button>
-        <button class="theme-btn" data-theme="system" title="System">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <button class="nav-btn" data-pane="personas" type="button" title="Personas" aria-label="Personas">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="8" r="3.5"></circle>
+            <path d="M4 20c1.4-3.4 4.2-5.5 8-5.5s6.6 2.1 8 5.5"></path>
+          </svg>
         </button>
-        <button class="theme-btn active" data-theme="dark" title="Dark">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <button class="nav-btn" data-pane="sessions" type="button" title="Sessions" aria-label="Sessions">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 5h16v11H8l-4 3V5z"></path>
+          </svg>
         </button>
-      </div>
+        <button class="nav-btn" data-pane="memories" type="button" title="Memories" aria-label="Memories">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 4h12v16l-6-3-6 3V4z"></path>
+          </svg>
+        </button>
+        <button class="nav-btn" data-pane="providers" type="button" title="Providers" aria-label="Providers">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M7 8h10v8H7z"></path>
+            <path d="M3 10h4M17 10h4M3 14h4M17 14h4"></path>
+          </svg>
+        </button>
+        <button class="nav-btn" data-pane="models" type="button" title="Models" aria-label="Models">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path>
+            <path d="M12 12l8-4.5M12 12L4 7.5M12 12v9"></path>
+          </svg>
+        </button>
+        <button class="nav-btn" data-pane="cron" type="button" title="Cron" aria-label="Cron">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3.5" y="5" width="17" height="15" rx="2"></rect>
+            <path d="M3.5 9.5h17M8 3v4M16 3v4"></path>
+          </svg>
+        </button>
+        <button class="nav-btn" data-pane="usage" type="button" title="Usage" aria-label="Usage">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 20h16"></path>
+            <path d="M7 20V11M12 20V7M17 20V14"></path>
+          </svg>
+        </button>
+        <button class="nav-btn" data-pane="logs" type="button" title="Logs" aria-label="Logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 5h12M6 12h12M6 19h12"></path>
+          </svg>
+        </button>
+        <button class="nav-btn" data-pane="maintenance" type="button" title="Maintenance" aria-label="Maintenance">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3.5"></circle>
+            <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6z"></path>
+          </svg>
+        </button>
+      </nav>
     </div>
 
-    <!-- Tab Navigation -->
-    <div class="tab-row">
-      <button class="tab-btn active" data-tab="settings">Settings</button>
-      <button class="tab-btn" data-tab="logs">Logs</button>
-      <button class="tab-btn" data-tab="usage">Usage</button>
-    </div>
-
-    <!-- ════ Settings Tab ════ -->
-    <div class="tab-panel active" id="tab-settings">
-      <!-- Sub-Tab Navigation -->
-      <div class="sub-tab-row" id="settingsSubTabs">
-        <button class="sub-tab-btn active" data-subtab="general">General</button>
-        <button class="sub-tab-btn" data-subtab="tools">Tools</button>
-        <button class="sub-tab-btn" data-subtab="tts">TTS</button>
-        <button class="sub-tab-btn" data-subtab="providers">Providers</button>
-        <button class="sub-tab-btn" data-subtab="personas">Personas</button>
-        <button class="sub-tab-btn" data-subtab="memories">Memories</button>
-        <button class="sub-tab-btn" data-subtab="conversations">Conversations</button>
-        <button class="sub-tab-btn" data-subtab="cron">Cron Tasks</button>
-      </div>
-
-      <!-- ── General Sub-Panel ── -->
-      <div class="sub-tab-panel active" id="subtab-general">
-        <div class="config-section">
-          <div class="config-section-title">General</div>
-          <div class="config-row">
-            <label>base_url <span class="config-desc">API base URL</span></label>
-            <input type="text" class="server-input" id="cfg-base_url" placeholder="https://api.openai.com/v1">
-          </div>
-          <div class="config-row">
-            <label>model <span class="config-desc">AI model name</span></label>
-            <input type="text" class="server-input" id="cfg-model" placeholder="gpt-4o">
-          </div>
-          <div class="config-row">
-            <label>temperature <span class="config-desc">0.0 - 2.0</span></label>
-            <input type="number" class="server-input" id="cfg-temperature" step="0.1" min="0" max="2" placeholder="0.7">
-          </div>
-          <div class="config-row">
-            <label>title_model <span class="config-desc">Model for auto-titles</span></label>
-            <input type="text" class="server-input" id="cfg-title_model" placeholder="(same as model)">
-          </div>
-          <div class="config-row">
-            <label>cron_model <span class="config-desc">Model for scheduled tasks</span></label>
-            <input type="text" class="server-input" id="cfg-cron_model" placeholder="(same as model)">
-          </div>
-        </div>
-        <div class="action-row" style="margin-bottom:20px">
-          <button class="btn-sm accent" id="btnSaveSettings">Save Settings</button>
-        </div>
-      </div>
-
-      <!-- ── Tools Sub-Panel ── -->
-      <div class="sub-tab-panel" id="subtab-tools">
-        <div class="config-section">
-          <div class="config-section-title">Tools</div>
-          <div class="config-row" style="align-items:flex-start">
-            <label>chat_tools <span class="config-desc">Used in normal chat</span></label>
-            <div style="flex:1">
-              <div class="tool-grid" id="toolGrid"></div>
+    <main class="workspace">
+        <section class="pane active" id="pane-general">
+          <div class="pane-head">
+            <h2>General Settings</h2>
+            <div class="head-actions">
+              <button class="btn" id="btnSaveGeneral" type="button">Save Settings</button>
             </div>
           </div>
-          <div class="config-row" style="align-items:flex-start">
-            <label>cron_tools <span class="config-desc">Used in scheduled tasks</span></label>
-            <div style="flex:1">
+
+          <div class="field-grid">
+            <label class="field">
+              <span>API Key</span>
+              <input id="cfg-api_key" type="password" autocomplete="off" placeholder="sk-...">
+              <small id="cfg-api_key-mask">Not set</small>
+            </label>
+            <label class="field">
+              <span>Base URL</span>
+              <input id="cfg-base_url" type="text" placeholder="https://api.openai.com/v1">
+            </label>
+            <label class="field">
+              <span>Model</span>
+              <input id="cfg-model" type="text" placeholder="gpt-4o">
+            </label>
+            <label class="field">
+              <span>Temperature</span>
+              <input id="cfg-temperature" type="number" min="0" max="2" step="0.1" placeholder="0.7">
+            </label>
+            <label class="field">
+              <span>Stream Mode</span>
+              <select id="cfg-stream_mode">
+                <option value="">default (global)</option>
+                <option value="default">default</option>
+                <option value="time">time</option>
+                <option value="chars">chars</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Title Model</span>
+              <input id="cfg-title_model" type="text" placeholder="provider:model or model">
+            </label>
+            <label class="field">
+              <span>Cron Model</span>
+              <input id="cfg-cron_model" type="text" placeholder="provider:model or model">
+            </label>
+            <label class="field">
+              <span>TTS Voice</span>
+              <input id="cfg-tts_voice" type="text" placeholder="zh-CN-XiaoxiaoMultilingualNeural">
+            </label>
+            <label class="field">
+              <span>TTS Style</span>
+              <input id="cfg-tts_style" type="text" placeholder="general">
+            </label>
+            <label class="field field-full">
+              <span>TTS Endpoint</span>
+              <input id="cfg-tts_endpoint" type="text" placeholder="https://...">
+            </label>
+          </div>
+
+          <div class="split-block">
+            <div class="split-col">
+              <h3>Chat Tools</h3>
+              <div class="tool-grid" id="toolGrid"></div>
+            </div>
+            <div class="split-col">
+              <h3>Cron Tools</h3>
               <div class="tool-grid" id="cronToolGrid"></div>
             </div>
           </div>
-        </div>
-        <div class="action-row" style="margin-bottom:20px">
-          <button class="btn-sm accent" id="btnSaveTools">Save Settings</button>
-        </div>
-      </div>
+        </section>
 
-      <!-- ── TTS Sub-Panel ── -->
-      <div class="sub-tab-panel" id="subtab-tts">
-        <div class="config-section">
-          <div class="config-section-title">Text-to-Speech</div>
-          <div class="config-row">
-            <label>tts_voice</label>
-            <input type="text" class="server-input" id="cfg-tts_voice" placeholder="zh-CN-XiaoxiaoMultilingualNeural">
+        <section class="pane" id="pane-personas">
+          <div class="pane-head">
+            <h2>Personas</h2>
           </div>
-          <div class="config-row">
-            <label>tts_style</label>
-            <input type="text" class="server-input" id="cfg-tts_style" placeholder="general">
-          </div>
-          <div class="config-row">
-            <label>tts_endpoint</label>
-            <input type="text" class="server-input" id="cfg-tts_endpoint" placeholder="https://...">
-          </div>
-        </div>
-        <div class="action-row" style="margin-bottom:20px">
-          <button class="btn-sm accent" id="btnSaveTTS">Save Settings</button>
-        </div>
-      </div>
 
-      <!-- ── Providers Sub-Panel ── -->
-      <div class="sub-tab-panel" id="subtab-providers">
-        <div class="config-section">
-          <div class="config-section-title">Providers</div>
-          <div class="provider-list" id="providerList"></div>
-          <div id="providerEmpty" class="empty-state" style="display:none">No providers configured.</div>
-        </div>
-        <div class="config-section">
-          <div class="config-section-title">Add Provider</div>
-          <div class="config-row">
-            <label>name</label>
-            <input type="text" class="server-input" id="prov-name" placeholder="e.g. openai">
+          <div class="inline-form">
+            <input id="persona-create-name" type="text" placeholder="New persona name">
+            <textarea id="persona-create-prompt" rows="2" placeholder="Optional system prompt"></textarea>
+            <button class="btn" id="btnPersonaCreate" type="button">Create Persona</button>
           </div>
-          <div class="config-row">
-            <label>api_key</label>
-            <input type="text" class="server-input" id="prov-api_key" placeholder="sk-...">
-          </div>
-          <div class="config-row">
-            <label>base_url</label>
-            <input type="text" class="server-input" id="prov-base_url" placeholder="https://api.openai.com/v1">
-          </div>
-          <div class="config-row">
-            <label>model</label>
-            <input type="text" class="server-input" id="prov-model" placeholder="gpt-4o">
-          </div>
-          <div class="action-row" style="margin-top:12px">
-            <button class="btn-sm accent" id="btnCreateProvider">Create Provider</button>
-          </div>
-        </div>
-      </div>
 
-      <!-- ── Personas Sub-Panel ── -->
-      <div class="sub-tab-panel" id="subtab-personas">
-        <div class="config-section">
-          <div class="config-section-title">Personas</div>
-          <div class="persona-list" id="personaList"></div>
-          <div class="action-row" style="margin-top:12px">
-            <input type="text" class="server-input" id="newPersonaName" placeholder="New persona name" style="max-width:200px">
-            <button class="btn-sm outline" id="btnCreatePersona">Create</button>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Current</th>
+                  <th>Name</th>
+                  <th>System Prompt</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="personaTableBody"></tbody>
+            </table>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <!-- ── Memories Sub-Panel ── -->
-      <div class="sub-tab-panel" id="subtab-memories">
-        <div class="config-section">
-          <div class="config-section-title">Memories</div>
-          <div class="persona-list" id="memoryList"></div>
-          <div id="memoryEmpty" class="empty-state" style="display:none">No memories yet.</div>
-        </div>
-        <div class="config-section">
-          <div class="config-section-title">Add Memory</div>
-          <div class="config-row">
-            <label>content <span class="config-desc">What the bot should remember</span></label>
-            <textarea class="server-input" id="newMemoryContent" rows="3" placeholder="e.g. Prefer concise answers in Chinese"></textarea>
+        <section class="pane" id="pane-sessions">
+          <div class="pane-head">
+            <h2>Sessions</h2>
+            <div class="head-actions">
+              <button class="btn" id="btnSessionRefresh" type="button">Refresh</button>
+            </div>
           </div>
-          <div class="action-row" style="margin-top:12px">
-            <button class="btn-sm accent" id="btnAddMemory">Add Memory</button>
-            <button class="btn-sm danger" id="btnClearMemories">Clear All</button>
-          </div>
-        </div>
-      </div>
 
-      <!-- ── Conversations Sub-Panel ── -->
-      <div class="sub-tab-panel" id="subtab-conversations">
-        <div class="config-section">
-          <div class="config-section-title">Conversations</div>
-          <div class="config-row">
-            <label>persona</label>
-            <select class="server-input" id="convPersonaSelect" style="width:auto;flex:none;min-width:160px">
-              <option value="">Select persona...</option>
-            </select>
+          <div class="inline-form tight">
+            <label>
+              <span>Persona</span>
+              <select id="sessionPersonaSelect"></select>
+            </label>
+            <label>
+              <span>New Session Title</span>
+              <input id="sessionNewTitle" type="text" placeholder="Optional title">
+            </label>
+            <button class="btn" id="btnSessionCreate" type="button">Create Session</button>
           </div>
-        </div>
-        <div class="session-list" id="sessionList"></div>
-        <div id="sessionsEmpty" class="empty-state" style="display:none">No conversations found.</div>
-      </div>
 
-      <!-- ── Cron Tasks Sub-Panel ── -->
-      <div class="sub-tab-panel" id="subtab-cron">
-        <div class="config-section">
-          <div class="config-section-title">Scheduled Tasks</div>
-          <div class="cron-list" id="cronList"></div>
-          <div id="cronEmpty" class="empty-state" style="display:none">No scheduled tasks.</div>
-        </div>
-        <div class="config-section">
-          <div class="config-section-title">Add Task</div>
-          <div class="config-row">
-            <label>name <span class="config-desc">Unique task name</span></label>
-            <input type="text" class="server-input" id="cron-name" placeholder="e.g. daily_news">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Current</th>
+                  <th>Title</th>
+                  <th>Messages</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="sessionTableBody"></tbody>
+            </table>
           </div>
-          <div class="config-row">
-            <label>cron <span class="config-desc">minute hour day month weekday</span></label>
-            <input type="text" class="server-input" id="cron-expression" placeholder="0 9 * * *">
-          </div>
-          <div class="config-row">
-            <label>prompt <span class="config-desc">AI prompt to execute</span></label>
-            <textarea class="server-input" id="cron-prompt" rows="3" placeholder="Summarize today's tech news..."></textarea>
-          </div>
-          <div class="action-row" style="margin-top:12px">
-            <button class="btn-sm accent" id="btnCreateCron">Create Task</button>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- ════ Logs Tab ════ -->
-    <div class="tab-panel" id="tab-logs">
-      <div class="filter-row">
-        <label>Type:</label>
-        <select class="server-input" id="logTypeFilter" style="width:auto;flex:none">
-          <option value="">All</option>
-          <option value="ai_interaction">AI Interaction</option>
-          <option value="error">Error</option>
-        </select>
-      </div>
-      <div class="table-wrap" id="logsTableWrap">
-        <table class="admin-table" id="logsTable">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Type</th>
-              <th>Model</th>
-              <th>Tokens</th>
-              <th>Tools</th>
-              <th>Latency</th>
-              <th>Persona</th>
-              <th>Error</th>
-            </tr>
-          </thead>
-          <tbody id="logsBody"></tbody>
-        </table>
-      </div>
-      <div id="logsEmpty" class="empty-state" style="display:none">No logs yet.</div>
-      <div class="pagination" id="logsPagination"></div>
-    </div>
+          <div class="log-panel" id="sessionMessages">Select a session to view messages.</div>
+        </section>
 
-    <!-- ════ Usage Tab ════ -->
-    <div class="tab-panel" id="tab-usage">
-      <div class="stats-grid" id="usageStats"></div>
-      <div class="config-section">
-        <div class="config-section-title">Per Persona</div>
-        <div class="table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Persona</th>
-                <th>Prompt</th>
-                <th>Completion</th>
-                <th>Total</th>
-                <th>Limit</th>
-              </tr>
-            </thead>
-            <tbody id="usageBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+        <section class="pane" id="pane-memories">
+          <div class="pane-head">
+            <h2>Memories</h2>
+            <div class="head-actions">
+              <button class="btn danger" id="btnClearMemories" type="button">Clear All</button>
+            </div>
+          </div>
+
+          <div class="inline-form">
+            <textarea id="memoryNewContent" rows="2" placeholder="Add a memory"></textarea>
+            <button class="btn" id="btnAddMemory" type="button">Add Memory</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Content</th>
+                  <th>Source</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="memoryTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="pane" id="pane-providers">
+          <div class="pane-head">
+            <h2>Providers</h2>
+          </div>
+
+          <div class="inline-form tight">
+            <label>
+              <span>Save Current As</span>
+              <input id="providerSaveName" type="text" placeholder="provider name">
+            </label>
+            <button class="btn" id="btnProviderSaveCurrent" type="button">Save Current</button>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>Name</span>
+              <input id="providerName" type="text" placeholder="openai">
+            </label>
+            <label class="field">
+              <span>API Key</span>
+              <input id="providerApiKey" type="text" placeholder="sk-...">
+            </label>
+            <label class="field">
+              <span>Base URL</span>
+              <input id="providerBaseUrl" type="text" placeholder="https://api.openai.com/v1">
+            </label>
+            <label class="field">
+              <span>Model</span>
+              <input id="providerModel" type="text" placeholder="gpt-4o">
+            </label>
+          </div>
+          <div class="head-actions standalone">
+            <button class="btn" id="btnProviderCreate" type="button">Create Provider</button>
+            <button class="btn" id="btnProviderUpdate" type="button">Update Provider</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>API Key</th>
+                  <th>Base URL</th>
+                  <th>Model</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="providerTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="pane" id="pane-models">
+          <div class="pane-head">
+            <h2>Models</h2>
+            <div class="head-actions">
+              <button class="btn" id="btnModelFetch" type="button">Fetch Models</button>
+              <button class="btn" id="btnModelUseSelected" type="button">Use Selected Model</button>
+            </div>
+          </div>
+
+          <div class="inline-form tight">
+            <label>
+              <span>Source</span>
+              <select id="modelProviderSelect"></select>
+            </label>
+            <label>
+              <span>Current Model</span>
+              <input id="modelsCurrentModel" type="text" readonly>
+            </label>
+            <label>
+              <span>Selected</span>
+              <input id="modelsSelectedModel" type="text" readonly>
+            </label>
+          </div>
+
+          <div class="list-wrap" id="modelsList"></div>
+        </section>
+
+        <section class="pane" id="pane-cron">
+          <div class="pane-head">
+            <h2>Cron Tasks</h2>
+          </div>
+
+          <div class="inline-form">
+            <input id="cronName" type="text" placeholder="Task name">
+            <input id="cronExpression" type="text" placeholder="0 9 * * *">
+            <textarea id="cronPrompt" rows="2" placeholder="Prompt"></textarea>
+            <button class="btn" id="btnCronCreate" type="button">Create Task</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Cron</th>
+                  <th>Prompt</th>
+                  <th>Enabled</th>
+                  <th>Last Run</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="cronTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="pane" id="pane-usage">
+          <div class="pane-head">
+            <h2>Usage</h2>
+            <div class="head-actions">
+              <button class="btn" id="btnUsageRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="inline-form tight">
+            <label>
+              <span>Persona</span>
+              <select id="usagePersonaSelect"></select>
+            </label>
+            <label>
+              <span>Token Limit</span>
+              <input id="usageTokenLimit" type="number" min="0" step="1" placeholder="0 = unlimited">
+            </label>
+            <button class="btn" id="btnUsageSetLimit" type="button">Set Limit</button>
+            <button class="btn" id="btnUsageReset" type="button">Reset Usage</button>
+          </div>
+
+          <div class="log-panel" id="usageSummary"></div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Persona</th>
+                  <th>Prompt</th>
+                  <th>Completion</th>
+                  <th>Total</th>
+                  <th>Limit</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="usageTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="pane" id="pane-logs">
+          <div class="pane-head">
+            <h2>Logs</h2>
+            <div class="head-actions">
+              <button class="btn" id="btnLogsRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="inline-form tight">
+            <label>
+              <span>Type</span>
+              <select id="logTypeFilter">
+                <option value="">all</option>
+                <option value="ai_interaction">ai_interaction</option>
+                <option value="error">error</option>
+                <option value="web_action">web_action</option>
+              </select>
+            </label>
+            <label>
+              <span>Before</span>
+              <input id="logBefore" type="datetime-local">
+            </label>
+            <label>
+              <span>After</span>
+              <input id="logAfter" type="datetime-local">
+            </label>
+            <label>
+              <span>Keep Latest N</span>
+              <input id="logKeepLatest" type="number" min="0" step="1" placeholder="e.g. 1000">
+            </label>
+          </div>
+
+          <div class="head-actions standalone">
+            <button class="btn" id="btnLogsDeleteFiltered" type="button">Delete Filtered</button>
+            <button class="btn" id="btnLogsKeepLatest" type="button">Keep Latest N</button>
+            <button class="btn danger" id="btnLogsClearAll" type="button">Clear All (Type)</button>
+            <button class="btn danger" id="btnLogsDeleteSelected" type="button">Delete Selected</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><input id="logCheckAll" type="checkbox"></th>
+                  <th>Time</th>
+                  <th>Type</th>
+                  <th>Model</th>
+                  <th>Tokens</th>
+                  <th>Latency</th>
+                  <th>Persona</th>
+                  <th>Message</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="logsTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination-row">
+            <button class="btn" id="btnLogsPrev" type="button">Prev</button>
+            <span id="logsPageInfo">1 / 1</span>
+            <button class="btn" id="btnLogsNext" type="button">Next</button>
+          </div>
+        </section>
+
+        <section class="pane" id="pane-maintenance">
+          <div class="pane-head">
+            <h2>Maintenance</h2>
+          </div>
+
+          <div class="inline-form tight">
+            <button class="btn" id="btnBackupExport" type="button">Export Backup</button>
+            <label>
+              <span>Import Mode</span>
+              <select id="backupImportMode">
+                <option value="replace">replace</option>
+                <option value="merge">merge</option>
+              </select>
+            </label>
+            <label>
+              <span>Backup File</span>
+              <input id="backupFileInput" type="file" accept="application/json,.json">
+            </label>
+            <button class="btn" id="btnBackupImport" type="button">Import Backup</button>
+          </div>
+
+          <div class="log-panel" id="backupResult">No backup operation yet.</div>
+        </section>
+      </main>
   </div>
 
-  <!-- Toast -->
   <div class="toast" id="toast"></div>
 
   <script src="/static/app.js"></script>

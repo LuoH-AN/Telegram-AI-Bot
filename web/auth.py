@@ -1,6 +1,5 @@
 """JWT authentication for the web dashboard."""
 
-import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -11,9 +10,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from config import JWT_SECRET, JWT_EXPIRY_HOURS
 
 _security = HTTPBearer(auto_error=False)
+SHORT_TOKEN_EXPIRY_MINUTES = 10
 
-# ── Short token store ──
-# Maps short hex token → (user_id, expiry_datetime)
+# ── Legacy short token store ──
+# Backward compatibility for old in-memory hex short tokens.
 _short_tokens: dict[str, tuple[int, datetime]] = {}
 _short_lock = threading.Lock()
 
@@ -30,29 +30,62 @@ def create_jwt_token(user_id: int) -> str:
 
 
 def create_short_token(user_id: int) -> str:
-    """Generate a short random hex token that maps to a user_id.
+    """Generate a signed short-lived token for web login.
 
-    The short token is valid for 10 minutes and single-use.
+    Uses a signed JWT short token so it works across multiple processes.
+    Legacy in-memory tokens are still supported on exchange.
     """
-    token = secrets.token_hex(16)
-    expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "user_id": int(user_id),
+            "type": "short",
+            "iat": now,
+            "exp": now + timedelta(minutes=SHORT_TOKEN_EXPIRY_MINUTES),
+        },
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+    # Prune legacy map opportunistically.
     with _short_lock:
-        # Prune expired tokens
-        now = datetime.now(timezone.utc)
         expired = [k for k, (_, exp) in _short_tokens.items() if exp < now]
         for k in expired:
             del _short_tokens[k]
-        _short_tokens[token] = (user_id, expiry)
     return token
 
 
 def exchange_short_token(token: str) -> str:
-    """Exchange a short token for a JWT. Consumes the short token.
+    """Exchange a short token for a JWT.
+
+    The short token is time-limited but can be exchanged more than once within
+    TTL to tolerate link prefetch/preview behavior in chat apps.
 
     Returns a JWT string or raises HTTPException 401.
     """
+    token = (token or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    # 1) Preferred path: signed short token (works across processes/instances).
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        if payload.get("type") == "short":
+            return create_jwt_token(int(payload["user_id"]))
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired",
+        )
+    except Exception:
+        # Fall back to legacy in-memory map below.
+        pass
+
+    # 2) Legacy path: old hex token from in-memory map.
     with _short_lock:
-        entry = _short_tokens.pop(token, None)
+        entry = _short_tokens.get(token)
     if entry is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -60,6 +93,8 @@ def exchange_short_token(token: str) -> str:
         )
     user_id, expiry = entry
     if datetime.now(timezone.utc) > expiry:
+        with _short_lock:
+            _short_tokens.pop(token, None)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token expired",

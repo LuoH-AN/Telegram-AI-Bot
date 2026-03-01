@@ -45,6 +45,7 @@ def load_from_database() -> None:
                         "base_url": row["base_url"] or "https://api.openai.com/v1",
                         "model": row["model"] or "gpt-4o",
                         "temperature": row["temperature"] or 0.7,
+                        "stream_mode": row.get("stream_mode") or "",
                         "token_limit": row.get("token_limit") or 0,
                         "current_persona": row.get("current_persona") or "default",
                         "enabled_tools": enabled_tools,
@@ -55,6 +56,7 @@ def load_from_database() -> None:
                         "api_presets": api_presets,
                         "title_model": row.get("title_model") or "",
                         "cron_model": row.get("cron_model") or "",
+                        "global_prompt": row.get("global_prompt") or "",
                     }
                     cache.set_settings(row["user_id"], settings)
 
@@ -198,9 +200,9 @@ def sync_to_database() -> None:
                         INSERT INTO user_settings (
                             user_id, api_key, base_url, model, temperature,
                             token_limit, current_persona, enabled_tools,
-                            cron_enabled_tools, tts_voice, tts_style, tts_endpoint, api_presets, title_model, cron_model
+                            cron_enabled_tools, stream_mode, tts_voice, tts_style, tts_endpoint, api_presets, title_model, cron_model, global_prompt
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (user_id) DO UPDATE SET
                             api_key = EXCLUDED.api_key,
                             base_url = EXCLUDED.base_url,
@@ -210,22 +212,26 @@ def sync_to_database() -> None:
                             current_persona = EXCLUDED.current_persona,
                             enabled_tools = EXCLUDED.enabled_tools,
                             cron_enabled_tools = EXCLUDED.cron_enabled_tools,
+                            stream_mode = EXCLUDED.stream_mode,
                             tts_voice = EXCLUDED.tts_voice,
                             tts_style = EXCLUDED.tts_style,
                             tts_endpoint = EXCLUDED.tts_endpoint,
                             api_presets = EXCLUDED.api_presets,
                             title_model = EXCLUDED.title_model,
-                            cron_model = EXCLUDED.cron_model
+                            cron_model = EXCLUDED.cron_model,
+                            global_prompt = EXCLUDED.global_prompt
                     """, (
                         user_id, s["api_key"], s["base_url"],
                         s["model"], s["temperature"], s["token_limit"], s["current_persona"],
                         s["enabled_tools"], s.get("cron_enabled_tools", DEFAULT_CRON_ENABLED_TOOLS),
+                        s.get("stream_mode", ""),
                         s.get("tts_voice", DEFAULT_TTS_VOICE),
                         s.get("tts_style", DEFAULT_TTS_STYLE),
                         s.get("tts_endpoint", DEFAULT_TTS_ENDPOINT),
                         api_presets_json,
                         s.get("title_model", ""),
                         s.get("cron_model", ""),
+                        s.get("global_prompt", ""),
                     ))
 
                 # Sync deleted personas (cascade: delete sessions + conversations + tokens)
@@ -463,8 +469,26 @@ def _sync_loop() -> None:
 
 def init_database() -> None:
     """Initialize database tables and load cache."""
-    with get_connection() as conn:
-        create_tables(conn)
+    max_attempts = 6
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with get_connection() as conn:
+                create_tables(conn)
+            break
+        except Exception as e:
+            # 40P01 = deadlock_detected
+            pgcode = getattr(e, "pgcode", None)
+            is_deadlock = pgcode == "40P01" or "deadlock detected" in str(e).lower()
+            if not is_deadlock or attempt >= max_attempts:
+                raise
+            backoff = min(0.4 * (2 ** (attempt - 1)), 5.0)
+            logger.warning(
+                "Database schema init deadlock (attempt %d/%d), retrying in %.1fs",
+                attempt,
+                max_attempts,
+                backoff,
+            )
+            time.sleep(backoff)
 
     load_from_database()
 

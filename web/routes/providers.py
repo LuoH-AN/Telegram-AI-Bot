@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from services import get_user_settings, update_user_setting
+from services.log_service import record_web_action
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
@@ -22,6 +23,10 @@ class ProviderUpdate(BaseModel):
     model: str | None = None
 
 
+class ProviderSaveCurrent(BaseModel):
+    name: str
+
+
 def _mask_key(key: str) -> str:
     """Show first 8 chars + *** for API keys."""
     if not key:
@@ -29,6 +34,16 @@ def _mask_key(key: str) -> str:
     if len(key) <= 8:
         return key[:2] + "***"
     return key[:8] + "***"
+
+
+def _resolve_provider_name(presets: dict, name: str) -> str | None:
+    if name in presets:
+        return name
+    lowered = name.lower()
+    for k in presets:
+        if k.lower() == lowered:
+            return k
+    return None
 
 
 @router.get("")
@@ -53,16 +68,43 @@ async def create_provider(
     user_id: int = Depends(get_current_user),
 ):
     """Create a new provider preset."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Provider name is required")
+
     settings = get_user_settings(user_id)
     presets = dict(settings.get("api_presets", {}))
-    if body.name in presets:
+    if _resolve_provider_name(presets, name) is not None:
         raise HTTPException(status_code=409, detail="Provider already exists")
-    presets[body.name] = {
-        "api_key": body.api_key,
-        "base_url": body.base_url,
-        "model": body.model,
+    presets[name] = {
+        "api_key": body.api_key.strip(),
+        "base_url": body.base_url.strip(),
+        "model": body.model.strip(),
     }
     update_user_setting(user_id, "api_presets", presets)
+    record_web_action(user_id, "provider.create", {"provider": name})
+    return {"ok": True}
+
+
+@router.post("/save-current")
+async def save_current_provider(
+    body: ProviderSaveCurrent,
+    user_id: int = Depends(get_current_user),
+):
+    """Save current api_key/base_url/model as a named provider preset."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Provider name is required")
+
+    settings = get_user_settings(user_id)
+    presets = dict(settings.get("api_presets", {}))
+    presets[name] = {
+        "api_key": settings.get("api_key", ""),
+        "base_url": settings.get("base_url", ""),
+        "model": settings.get("model", ""),
+    }
+    update_user_setting(user_id, "api_presets", presets)
+    record_web_action(user_id, "provider.save_current", {"provider": name})
     return {"ok": True}
 
 
@@ -75,14 +117,16 @@ async def update_provider(
     """Update an existing provider preset."""
     settings = get_user_settings(user_id)
     presets = dict(settings.get("api_presets", {}))
-    if name not in presets:
+    matched = _resolve_provider_name(presets, name)
+    if matched is None:
         raise HTTPException(status_code=404, detail="Provider not found")
-    preset = dict(presets[name])
+    preset = dict(presets[matched])
     updates = body.model_dump(exclude_none=True)
     for key, value in updates.items():
-        preset[key] = value
-    presets[name] = preset
+        preset[key] = value.strip() if isinstance(value, str) else value
+    presets[matched] = preset
     update_user_setting(user_id, "api_presets", presets)
+    record_web_action(user_id, "provider.update", {"provider": matched, "updated_keys": sorted(updates.keys())})
     return {"ok": True}
 
 
@@ -94,10 +138,12 @@ async def delete_provider(
     """Delete a provider preset."""
     settings = get_user_settings(user_id)
     presets = dict(settings.get("api_presets", {}))
-    if name not in presets:
+    matched = _resolve_provider_name(presets, name)
+    if matched is None:
         raise HTTPException(status_code=404, detail="Provider not found")
-    del presets[name]
+    del presets[matched]
     update_user_setting(user_id, "api_presets", presets)
+    record_web_action(user_id, "provider.delete", {"provider": matched})
     return {"ok": True}
 
 
@@ -109,12 +155,14 @@ async def load_provider(
     """Load a provider's settings into the current configuration."""
     settings = get_user_settings(user_id)
     presets = settings.get("api_presets", {})
-    if name not in presets:
+    matched = _resolve_provider_name(presets, name)
+    if matched is None:
         raise HTTPException(status_code=404, detail="Provider not found")
-    preset = presets[name]
+    preset = presets[matched]
     update_user_setting(user_id, "base_url", preset.get("base_url", ""))
     update_user_setting(user_id, "model", preset.get("model", ""))
     # Only update api_key if the preset has one
     if preset.get("api_key"):
         update_user_setting(user_id, "api_key", preset["api_key"])
+    record_web_action(user_id, "provider.load", {"provider": matched})
     return {"ok": True}

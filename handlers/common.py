@@ -7,6 +7,8 @@ from telegram import Message
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from utils.platform_parity import format_log_context
+
 _MEDIA_GROUP_WAIT_SECONDS = 1.0
 _MEDIA_GROUP_LOCK = threading.Lock()
 _MEDIA_GROUP_BUFFER: dict[tuple[int, str], list[Message]] = {}
@@ -18,8 +20,9 @@ def get_log_context(update: Update) -> str:
     chat = update.effective_chat
     user_id = user.id if user else 0
     if chat and chat.type != "private":
-        return f"[user={user_id} group={chat.id}]"
-    return f"[user={user_id}]"
+        return format_log_context(platform="telegram", user_id=user_id, scope="group", chat_id=chat.id)
+    chat_id = chat.id if chat else 0
+    return format_log_context(platform="telegram", user_id=user_id, scope="private", chat_id=chat_id)
 
 
 async def should_respond_in_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:

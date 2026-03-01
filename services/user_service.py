@@ -1,10 +1,12 @@
 """User settings service."""
 
 from cache import cache
+from .state_sync_service import refresh_user_state_from_db
 
 
 def get_user_settings(user_id: int) -> dict:
     """Get global settings for a specific user."""
+    refresh_user_state_from_db(user_id)
     return cache.get_settings(user_id)
 
 

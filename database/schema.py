@@ -2,6 +2,10 @@
 
 # SQL statements for creating tables
 
+# Global advisory lock key for schema init/migrations.
+# Keep this stable across processes/containers.
+SCHEMA_INIT_LOCK_KEY = 913_247_551_004_921
+
 # Global user settings (API config and defaults)
 CREATE_USER_SETTINGS_TABLE = """
     CREATE TABLE IF NOT EXISTS user_settings (
@@ -113,6 +117,11 @@ MIGRATE_SETTINGS_ADD_STREAM_MODE = """
     ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS stream_mode TEXT
 """
 
+# Migration: add global_prompt column to existing user_settings tables
+MIGRATE_SETTINGS_ADD_GLOBAL_PROMPT = """
+    ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS global_prompt TEXT
+"""
+
 # Memories (shared across personas)
 CREATE_USER_MEMORIES_TABLE = """
     CREATE TABLE IF NOT EXISTS user_memories (
@@ -189,6 +198,7 @@ SCHEMA_STATEMENTS = [
     MIGRATE_SETTINGS_ADD_CRON_MODEL,
     MIGRATE_SETTINGS_ADD_CRON_ENABLED_TOOLS,
     MIGRATE_SETTINGS_ADD_STREAM_MODE,
+    MIGRATE_SETTINGS_ADD_GLOBAL_PROMPT,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
     CREATE_USER_LOGS_TABLE,
@@ -200,7 +210,10 @@ SCHEMA_STATEMENTS = [
 
 def create_tables(connection):
     """Create all required database tables."""
+    # Serialize schema DDL across processes to avoid startup deadlocks when
+    # Telegram/Discord workers initialize DB concurrently.
     with connection.cursor() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(%s)", (SCHEMA_INIT_LOCK_KEY,))
         for statement in SCHEMA_STATEMENTS:
             cur.execute(statement)
     connection.commit()

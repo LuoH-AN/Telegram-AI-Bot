@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
+from utils.platform_parity import build_usage_reset_message
 
 from services import (
     get_token_usage,
@@ -16,6 +17,7 @@ from services import (
     get_token_limit,
     get_remaining_tokens,
     get_usage_percentage,
+    reset_token_usage,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,8 +26,14 @@ logger = logging.getLogger(__name__)
 async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /usage command - show token usage statistics."""
     user_id = update.effective_user.id
-    logger.info("%s /usage", get_log_context(update))
+    args = context.args or []
+    logger.info("%s /usage %s", get_log_context(update), " ".join(args) if args else "")
     persona_name = get_current_persona_name(user_id)
+
+    if args and args[0].lower() == "reset":
+        reset_token_usage(user_id, persona_name)
+        await update.message.reply_text(build_usage_reset_message(persona_name))
+        return
 
     # Get current persona usage
     usage = get_token_usage(user_id, persona_name)
@@ -42,7 +50,7 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if token_limit > 0:
         remaining = get_remaining_tokens(user_id, persona_name)
-        percentage = get_usage_percentage(user_id, persona_name)
+        percentage = get_usage_percentage(user_id, persona_name) or 0
 
         message += f"\nLimit:     {token_limit:,}\n"
         message += f"Remaining: {remaining:,}\n"

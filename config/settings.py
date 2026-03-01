@@ -1,5 +1,6 @@
 """Settings and environment variable management."""
 
+import hashlib
 import os
 import secrets
 from dotenv import load_dotenv
@@ -12,6 +13,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_COMMAND_PREFIX = os.getenv("DISCORD_COMMAND_PREFIX", "!")
+DISCORD_API_BASE = os.getenv("DISCORD_API_BASE", "").rstrip("/")
+DISCORD_GATEWAY_BASE = os.getenv("DISCORD_GATEWAY_BASE", "").rstrip("/")
+DISCORD_CDN_BASE = os.getenv("DISCORD_CDN_BASE", "").rstrip("/")
+DISCORD_INVITE_BASE = os.getenv("DISCORD_INVITE_BASE", "").rstrip("/")
 TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE", "").rstrip("/")
 TELEGRAM_SEND_GLOBAL_RATE = float(os.getenv("TELEGRAM_SEND_GLOBAL_RATE", "25"))
 TELEGRAM_SEND_GLOBAL_PERIOD = float(os.getenv("TELEGRAM_SEND_GLOBAL_PERIOD", "1"))
@@ -37,7 +42,25 @@ STREAM_CHARS_MODE_INTERVAL = max(10, int(os.getenv("STREAM_CHARS_MODE_INTERVAL",
 HEALTH_CHECK_PORT = int(os.getenv("PORT", "8080"))
 
 # JWT / Web dashboard
-JWT_SECRET = os.getenv("JWT_SECRET", "") or secrets.token_urlsafe(32)
+def _build_default_jwt_secret() -> str:
+    """Build a stable default JWT secret when JWT_SECRET env is missing.
+
+    Random-per-process secrets break auth when web/bot run in separate processes.
+    """
+    seed = (
+        os.getenv("JWT_SECRET_SEED", "").strip()
+        or
+        os.getenv("DATABASE_URL", "").strip()
+        or os.getenv("WEB_BASE_URL", "").strip()
+        or TELEGRAM_BOT_TOKEN
+        or DISCORD_BOT_TOKEN
+        or os.getenv("OPENAI_API_KEY", "").strip()
+        or "gemen-local-dev-secret"
+    )
+    return hashlib.sha256(f"gemen:{seed}".encode("utf-8")).hexdigest()
+
+
+JWT_SECRET = os.getenv("JWT_SECRET", "").strip() or _build_default_jwt_secret()
 WEB_BASE_URL = os.getenv("WEB_BASE_URL", f"http://localhost:{HEALTH_CHECK_PORT}")
 JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 
@@ -65,6 +88,8 @@ def get_default_settings() -> dict:
         "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
         "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
+        # Empty means "follow global default STREAM_UPDATE_MODE".
+        "stream_mode": "",
         "token_limit": 0,
         "current_persona": "default",
         "enabled_tools": DEFAULT_ENABLED_TOOLS,
@@ -75,6 +100,7 @@ def get_default_settings() -> dict:
         "api_presets": {},
         "title_model": "",
         "cron_model": "",
+        "global_prompt": "",
     }
 
 

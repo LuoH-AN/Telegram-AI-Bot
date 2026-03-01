@@ -14,6 +14,7 @@ from config import (
 )
 from services import (
     has_api_key,
+    get_current_persona_name,
     get_remaining_tokens,
 )
 from utils import (
@@ -28,6 +29,12 @@ from handlers.common import (
     should_respond_in_group,
     get_log_context,
     collect_media_group_messages,
+)
+from utils.platform_parity import (
+    build_analyze_uploaded_files_message,
+    build_api_key_required_message,
+    build_retry_message,
+    build_token_limit_reached_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,30 +66,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
     if not has_api_key(user_id):
-        await update.message.reply_text(
-            "Please set your OpenAI API key first:\n/set api_key YOUR_API_KEY"
-        )
+        await update.message.reply_text(build_api_key_required_message("/"))
         return
 
-    remaining = get_remaining_tokens(user_id)
+    persona_name = get_current_persona_name(user_id)
+    remaining = get_remaining_tokens(user_id, persona_name)
     if remaining is not None and remaining <= 0:
-        await update.message.reply_text(
-            "You've reached your token limit. "
-            "Use /usage to check usage or /set token_limit <number> to increase it."
-        )
-        return
-
-    oversized = [
-        (doc.file_name or "unknown")
-        for doc in documents
-        if doc.file_size and doc.file_size > MAX_FILE_SIZE
-    ]
-    if oversized:
-        joined = ", ".join(oversized[:5])
-        suffix = "..." if len(oversized) > 5 else ""
-        await update.message.reply_text(
-            f"File too large. Maximum size is 20MB.\nBlocked: {joined}{suffix}"
-        )
+        await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
         return
 
     caption = next((m.caption for m in grouped_messages if m.caption), "") or ""
@@ -107,6 +97,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         text_blocks: list[str] = []
         image_parts: list[dict] = []
         unsupported_files: list[str] = []
+        oversized_files: list[str] = []
         file_names: list[str] = []
 
         for msg in grouped_messages:
@@ -117,6 +108,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             file_name = doc.file_name or "unknown"
             file_names.append(file_name)
             file_ext = get_file_extension(file_name)
+
+            if doc.file_size and doc.file_size > MAX_FILE_SIZE:
+                oversized_files.append(file_name)
+                continue
 
             tg_file = await context.bot.get_file(doc.file_id)
             file_bytes = await tg_file.download_as_bytearray()
@@ -152,21 +147,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
             unsupported_files.append(file_name if file_ext else f"{file_name}(unknown)")
 
-        if not text_blocks and not image_parts:
-            await edit_message_safe(
-                bot_message,
-                "Unsupported file type.\n\n"
-                "Supported types:\n"
-                "- Text/code files (.txt, .py, .js, .json, .md, etc.)\n"
-                "- Images (.jpg, .png, .gif, .webp)",
-            )
-            return
-
         text_sections = []
         if caption:
             text_sections.append(caption)
         if text_blocks:
             text_sections.append("\n\n".join(text_blocks))
+        if oversized_files:
+            blocked = ", ".join(oversized_files[:5])
+            if len(oversized_files) > 5:
+                blocked += ", ..."
+            text_sections.append(f"Skipped oversized files (max 20MB): {blocked}")
         if unsupported_files:
             skipped = ", ".join(unsupported_files[:5])
             if len(unsupported_files) > 5:
@@ -179,7 +169,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if text_prompt:
                 user_content.insert(0, {"type": "text", "text": text_prompt})
         else:
-            user_content = text_prompt or "Please analyze the uploaded file(s)."
+            user_content = text_prompt or build_analyze_uploaded_files_message()
 
         if len(file_names) == 1:
             save_msg = f"[File: {file_names[0]}]"
@@ -197,4 +187,4 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     except Exception:
         logger.exception("%s error processing document", ctx)
-        await edit_message_safe(bot_message, "Error. Please retry.")
+        await edit_message_safe(bot_message, build_retry_message())

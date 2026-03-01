@@ -7,15 +7,25 @@ import json
 import logging
 import threading
 import time
+from urllib.parse import urlsplit
 from typing import Sequence
 
 import discord
 import uvicorn
+from discord import asset as discord_asset
+from discord import gateway as discord_gateway
+from discord import http as discord_http
+from discord import invite as discord_invite
 from discord.ext import commands
+from yarl import URL
 
 from config import (
     DISCORD_BOT_TOKEN,
     DISCORD_COMMAND_PREFIX,
+    DISCORD_API_BASE,
+    DISCORD_GATEWAY_BASE,
+    DISCORD_CDN_BASE,
+    DISCORD_INVITE_BASE,
     HEALTH_CHECK_PORT,
     STREAM_UPDATE_INTERVAL,
     STREAM_MIN_UPDATE_CHARS,
@@ -27,6 +37,8 @@ from config import (
     MAX_TEXT_CONTENT_LENGTH,
     MIME_TYPE_MAP,
     WEB_BASE_URL,
+    DEFAULT_TTS_VOICE,
+    DEFAULT_TTS_STYLE,
 )
 from cache import init_database
 from web.app import create_app
@@ -50,6 +62,7 @@ from services import (
     delete_persona,
     update_current_prompt,
     persona_exists,
+    get_message_count,
     get_token_usage,
     get_total_tokens_all_personas,
     get_token_limit,
@@ -97,6 +110,47 @@ from utils import (
     is_likely_text,
     decode_file_content,
 )
+from utils.platform_parity import (
+    SHARED_TOOL_STATUS_MAP,
+    build_analyze_uploaded_files_message,
+    build_api_key_required_message,
+    build_api_key_verify_failed_message,
+    build_api_key_verify_no_models_message,
+    build_chat_commands_message,
+    build_chat_no_sessions_message,
+    build_chat_unknown_subcommand_message,
+    build_endpoint_invalid_message,
+    build_forget_usage_message,
+    build_forget_invalid_target_message,
+    build_help_message,
+    build_invalid_memory_number_message,
+    build_latex_guidance,
+    build_memory_empty_message,
+    build_memory_list_footer_message,
+    build_persona_commands_message,
+    build_persona_created_message,
+    build_persona_new_usage_message,
+    build_persona_not_found_message,
+    build_persona_prompt_overview_message,
+    build_prompt_per_persona_message,
+    build_provider_list_usage_message,
+    build_provider_no_saved_message,
+    build_provider_not_found_available_message,
+    build_provider_save_hint_message,
+    build_provider_usage_message,
+    build_set_usage_message,
+    build_start_message_missing_api,
+    build_start_message_returning,
+    build_token_limit_reached_message,
+    build_unknown_set_key_message,
+    build_usage_reset_message,
+    build_remember_usage_message,
+    build_retry_message,
+    build_web_dashboard_message,
+    build_web_dm_failed_message,
+    build_web_dm_sent_message,
+    format_log_context,
+)
 
 
 logging.basicConfig(
@@ -105,6 +159,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("discord").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
@@ -117,21 +174,148 @@ STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 STREAM_PREVIEW_PREFIX = "[...]\n"
 CRON_SCHEDULER_STARTED = False
 
-AVAILABLE_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"]
-TOOL_STATUS_MAP = {
-    "web_search": "Searching...",
-    "url_fetch": "Fetching page...",
-    "save_memory": "Saving to memory...",
-    "tts_speak": "Generating voice...",
-    "tts_list_voices": "Loading voices...",
-    "shell_exec": "Running command...",
-    "cron_create": "Creating scheduled task...",
-    "cron_list": "Listing scheduled tasks...",
-    "cron_delete": "Deleting scheduled task...",
-    "cron_run": "Running scheduled task...",
-    "page_screenshot": "Taking screenshot...",
-    "page_content": "Extracting page content...",
-}
+AVAILABLE_TOOLS = [
+    "memory",
+    "search",
+    "fetch",
+    "wikipedia",
+    "tts",
+    "shell",
+    "cron",
+    "playwright",
+    "crawl4ai",
+    "browser_agent",
+]
+TOOL_STATUS_MAP = SHARED_TOOL_STATUS_MAP
+
+
+_DISCORD_CDN_PROXY_BASE: str | None = None
+_DISCORD_GATEWAY_PROXY_URL: str | None = None
+
+
+def _normalize_http_base(value: str, *, name: str) -> str | None:
+    base = (value or "").strip()
+    if not base:
+        return None
+    if not base.startswith(("http://", "https://")):
+        logger.warning(
+            "Ignoring %s=%s because it does not start with http:// or https://",
+            name,
+            base,
+        )
+        return None
+    return base.rstrip("/")
+
+
+def _normalize_ws_base(value: str, *, name: str) -> URL | None:
+    base = (value or "").strip()
+    if not base:
+        return None
+    if not base.startswith(("ws://", "wss://")):
+        logger.warning(
+            "Ignoring %s=%s because it does not start with ws:// or wss://",
+            name,
+            base,
+        )
+        return None
+    gateway_url = URL(base)
+    if gateway_url.query:
+        logger.warning("Ignoring query string in %s; configure it on proxy side", name)
+        gateway_url = gateway_url.with_query(None)
+    if gateway_url.fragment:
+        logger.warning("Ignoring fragment in %s; fragments are not used in ws URLs", name)
+        gateway_url = gateway_url.with_fragment("")
+    if not gateway_url.path:
+        gateway_url = gateway_url.with_path("/")
+    return gateway_url
+
+
+def _join_base_with_path(base: str, path_with_query: str) -> str:
+    if not path_with_query.startswith("/"):
+        path_with_query = f"/{path_with_query}"
+    return f"{base}{path_with_query}"
+
+
+def _rewrite_cdn_url_if_needed(url: str) -> str:
+    if not _DISCORD_CDN_PROXY_BASE:
+        return url
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if host not in {"cdn.discordapp.com", "media.discordapp.net"}:
+        return url
+
+    path_with_query = parsed.path or "/"
+    if parsed.query:
+        path_with_query = f"{path_with_query}?{parsed.query}"
+    return _join_base_with_path(_DISCORD_CDN_PROXY_BASE, path_with_query)
+
+
+def _resolve_discord_api_route_base() -> str | None:
+    base = _normalize_http_base(DISCORD_API_BASE, name="DISCORD_API_BASE")
+    if not base:
+        return None
+
+    version_suffix = f"/api/v{discord_http.INTERNAL_API_VERSION}"
+    if base.endswith(version_suffix):
+        return base
+    if base.endswith("/api"):
+        return f"{base}/v{discord_http.INTERNAL_API_VERSION}"
+    return f"{base}{version_suffix}"
+
+
+def _patch_discord_httpclient_methods() -> None:
+    if getattr(discord_http.HTTPClient.get_from_cdn, "_gemen_patched", False):
+        return
+
+    original_get_from_cdn = discord_http.HTTPClient.get_from_cdn
+    original_get_bot_gateway = discord_http.HTTPClient.get_bot_gateway
+
+    async def _patched_get_from_cdn(self: discord_http.HTTPClient, url: str) -> bytes:
+        return await original_get_from_cdn(self, _rewrite_cdn_url_if_needed(url))
+
+    async def _patched_get_bot_gateway(self: discord_http.HTTPClient):
+        shards, url, session_limits = await original_get_bot_gateway(self)
+        if _DISCORD_GATEWAY_PROXY_URL:
+            return shards, _DISCORD_GATEWAY_PROXY_URL, session_limits
+        return shards, url, session_limits
+
+    setattr(_patched_get_from_cdn, "_gemen_patched", True)
+    setattr(_patched_get_bot_gateway, "_gemen_patched", True)
+    discord_http.HTTPClient.get_from_cdn = _patched_get_from_cdn
+    discord_http.HTTPClient.get_bot_gateway = _patched_get_bot_gateway
+
+
+def _apply_discord_network_overrides() -> None:
+    global _DISCORD_CDN_PROXY_BASE
+    global _DISCORD_GATEWAY_PROXY_URL
+
+    route_base = _resolve_discord_api_route_base()
+    if route_base:
+        discord_http.Route.BASE = route_base
+        logger.info("Discord API base overridden to %s", route_base)
+
+    gateway_base = _normalize_ws_base(DISCORD_GATEWAY_BASE, name="DISCORD_GATEWAY_BASE")
+    if gateway_base:
+        _DISCORD_GATEWAY_PROXY_URL = str(gateway_base)
+        discord_gateway.DiscordWebSocket.DEFAULT_GATEWAY = gateway_base
+        logger.info("Discord Gateway base overridden to %s", _DISCORD_GATEWAY_PROXY_URL)
+    else:
+        _DISCORD_GATEWAY_PROXY_URL = None
+
+    cdn_base = _normalize_http_base(DISCORD_CDN_BASE, name="DISCORD_CDN_BASE")
+    if cdn_base:
+        _DISCORD_CDN_PROXY_BASE = cdn_base
+        discord_asset.Asset.BASE = cdn_base
+        logger.info("Discord CDN base overridden to %s", cdn_base)
+    else:
+        _DISCORD_CDN_PROXY_BASE = None
+
+    invite_base = _normalize_http_base(DISCORD_INVITE_BASE, name="DISCORD_INVITE_BASE")
+    if invite_base:
+        discord_invite.Invite.BASE = invite_base
+        logger.info("Discord invite base overridden to %s", invite_base)
+
+    _patch_discord_httpclient_methods()
 
 
 def start_web_server() -> None:
@@ -151,8 +335,15 @@ def start_web_server() -> None:
 
 def _discord_ctx(guild_id: int | None, channel_id: int, user_id: int) -> str:
     if guild_id is None:
-        return f"[user={user_id} dm={channel_id}]"
-    return f"[user={user_id} guild={guild_id} channel={channel_id}]"
+        return format_log_context(platform="discord", user_id=user_id, scope="private", chat_id=channel_id)
+    return format_log_context(platform="discord", user_id=user_id, scope="group", chat_id=channel_id)
+
+
+def _discord_cmd_ctx(ctx: commands.Context) -> str:
+    user_id = int(ctx.author.id)
+    guild_id = ctx.guild.id if ctx.guild else None
+    channel_id = ctx.channel.id
+    return _discord_ctx(guild_id, channel_id, user_id)
 
 
 def _mask_key(api_key: str) -> str:
@@ -237,15 +428,33 @@ def _tool_dedup_key(tc: ToolCall) -> str:
     except Exception:
         return f"{tc.name}:{tc.arguments}"
 
+    if tc.name.startswith("browser_"):
+        # Stateful browser actions may legitimately repeat with same args.
+        return f"{tc.name}:{tc.id}"
     if tc.name == "url_fetch":
         return f"url_fetch:{args.get('url', '')}"
+    if tc.name == "crawl4ai_fetch":
+        return f"crawl4ai_fetch:{args.get('url', '')}"
     if tc.name == "web_search":
         return f"web_search:{args.get('query', '')}"
     return f"{tc.name}:{tc.arguments}"
 
 
 def _effective_tool_timeout(tool_calls: Sequence[ToolCall]) -> int:
-    playwright_tools = {"page_screenshot", "page_content"}
+    slow_web_tools = {
+        "page_screenshot",
+        "page_content",
+        "crawl4ai_fetch",
+        "browser_start_session",
+        "browser_list_sessions",
+        "browser_close_session",
+        "browser_goto",
+        "browser_click",
+        "browser_type",
+        "browser_press",
+        "browser_wait_for",
+        "browser_get_state",
+    }
     timeout = TOOL_TIMEOUT
     for tc in tool_calls:
         if tc.name == "shell_exec":
@@ -256,7 +465,31 @@ def _effective_tool_timeout(tool_calls: Sequence[ToolCall]) -> int:
                     timeout = min(requested + 5, 125)
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
-        elif tc.name in playwright_tools:
+        elif tc.name == "crawl4ai_fetch":
+            timeout = max(timeout, 60)
+            try:
+                args = json.loads(tc.arguments)
+                requested_ms = int(args.get("timeout_ms", 60000))
+                requested_sec = max(5, min(requested_ms, 180000)) // 1000
+                # Keep outer wait_for slightly larger than crawl4ai page timeout.
+                timeout = max(timeout, min(requested_sec + 15, 210))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        elif tc.name.startswith("browser_"):
+            timeout = max(timeout, 90)
+            try:
+                args = json.loads(tc.arguments)
+                requested_ms = 0
+                if tc.name == "browser_wait_for":
+                    requested_ms = int(args.get("timeout_ms", 10000)) + int(args.get("wait_ms", 0))
+                else:
+                    requested_ms = int(args.get("timeout_ms", 10000))
+                requested_wait = float(args.get("wait", 0))
+                requested_sec = int(max(0, min(requested_ms, 180000)) / 1000 + max(0.0, min(requested_wait, 30.0)))
+                timeout = max(timeout, min(requested_sec + 15, 210))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        elif tc.name in slow_web_tools:
             timeout = max(timeout, 60)
     return timeout
 
@@ -448,9 +681,11 @@ async def _generate_and_set_title(user_id: int, session_id: int, user_message: s
         title = await generate_session_title(user_id, user_message, ai_response)
         if title:
             cache.update_session_title(session_id, title)
-            logger.info("[user=%d] Auto-generated session title: %s", user_id, title)
+            sctx = format_log_context(platform="discord", user_id=user_id, scope="system", chat_id=0)
+            logger.info("%s auto-generated session title: %s", sctx, title)
     except Exception as e:
-        logger.warning("[user=%d] Failed to auto-generate title: %s", user_id, e)
+        sctx = format_log_context(platform="discord", user_id=user_id, scope="system", chat_id=0)
+        logger.warning("%s failed to auto-generate title: %s", sctx, e)
 
 
 async def _extract_reply_context(message: discord.Message) -> str:
@@ -570,7 +805,7 @@ async def _build_user_content_from_message(
         if text_prompt:
             user_content.insert(0, {"type": "text", "text": text_prompt})
     else:
-        user_content = text_prompt or "Please analyze the uploaded file(s)."
+        user_content = text_prompt or build_analyze_uploaded_files_message()
 
     if len(file_names) == 1:
         save_msg = f"[File: {file_names[0]}]"
@@ -641,11 +876,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         return
 
     if not has_api_key(user_id):
-        await _send_text_reply(
-            message,
-            "Please set your OpenAI API key first:\n"
-            f"{DISCORD_COMMAND_PREFIX}set api_key YOUR_API_KEY",
-        )
+        await _send_text_reply(message, build_api_key_required_message(DISCORD_COMMAND_PREFIX))
         return
 
     persona_name = get_current_persona_name(user_id)
@@ -653,9 +884,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     if remaining is not None and remaining <= 0:
         await _send_text_reply(
             message,
-            f"Persona '{persona_name}' reached its token limit.\n"
-            f"Use `{DISCORD_COMMAND_PREFIX}usage` to check usage or "
-            f"`{DISCORD_COMMAND_PREFIX}set token_limit <number>` to adjust.",
+            build_token_limit_reached_message(DISCORD_COMMAND_PREFIX, persona_name),
         )
         return
 
@@ -693,10 +922,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             query=query_text,
         )
         system_prompt += get_tool_instructions(enabled_tools=enabled_tools)
-        system_prompt += (
-            "\n\nIMPORTANT: Avoid LaTeX delimiters ($...$ / $$...$$). "
-            "Use plain text and Unicode math symbols instead."
-        )
+        system_prompt += build_latex_guidance()
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         messages.extend(conversation)
@@ -994,7 +1220,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
     except Exception as e:
         logger.exception("%s AI API error", ctx)
-        await _safe_edit_message(placeholder, "Error. Please retry.")
+        await _safe_edit_message(placeholder, build_retry_message())
         record_error(user_id, str(e), "discord chat handler", settings.get("model"), persona_name)
 
 
@@ -1009,6 +1235,7 @@ def _fetch_models(user_id: int) -> list[str]:
 
 intents = discord.Intents.default()
 intents.message_content = True
+_apply_discord_network_overrides()
 bot = commands.Bot(command_prefix=DISCORD_COMMAND_PREFIX, intents=intents, help_command=None)
 
 
@@ -1055,58 +1282,26 @@ async def on_message(message: discord.Message) -> None:
 
 @bot.command(name="start")
 async def start_command(ctx: commands.Context) -> None:
+    dctx = _discord_cmd_ctx(ctx)
+    logger.info("%s /start", dctx)
     user_id = int(ctx.author.id)
     if not has_api_key(user_id):
-        await _send_ctx_reply(
-            ctx,
-            "Welcome to AI Bot.\n\n"
-            "Please configure your API first:\n"
-            f"{DISCORD_COMMAND_PREFIX}set api_key YOUR_API_KEY\n\n"
-            "Optional:\n"
-            f"{DISCORD_COMMAND_PREFIX}set base_url <url>\n"
-            f"{DISCORD_COMMAND_PREFIX}set model <name>\n"
-            f"{DISCORD_COMMAND_PREFIX}set voice <name>\n"
-            f"{DISCORD_COMMAND_PREFIX}set style <style>\n\n"
-            f"Use {DISCORD_COMMAND_PREFIX}help for all commands.",
-        )
+        await _send_ctx_reply(ctx, build_start_message_missing_api(DISCORD_COMMAND_PREFIX))
         return
 
     persona = get_current_persona_name(user_id)
-    await _send_ctx_reply(
-        ctx,
-        f"Welcome back. Current persona: {persona}\n\n"
-        "Send a text/image/file to chat, or use help command.",
-    )
+    await _send_ctx_reply(ctx, build_start_message_returning(persona, DISCORD_COMMAND_PREFIX))
 
 
 @bot.command(name="help")
 async def help_command(ctx: commands.Context) -> None:
-    p = DISCORD_COMMAND_PREFIX
-    await _send_ctx_reply(
-        ctx,
-        "AI Bot Help\n\n"
-        "Send text, image, or file to chat with AI.\n"
-        "In servers: mention the bot or reply to a bot message.\n"
-        "In DMs: direct chat works.\n\n"
-        f"Commands ({p}):\n"
-        f"{p}start\n"
-        f"{p}help\n"
-        f"{p}clear\n"
-        f"{p}persona ...\n"
-        f"{p}chat ...\n"
-        f"{p}settings\n"
-        f"{p}set <key> <value>\n"
-        f"{p}export\n"
-        f"{p}usage\n"
-        f"{p}remember <text>\n"
-        f"{p}memories\n"
-        f"{p}forget <num|all>\n"
-        f"{p}web",
-    )
+    logger.info("%s /help", _discord_cmd_ctx(ctx))
+    await _send_ctx_reply(ctx, build_help_message(DISCORD_COMMAND_PREFIX))
 
 
 @bot.command(name="clear")
 async def clear_command(ctx: commands.Context) -> None:
+    logger.info("%s /clear", _discord_cmd_ctx(ctx))
     user_id = int(ctx.author.id)
     persona_name = get_current_persona_name(user_id)
     session_id = ensure_session(user_id, persona_name)
@@ -1120,6 +1315,7 @@ async def clear_command(ctx: commands.Context) -> None:
 
 @bot.command(name="settings")
 async def settings_command(ctx: commands.Context) -> None:
+    logger.info("%s /settings", _discord_cmd_ctx(ctx))
     user_id = int(ctx.author.id)
     settings = get_user_settings(user_id)
     persona_name = get_current_persona_name(user_id)
@@ -1130,6 +1326,9 @@ async def settings_command(ctx: commands.Context) -> None:
 
     enabled_tools = _resolve_enabled_tools_for_discord(settings) or "(none)"
     cron_tools = _resolve_cron_tools_for_display(settings) or "(none)"
+    tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
+    tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
+    tts_endpoint = settings.get("tts_endpoint", "") or "auto"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
 
@@ -1138,7 +1337,6 @@ async def settings_command(ctx: commands.Context) -> None:
     cron_model_raw = settings.get("cron_model", "")
     cron_model_display = cron_model_raw or "(current model)"
 
-    p = DISCORD_COMMAND_PREFIX
     text = (
         "Current Settings:\n\n"
         f"base_url: {settings['base_url']}\n"
@@ -1149,16 +1347,16 @@ async def settings_command(ctx: commands.Context) -> None:
         f"cron_model: {cron_model_display}\n"
         f"persona: {persona_name}\n"
         f"prompt: {prompt_display}\n"
-        f"tools: {enabled_tools}\n"
-        f"cron_tools: {cron_tools}\n"
-        f"tts_voice: {settings.get('tts_voice', '') or 'default'}\n"
-        f"tts_style: {settings.get('tts_style', '') or 'default'}\n"
-        f"tts_endpoint: {settings.get('tts_endpoint', '') or 'auto'}\n"
+        f"tools: {enabled_tools}\n\n"
+        f"cron_tools: {cron_tools}\n\n"
+        f"tts_voice: {tts_voice}\n"
+        f"tts_style: {tts_style}\n"
+        f"tts_endpoint: {tts_endpoint}\n\n"
         f"providers: {presets_info}\n\n"
-        f"Use `{p}persona` to manage personas and prompts.\n"
-        f"Use `{p}chat` to manage chat sessions.\n"
-        f"Use `{p}set tool <name> <on|off>` to manage tools.\n"
-        f"Use `{p}set provider` to manage API providers."
+        f"Use {DISCORD_COMMAND_PREFIX}persona to manage personas and prompts.\n"
+        f"Use {DISCORD_COMMAND_PREFIX}chat to manage chat sessions.\n"
+        f"Use {DISCORD_COMMAND_PREFIX}set tool <name> <on|off> to manage tools.\n"
+        f"Use {DISCORD_COMMAND_PREFIX}set provider to manage API providers."
     )
 
     await _send_ctx_reply(ctx, text)
@@ -1166,50 +1364,27 @@ async def settings_command(ctx: commands.Context) -> None:
 
 @bot.command(name="set")
 async def set_command(ctx: commands.Context, *args: str) -> None:
+    ctx_log = _discord_cmd_ctx(ctx)
+    logger.info("%s /set %s", ctx_log, " ".join(args)[:120] if args else "")
     user_id = int(ctx.author.id)
     settings = get_user_settings(user_id)
+    p = DISCORD_COMMAND_PREFIX
 
     if not args:
-        p = DISCORD_COMMAND_PREFIX
-        await _send_ctx_reply(
-            ctx,
-            "Usage: set <key> <value>\n\n"
-            "Keys:\n"
-            "- base_url\n"
-            "- api_key\n"
-            "- model (no value to browse list)\n"
-            "- temperature\n"
-            "- token_limit\n"
-            "- title_model [provider:]model\n"
-            "- cron_model [provider:]model\n"
-            "- cron_tools <tool1,tool2,...>\n"
-            "- stream_mode (default/time/chars)\n"
-            "- voice\n"
-            "- style\n"
-            "- endpoint\n"
-            "- tool <name> <on|off>\n"
-            "- cron_tool <name> <on|off>\n"
-            "- provider save/load/delete/list\n\n"
-            f"For prompt, use `{p}persona prompt <text>`.\n"
-            f"Example: {p}set model gpt-4o",
-        )
+        await _send_ctx_reply(ctx, build_set_usage_message(p))
         return
 
     key = args[0].lower()
 
     if key == "model" and len(args) == 1:
         if not has_api_key(user_id):
-            await _send_ctx_reply(
-                ctx,
-                "Please set API key first:\n"
-                f"{DISCORD_COMMAND_PREFIX}set api_key YOUR_API_KEY",
-            )
+            await _send_ctx_reply(ctx, build_api_key_required_message(DISCORD_COMMAND_PREFIX))
             return
 
         wait_msg = await ctx.reply("Fetching models...", mention_author=False)
         models = await asyncio.get_running_loop().run_in_executor(None, lambda: _fetch_models(user_id))
         if not models:
-            await wait_msg.edit(content="Failed to fetch models. Check your api_key and base_url.")
+            await wait_msg.edit(content="Failed to fetch models. Check your API key and base_url.")
             return
 
         head = models[:40]
@@ -1231,7 +1406,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                 ctx,
                 "Tool Settings:\n\n"
                 + "\n".join(status)
-                + "\n\nUsage: set tool <name> <on|off>",
+                + f"\n\nUsage: {p}set tool <name> <on|off>",
             )
             return
 
@@ -1246,7 +1421,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                 ctx,
                 "Cron Tool Settings:\n\n"
                 + "\n".join(status)
-                + "\n\nUsage: set cron_tool <name> <on|off>",
+                + f"\n\nUsage: {p}set cron_tool <name> <on|off>",
             )
             return
 
@@ -1256,8 +1431,8 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                 ctx,
                 "Current cron_tools: "
                 + current
-                + "\nUsage: set cron_tools <tool1,tool2,...>\n"
-                "Use set cron_tools clear to reset to auto.",
+                + f"\nUsage: {p}set cron_tools <tool1,tool2,...>\n"
+                + f"Use {p}set cron_tools clear to reset to auto.",
             )
             return
 
@@ -1268,7 +1443,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                 "endpoint": "tts_endpoint",
             }[key]
             current = settings.get(setting_key, "") or "auto"
-            await _send_ctx_reply(ctx, f"Current {key}: {current}\nUsage: set {key} <value>")
+            await _send_ctx_reply(ctx, f"Current {key}: {current}\nUsage: {p}set {key} <value>")
             return
 
         if key == "provider":
@@ -1280,7 +1455,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             await _send_ctx_reply(
                 ctx,
                 f"Current stream_mode: {current}\n"
-                "Usage: set stream_mode <mode>\n\n"
+                f"Usage: {p}set stream_mode <mode>\n\n"
                 "Available modes:\n"
                 "- default: time + chars combined\n"
                 "- time: update by time interval\n"
@@ -1288,19 +1463,21 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
             return
 
-        await _send_ctx_reply(ctx, "Usage: set <key> <value>")
+        await _send_ctx_reply(ctx, build_set_usage_message(p))
         return
 
     value = " ".join(args[1:]).strip()
 
     if key == "base_url":
         update_user_setting(user_id, "base_url", value)
+        logger.info("%s set base_url = %s", ctx_log, value)
         await _send_ctx_reply(ctx, f"base_url set to: {value}")
         return
 
     if key == "api_key":
         update_user_setting(user_id, "api_key", value)
         masked = _mask_key(value)
+        logger.info("%s set api_key = %s", ctx_log, masked)
         try:
             models = await asyncio.get_running_loop().run_in_executor(
                 None,
@@ -1312,28 +1489,19 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                     f"api_key set to: {masked}\nVerified ({len(models)} models available)",
                 )
             else:
-                await _send_ctx_reply(
-                    ctx,
-                    f"api_key set to: {masked}\nCould not verify key (no models returned).",
-                )
+                await _send_ctx_reply(ctx, build_api_key_verify_no_models_message(masked))
         except Exception:
-            await _send_ctx_reply(
-                ctx,
-                f"api_key set to: {masked}\nCould not verify key. Check base_url and api_key.",
-            )
+            await _send_ctx_reply(ctx, build_api_key_verify_failed_message(masked))
         return
 
     if key == "model":
         update_user_setting(user_id, "model", value)
+        logger.info("%s set model = %s", ctx_log, value)
         await _send_ctx_reply(ctx, f"model set to: {value}")
         return
 
     if key == "prompt":
-        await _send_ctx_reply(
-            ctx,
-            "Prompts are per-persona.\n"
-            f"Use {DISCORD_COMMAND_PREFIX}persona prompt <text> to update current persona prompt.",
-        )
+        await _send_ctx_reply(ctx, build_prompt_per_persona_message(p))
         return
 
     if key == "temperature":
@@ -1348,6 +1516,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             return
 
         update_user_setting(user_id, "temperature", temp)
+        logger.info("%s set temperature = %s", ctx_log, temp)
         await _send_ctx_reply(ctx, f"temperature set to: {temp}")
         return
 
@@ -1364,6 +1533,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
         persona_name = get_current_persona_name(user_id)
         set_token_limit(user_id, limit, persona_name)
+        logger.info("%s set token_limit = %s (persona=%s)", ctx_log, limit, persona_name)
         await _send_ctx_reply(
             ctx,
             f"Persona '{persona_name}' token_limit set to: {limit:,}"
@@ -1376,6 +1546,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             await _send_ctx_reply(ctx, "Voice cannot be empty")
             return
         update_user_setting(user_id, "tts_voice", value)
+        logger.info("%s set voice = %s", ctx_log, value)
         await _send_ctx_reply(ctx, f"voice set to: {value}")
         return
 
@@ -1385,32 +1556,30 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             await _send_ctx_reply(ctx, "Style cannot be empty")
             return
         update_user_setting(user_id, "tts_style", style)
+        logger.info("%s set style = %s", ctx_log, style)
         await _send_ctx_reply(ctx, f"style set to: {style}")
         return
 
     if key == "endpoint":
         if value.lower() in {"auto", "default", "off"}:
             update_user_setting(user_id, "tts_endpoint", "")
+            logger.info("%s set endpoint = auto", ctx_log)
             await _send_ctx_reply(ctx, "endpoint set to: auto")
             return
 
         normalized = normalize_tts_endpoint(value)
         if not normalized:
-            await _send_ctx_reply(
-                ctx,
-                "Invalid endpoint. Example:\n"
-                "set endpoint southeastasia\n"
-                "or set endpoint southeastasia.tts.speech.microsoft.com",
-            )
+            await _send_ctx_reply(ctx, build_endpoint_invalid_message(p))
             return
 
         update_user_setting(user_id, "tts_endpoint", normalized)
+        logger.info("%s set endpoint = %s", ctx_log, normalized)
         await _send_ctx_reply(ctx, f"endpoint set to: {normalized}")
         return
 
     if key == "tool":
         if len(args) < 3:
-            await _send_ctx_reply(ctx, "Usage: set tool <name> <on|off>")
+            await _send_ctx_reply(ctx, f"Usage: {p}set tool <name> <on|off>")
             return
 
         tool_name = args[1].lower()
@@ -1437,12 +1606,13 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             return
 
         update_user_setting(user_id, "enabled_tools", _normalize_tools_csv(",".join(enabled_list)))
+        logger.info("%s set tool %s = %s", ctx_log, tool_name, action)
         await _send_ctx_reply(ctx, f"Tool {tool_name} set to {action}")
         return
 
     if key == "cron_tool":
         if len(args) < 3:
-            await _send_ctx_reply(ctx, "Usage: set cron_tool <name> <on|off>")
+            await _send_ctx_reply(ctx, f"Usage: {p}set cron_tool <name> <on|off>")
             return
 
         tool_name = args[1].lower()
@@ -1470,6 +1640,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
         new_enabled = _normalize_tools_csv(",".join(enabled_list))
         update_user_setting(user_id, "cron_enabled_tools", new_enabled)
+        logger.info("%s set cron_tool %s = %s", ctx_log, tool_name, action)
         await _send_ctx_reply(ctx, f"Cron tool {tool_name} set to {action}")
         return
 
@@ -1477,6 +1648,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         val = value.strip()
         if not val or val.lower() in {"off", "clear", "none", "default"}:
             update_user_setting(user_id, "cron_enabled_tools", "")
+            logger.info("%s cleared cron_enabled_tools (auto mode)", ctx_log)
             await _send_ctx_reply(
                 ctx,
                 "cron_tools cleared.\n"
@@ -1496,6 +1668,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         requested = [t.strip().lower() for t in val.split(",") if t.strip()]
         unknown = [t for t in requested if t not in AVAILABLE_TOOLS]
         update_user_setting(user_id, "cron_enabled_tools", normalized)
+        logger.info("%s set cron_enabled_tools = %s", ctx_log, normalized)
         if unknown:
             await _send_ctx_reply(
                 ctx,
@@ -1507,16 +1680,18 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         return
 
     if key == "provider":
-        await _handle_provider_command(ctx, user_id, settings, list(args[1:]))
+        await _handle_provider_command(ctx, user_id, settings, list(args[1:]), ctx_log)
         return
 
     if key == "title_model":
         val = value.strip()
         if not val or val.lower() in {"off", "clear", "none"}:
             update_user_setting(user_id, "title_model", "")
+            logger.info("%s cleared title_model", ctx_log)
             await _send_ctx_reply(ctx, "title_model cleared (will use current provider + model)")
         else:
             update_user_setting(user_id, "title_model", val)
+            logger.info("%s set title_model = %s", ctx_log, val)
             if ":" in val:
                 provider, model_name = val.split(":", 1)
                 presets = settings.get("api_presets", {})
@@ -1534,13 +1709,13 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                         f"title_model set to: {val}\n"
                         f"Provider '{provider}' not found in presets.\n"
                         f"Available: {available}\n"
-                        f"Use {DISCORD_COMMAND_PREFIX}set provider save <name> first.",
+                        f"{build_provider_save_hint_message(p)}",
                     )
             else:
                 await _send_ctx_reply(
                     ctx,
                     f"title_model set to: {val}\n"
-                    "(uses current provider API)",
+                    "(uses current provider's API)",
                 )
         return
 
@@ -1548,9 +1723,11 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         val = value.strip()
         if not val or val.lower() in {"off", "clear", "none"}:
             update_user_setting(user_id, "cron_model", "")
+            logger.info("%s cleared cron_model", ctx_log)
             await _send_ctx_reply(ctx, "cron_model cleared (will use current provider + model)")
         else:
             update_user_setting(user_id, "cron_model", val)
+            logger.info("%s set cron_model = %s", ctx_log, val)
             if ":" in val:
                 provider, model_name = val.split(":", 1)
                 presets = settings.get("api_presets", {})
@@ -1568,13 +1745,13 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                         f"cron_model set to: {val}\n"
                         f"Provider '{provider}' not found in presets.\n"
                         f"Available: {available}\n"
-                        f"Use {DISCORD_COMMAND_PREFIX}set provider save <name> first.",
+                        f"{build_provider_save_hint_message(p)}",
                     )
             else:
                 await _send_ctx_reply(
                     ctx,
                     f"cron_model set to: {val}\n"
-                    "(uses current provider API)",
+                    "(uses current provider's API)",
                 )
         return
 
@@ -1582,6 +1759,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         mode = value.lower()
         if mode in {"default", "time", "chars"}:
             update_user_setting(user_id, "stream_mode", mode)
+            logger.info("%s set stream_mode = %s", ctx_log, mode)
             await _send_ctx_reply(
                 ctx,
                 f"stream_mode set to: {mode}\n"
@@ -1589,6 +1767,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
         elif mode in {"", "off", "clear", "none"}:
             update_user_setting(user_id, "stream_mode", "")
+            logger.info("%s cleared stream_mode", ctx_log)
             await _send_ctx_reply(
                 ctx,
                 "stream_mode cleared (will use default mode)\n"
@@ -1599,7 +1778,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             await _send_ctx_reply(
                 ctx,
                 f"Current stream_mode: {current}\n"
-                "Usage: set stream_mode <mode>\n\n"
+                f"Usage: {p}set stream_mode <mode>\n\n"
                 "Available modes:\n"
                 "- default: time + chars combined\n"
                 "- time: update by time interval\n"
@@ -1607,24 +1786,14 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
         return
 
-    await _send_ctx_reply(
-        ctx,
-        f"Unknown key: {key}\n"
-        "Available: base_url, api_key, model, temperature, token_limit, title_model, cron_model, cron_tools, stream_mode, voice, style, endpoint, tool, cron_tool, provider",
-    )
+    await _send_ctx_reply(ctx, build_unknown_set_key_message(key))
 
 
 async def _show_provider_list(ctx: commands.Context, settings: dict) -> None:
+    p = DISCORD_COMMAND_PREFIX
     presets = settings.get("api_presets", {})
     if not presets:
-        await _send_ctx_reply(
-            ctx,
-            "No saved providers.\n\n"
-            "Usage:\n"
-            "set provider save <name>\n"
-            "set provider load <name>\n"
-            "set provider delete <name>",
-        )
+        await _send_ctx_reply(ctx, build_provider_no_saved_message(p))
         return
 
     lines = ["Saved Providers:\n"]
@@ -1636,12 +1805,7 @@ async def _show_provider_list(ctx: commands.Context, settings: dict) -> None:
             f"  model: {preset.get('model', '')}"
         )
 
-    lines.append(
-        "\nUsage:\n"
-        "set provider save <name>\n"
-        "set provider load <name>\n"
-        "set provider delete <name>"
-    )
+    lines.append(build_provider_list_usage_message(p))
     await _send_ctx_reply(ctx, "\n".join(lines))
 
 
@@ -1650,7 +1814,9 @@ async def _handle_provider_command(
     user_id: int,
     settings: dict,
     args: list[str],
+    ctx_log: str,
 ) -> None:
+    p = DISCORD_COMMAND_PREFIX
     presets = settings.get("api_presets", {})
 
     if not args:
@@ -1665,7 +1831,7 @@ async def _handle_provider_command(
 
     if sub == "save":
         if len(args) < 2:
-            await _send_ctx_reply(ctx, "Usage: set provider save <name>")
+            await _send_ctx_reply(ctx, f"Usage: {p}set provider save <name>")
             return
 
         name = args[1]
@@ -1675,6 +1841,7 @@ async def _handle_provider_command(
             "model": settings["model"],
         }
         update_user_setting(user_id, "api_presets", presets)
+        logger.info("%s provider save %s", ctx_log, name)
         await _send_ctx_reply(
             ctx,
             f"Provider '{name}' saved:\n"
@@ -1686,7 +1853,7 @@ async def _handle_provider_command(
 
     if sub == "delete":
         if len(args) < 2:
-            await _send_ctx_reply(ctx, "Usage: set provider delete <name>")
+            await _send_ctx_reply(ctx, f"Usage: {p}set provider delete <name>")
             return
 
         name = args[1]
@@ -1696,12 +1863,13 @@ async def _handle_provider_command(
 
         del presets[name]
         update_user_setting(user_id, "api_presets", presets)
+        logger.info("%s provider delete %s", ctx_log, name)
         await _send_ctx_reply(ctx, f"Provider '{name}' deleted.")
         return
 
     if sub == "load":
         if len(args) < 2:
-            await _send_ctx_reply(ctx, "Usage: set provider load <name>")
+            await _send_ctx_reply(ctx, f"Usage: {p}set provider load <name>")
             return
 
         name = args[1]
@@ -1709,7 +1877,7 @@ async def _handle_provider_command(
             matched = next((k for k in presets if k.lower() == name.lower()), None)
             if matched is None:
                 available = ", ".join(presets.keys()) if presets else "(none)"
-                await _send_ctx_reply(ctx, f"Provider '{name}' not found. Available: {available}")
+                await _send_ctx_reply(ctx, build_provider_not_found_available_message(name, available))
                 return
             name = matched
 
@@ -1717,6 +1885,7 @@ async def _handle_provider_command(
         update_user_setting(user_id, "api_key", preset["api_key"])
         update_user_setting(user_id, "base_url", preset["base_url"])
         update_user_setting(user_id, "model", preset["model"])
+        logger.info("%s provider load %s", ctx_log, name)
 
         await _send_ctx_reply(
             ctx,
@@ -1727,24 +1896,18 @@ async def _handle_provider_command(
         )
         return
 
-    await _send_ctx_reply(
-        ctx,
-        "Usage:\n"
-        "set provider list\n"
-        "set provider save <name>\n"
-        "set provider load <name>\n"
-        "set provider delete <name>",
-    )
+    await _send_ctx_reply(ctx, build_provider_usage_message(p))
 
 
 @bot.command(name="usage")
 async def usage_command(ctx: commands.Context, *args: str) -> None:
+    logger.info("%s /usage %s", _discord_cmd_ctx(ctx), " ".join(args) if args else "")
     user_id = int(ctx.author.id)
     persona_name = get_current_persona_name(user_id)
 
     if args and args[0].lower() == "reset":
         reset_token_usage(user_id, persona_name)
-        await _send_ctx_reply(ctx, f"Usage reset for persona '{persona_name}'.")
+        await _send_ctx_reply(ctx, build_usage_reset_message(persona_name))
         return
 
     usage = get_token_usage(user_id, persona_name)
@@ -1782,6 +1945,7 @@ async def usage_command(ctx: commands.Context, *args: str) -> None:
 
 @bot.command(name="export")
 async def export_command(ctx: commands.Context) -> None:
+    logger.info("%s /export", _discord_cmd_ctx(ctx))
     user_id = int(ctx.author.id)
     persona_name = get_current_persona_name(user_id)
     session_id = get_current_session_id(user_id, persona_name)
@@ -1807,31 +1971,26 @@ async def export_command(ctx: commands.Context) -> None:
 
 @bot.command(name="remember")
 async def remember_command(ctx: commands.Context, *, content: str | None = None) -> None:
+    ctx_log = _discord_cmd_ctx(ctx)
+    logger.info("%s /remember", ctx_log)
     user_id = int(ctx.author.id)
     if not content:
-        await _send_ctx_reply(
-            ctx,
-            "Usage: remember <content>\n"
-            "Example: remember I prefer concise answers",
-        )
+        await _send_ctx_reply(ctx, build_remember_usage_message(DISCORD_COMMAND_PREFIX))
         return
 
     add_memory(user_id, content, source="user")
+    logger.info("%s /remember content=%s", ctx_log, content[:80])
     await _send_ctx_reply(ctx, f"Remembered: {content}")
 
 
 @bot.command(name="memories")
 async def memories_command(ctx: commands.Context) -> None:
+    logger.info("%s /memories", _discord_cmd_ctx(ctx))
     user_id = int(ctx.author.id)
     memories = get_memories(user_id)
 
     if not memories:
-        await _send_ctx_reply(
-            ctx,
-            "No memories yet.\n\n"
-            "Use remember <content> to add a memory.\n"
-            "AI can also add memories during conversations.",
-        )
+        await _send_ctx_reply(ctx, build_memory_empty_message(DISCORD_COMMAND_PREFIX))
         return
 
     lines = ["Your memories:\n"]
@@ -1839,25 +1998,18 @@ async def memories_command(ctx: commands.Context) -> None:
         source_tag = "[AI]" if mem["source"] == "ai" else "[user]"
         lines.append(f"{i}. {source_tag} {mem['content']}")
 
-    lines.append("\n[user] = added by you")
-    lines.append("[AI] = added by AI")
-    lines.append("\nUse forget <number> to delete")
-    lines.append("Use forget all to clear all")
+    lines.append(build_memory_list_footer_message(DISCORD_COMMAND_PREFIX))
 
     await _send_ctx_reply(ctx, "\n".join(lines))
 
 
 @bot.command(name="forget")
 async def forget_command(ctx: commands.Context, target: str | None = None) -> None:
+    logger.info("%s /forget %s", _discord_cmd_ctx(ctx), target or "")
     user_id = int(ctx.author.id)
 
     if not target:
-        await _send_ctx_reply(
-            ctx,
-            "Usage:\n"
-            "forget <number> - Delete specific memory\n"
-            "forget all - Clear all memories",
-        )
+        await _send_ctx_reply(ctx, build_forget_usage_message(DISCORD_COMMAND_PREFIX))
         return
 
     if target.lower() == "all":
@@ -1871,20 +2023,24 @@ async def forget_command(ctx: commands.Context, target: str | None = None) -> No
     try:
         index = int(target)
     except ValueError:
-        await _send_ctx_reply(ctx, "Please specify a number or 'all'.")
+        await _send_ctx_reply(ctx, build_forget_invalid_target_message(DISCORD_COMMAND_PREFIX))
         return
 
     if delete_memory(user_id, index):
         await _send_ctx_reply(ctx, f"Memory #{index} deleted.")
     else:
-        await _send_ctx_reply(ctx, f"Invalid memory number: {index}")
+        await _send_ctx_reply(ctx, build_invalid_memory_number_message(index, DISCORD_COMMAND_PREFIX))
 
 
 @bot.command(name="persona")
 async def persona_command(ctx: commands.Context, *args: str) -> None:
+    ctx_log = _discord_cmd_ctx(ctx)
+    logger.info("%s /persona %s", ctx_log, " ".join(args) if args else "")
     user_id = int(ctx.author.id)
+    p = DISCORD_COMMAND_PREFIX
 
     if not args:
+        logger.info("%s /persona list", ctx_log)
         personas = get_personas(user_id)
         current = get_current_persona_name(user_id)
         if not personas:
@@ -1896,7 +2052,7 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
             marker = "> " if name == current else "  "
             usage = get_token_usage(user_id, name)
             session_id = ensure_session(user_id, name)
-            msg_count = len(get_conversation(session_id))
+            msg_count = get_message_count(session_id)
             session_ct = get_session_count(user_id, name)
             prompt_preview = persona["system_prompt"][:30]
             if len(persona["system_prompt"]) > 30:
@@ -1907,11 +2063,7 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
             lines.append(f"    {prompt_preview}")
             lines.append("")
 
-        lines.append("Commands:")
-        lines.append("persona <name> - switch")
-        lines.append("persona new <name> - create")
-        lines.append("persona delete <name> - delete")
-        lines.append("persona prompt <text> - set prompt")
+        lines.append(build_persona_commands_message(p))
 
         await _send_ctx_reply(ctx, "\n".join(lines))
         return
@@ -1920,25 +2072,22 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
 
     if subcmd == "new":
         if len(args) < 2:
-            await _send_ctx_reply(ctx, "Usage: persona new <name> [system prompt]")
+            await _send_ctx_reply(ctx, build_persona_new_usage_message(p))
             return
 
         name = args[1]
         prompt = " ".join(args[2:]) if len(args) > 2 else None
         if create_persona(user_id, name, prompt):
             switch_persona(user_id, name)
-            await _send_ctx_reply(
-                ctx,
-                f"Created and switched to persona: {name}\n"
-                "Use persona prompt <text> to set its prompt.",
-            )
+            logger.info("%s /persona new %s", ctx_log, name)
+            await _send_ctx_reply(ctx, build_persona_created_message(name, p))
         else:
             await _send_ctx_reply(ctx, f"Persona '{name}' already exists.")
         return
 
     if subcmd == "delete":
         if len(args) < 2:
-            await _send_ctx_reply(ctx, "Usage: persona delete <name>")
+            await _send_ctx_reply(ctx, f"Usage: {p}persona delete <name>")
             return
 
         name = args[1]
@@ -1947,6 +2096,7 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
             return
 
         if delete_persona(user_id, name):
+            logger.info("%s /persona delete %s", ctx_log, name)
             await _send_ctx_reply(ctx, f"Deleted persona: {name}")
         else:
             await _send_ctx_reply(ctx, f"Persona '{name}' not found.")
@@ -1957,28 +2107,32 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
             persona = get_current_persona(user_id)
             await _send_ctx_reply(
                 ctx,
-                f"Current persona: {persona['name']}\n\n"
-                f"Prompt: {persona['system_prompt']}\n\n"
-                "Usage: persona prompt <new prompt>",
+                build_persona_prompt_overview_message(
+                    persona["name"],
+                    persona["system_prompt"],
+                    p,
+                ),
             )
             return
 
         prompt = " ".join(args[1:])
         update_current_prompt(user_id, prompt)
         name = get_current_persona_name(user_id)
+        logger.info("%s /persona prompt (persona=%s)", ctx_log, name)
         await _send_ctx_reply(ctx, f"Updated prompt for '{name}'.")
         return
 
     name = args[0]
     if not persona_exists(user_id, name):
-        await _send_ctx_reply(ctx, f"Persona '{name}' not found. Use persona new {name} to create it.")
+        await _send_ctx_reply(ctx, build_persona_not_found_message(name, p))
         return
 
     switch_persona(user_id, name)
+    logger.info("%s /persona switch %s", ctx_log, name)
     persona = get_current_persona(user_id)
     usage = get_token_usage(user_id, name)
     session_id = ensure_session(user_id, name)
-    msg_count = len(get_conversation(session_id))
+    msg_count = get_message_count(session_id)
     session_ct = get_session_count(user_id, name)
     current_session = get_current_session(user_id, name)
     session_title = (current_session.get("title") or "New Chat") if current_session else "New Chat"
@@ -1999,19 +2153,19 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
 
 @bot.command(name="chat")
 async def chat_command(ctx: commands.Context, *args: str) -> None:
+    ctx_log = _discord_cmd_ctx(ctx)
+    logger.info("%s /chat %s", ctx_log, " ".join(args) if args else "")
     user_id = int(ctx.author.id)
     persona_name = get_current_persona_name(user_id)
+    p = DISCORD_COMMAND_PREFIX
 
     if not args:
+        logger.info("%s /chat list", ctx_log)
         sessions = get_sessions(user_id, persona_name)
         current_id = get_current_session_id(user_id, persona_name)
 
         if not sessions:
-            await _send_ctx_reply(
-                ctx,
-                f"No sessions for persona '{persona_name}'.\n"
-                "Send a message to create one automatically, or use chat new",
-            )
+            await _send_ctx_reply(ctx, build_chat_no_sessions_message(persona_name, p))
             return
 
         lines = [f"Sessions (persona: {persona_name})\n"]
@@ -2022,10 +2176,7 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
             lines.append(f"{marker}{i}. {title} ({msg_count} msgs)")
 
         lines.append("")
-        lines.append("chat <num> - switch")
-        lines.append("chat new [title] - new session")
-        lines.append("chat rename <title> - rename")
-        lines.append("chat delete <num> - delete")
+        lines.append(build_chat_commands_message(p))
 
         await _send_ctx_reply(ctx, "\n".join(lines))
         return
@@ -2041,16 +2192,17 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
             f"Created new session: {display_title}\n"
             f"Switched to session #{len(get_sessions(user_id, persona_name))}",
         )
-        logger.info("[user=%d] chat new (session_id=%s)", user_id, session["id"])
+        logger.info("%s /chat new (session_id=%s)", ctx_log, session["id"])
         return
 
     if subcmd == "rename":
         if len(args) < 2:
-            await _send_ctx_reply(ctx, "Usage: chat rename <title>")
+            await _send_ctx_reply(ctx, f"Usage: {p}chat rename <title>")
             return
 
         title = " ".join(args[1:])
         if rename_session(user_id, title, persona_name):
+            logger.info("%s /chat rename '%s'", ctx_log, title)
             await _send_ctx_reply(ctx, f"Session renamed to: {title}")
         else:
             await _send_ctx_reply(ctx, "No current session to rename.")
@@ -2058,7 +2210,7 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
 
     if subcmd == "delete":
         if len(args) < 2:
-            await _send_ctx_reply(ctx, "Usage: chat delete <number>")
+            await _send_ctx_reply(ctx, f"Usage: {p}chat delete <number>")
             return
 
         try:
@@ -2076,6 +2228,7 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
         display_title = session.get("title") or "New Chat"
 
         if delete_chat_session(user_id, index, persona_name):
+            logger.info("%s /chat delete %d", ctx_log, index)
             await _send_ctx_reply(ctx, f"Deleted session: {display_title}")
         else:
             await _send_ctx_reply(ctx, "Failed to delete session.")
@@ -2084,15 +2237,7 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
     try:
         index = int(subcmd)
     except ValueError:
-        await _send_ctx_reply(
-            ctx,
-            "Unknown subcommand. Usage:\n"
-            "chat - list sessions\n"
-            "chat new [title] - new session\n"
-            "chat <num> - switch session\n"
-            "chat rename <title> - rename\n"
-            "chat delete <num> - delete",
-        )
+        await _send_ctx_reply(ctx, build_chat_unknown_subcommand_message(p))
         return
 
     if switch_session(user_id, index, persona_name):
@@ -2100,6 +2245,7 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
         session = sessions[index - 1]
         display_title = session.get("title") or "New Chat"
         msg_count = get_session_message_count(session["id"])
+        logger.info("%s /chat switch %d", ctx_log, index)
         await _send_ctx_reply(
             ctx,
             f"Switched to session #{index}: {display_title}\nMessages: {msg_count}",
@@ -2111,21 +2257,19 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
 
 @bot.command(name="web")
 async def web_command(ctx: commands.Context) -> None:
+    logger.info("%s /web", _discord_cmd_ctx(ctx))
     user_id = int(ctx.author.id)
     token = create_short_token(user_id)
-    url = f"{WEB_BASE_URL}/?token={token}"
-    text = (
-        "Open the Gemen dashboard:\n"
-        f"{url}\n\n"
-        "This link is single-use and expires in 10 minutes."
-    )
+    # Include both query + hash token to handle Discord/mobile link rewrites.
+    url = f"{WEB_BASE_URL.rstrip('/')}/?token={token}#token={token}"
+    text = build_web_dashboard_message(url)
 
     try:
         await ctx.author.send(text)
         if ctx.guild:
-            await _send_ctx_reply(ctx, "Dashboard link sent to your DM.")
+            await _send_ctx_reply(ctx, build_web_dm_sent_message())
     except Exception:
-        await _send_ctx_reply(ctx, "Could not send DM. Please allow DMs and retry.")
+        await _send_ctx_reply(ctx, build_web_dm_failed_message())
 
 
 def main() -> None:

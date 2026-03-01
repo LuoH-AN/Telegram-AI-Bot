@@ -15,6 +15,15 @@ SERIAL_ONLY_TOOL_NAMES = {
     "cron_delete",
     "cron_run",
     "shell_exec",
+    "browser_start_session",
+    "browser_list_sessions",
+    "browser_close_session",
+    "browser_goto",
+    "browser_click",
+    "browser_type",
+    "browser_press",
+    "browser_wait_for",
+    "browser_get_state",
 }
 
 

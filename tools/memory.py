@@ -1,19 +1,11 @@
 """Memory tool — save important user information across conversations."""
 
-import re
 import logging
 
 from .registry import BaseTool
 from services.memory_service import add_memory, format_memories_for_prompt
 
 logger = logging.getLogger(__name__)
-
-# Fallback regex patterns to extract memories from response text
-MEMORY_PATTERNS = [
-    re.compile(r"\[MEMORY:\s*(.+?)\]", re.IGNORECASE),
-    re.compile(r"\[记忆:\s*(.+?)\]"),
-    re.compile(r"<memory>\s*(.+?)\s*</memory>", re.IGNORECASE | re.DOTALL),
-]
 
 # Tool definition (OpenAI function-calling format)
 MEMORY_TOOL = {
@@ -59,8 +51,7 @@ class MemoryTool(BaseTool):
     def get_instruction(self) -> str:
         return (
             "\n\nYou can save important information about the user using the save_memory tool. "
-            "Use it for preferences, facts, or context worth remembering long-term. "
-            "If the tool is not available, you can use [MEMORY: description] format instead."
+            "Use it for preferences, facts, or context worth remembering long-term."
         )
 
     def enrich_system_prompt(self, user_id: int, system_prompt: str, **kwargs) -> str:
@@ -70,20 +61,4 @@ class MemoryTool(BaseTool):
             system_prompt += "\n\n" + memories_text
         return system_prompt
 
-    def post_process(self, user_id: int, text: str) -> str:
-        """Extract memories from AI response using regex patterns (fallback)."""
-        cleaned = text
-        memories_found = []
 
-        for pattern in MEMORY_PATTERNS:
-            matches = pattern.findall(cleaned)
-            memories_found.extend(matches)
-            cleaned = pattern.sub("", cleaned)
-
-        for memory_content in memories_found:
-            content = memory_content.strip()
-            if content:
-                add_memory(user_id, content, source="ai")
-                logger.info(f"Saved memory via regex: {content[:50]}...")
-
-        return cleaned.strip()

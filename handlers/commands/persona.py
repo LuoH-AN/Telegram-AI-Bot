@@ -6,6 +6,13 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
+from utils.platform_parity import (
+    build_persona_commands_message,
+    build_persona_created_message,
+    build_persona_new_usage_message,
+    build_persona_not_found_message,
+    build_persona_prompt_overview_message,
+)
 
 from services import (
     get_personas,
@@ -31,7 +38,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     Usage:
         /persona - list all personas
-        /persona <name> - switch to persona (creates if not exists)
+        /persona <name> - switch to an existing persona
         /persona new <name> [prompt] - create with optional prompt
         /persona delete <name> - delete a persona
         /persona prompt <text> - set current persona's prompt
@@ -51,21 +58,14 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if subcmd == "new":
         # Create new persona
         if len(args) < 2:
-            await update.message.reply_text(
-                "Usage: /persona new <name> [system prompt]\n\n"
-                "Example:\n"
-                "/persona new coder You are a coding assistant."
-            )
+            await update.message.reply_text(build_persona_new_usage_message("/"))
             return
         name = args[1]
         prompt = " ".join(args[2:]) if len(args) > 2 else None
         if create_persona(user_id, name, prompt):
             switch_persona(user_id, name)
             logger.info("%s /persona new %s", ctx, name)
-            await update.message.reply_text(
-                f"Created and switched to persona: {name}\n\n"
-                f"Use /persona prompt <text> to set its system prompt."
-            )
+            await update.message.reply_text(build_persona_created_message(name, "/"))
         else:
             await update.message.reply_text(f"Persona '{name}' already exists.")
 
@@ -89,9 +89,11 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if len(args) < 2:
             persona = get_current_persona(user_id)
             await update.message.reply_text(
-                f"Current persona: {persona['name']}\n\n"
-                f"Prompt: {persona['system_prompt']}\n\n"
-                "Usage: /persona prompt <new prompt>"
+                build_persona_prompt_overview_message(
+                    persona["name"],
+                    persona["system_prompt"],
+                    "/",
+                )
             )
             return
         prompt = " ".join(args[1:])
@@ -104,9 +106,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Switch to existing persona (do NOT auto-create)
         name = args[0]
         if not persona_exists(user_id, name):
-            await update.message.reply_text(
-                f"Persona '{name}' not found. Use /persona new {name} to create it."
-            )
+            await update.message.reply_text(build_persona_not_found_message(name, "/"))
             return
         switch_persona(user_id, name)
         logger.info("%s /persona switch %s", ctx, name)
@@ -152,10 +152,6 @@ async def _list_personas(update: Update, user_id: int) -> None:
         lines.append(f"    {prompt_preview}")
         lines.append("")
 
-    lines.append("Commands:")
-    lines.append("/persona <name> - switch")
-    lines.append("/persona new <name> - create")
-    lines.append("/persona delete <name> - delete")
-    lines.append("/persona prompt <text> - set prompt")
+    lines.append(build_persona_commands_message("/"))
 
     await update.message.reply_text("\n".join(lines))

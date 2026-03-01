@@ -19,10 +19,35 @@ from services import (
 )
 from ai import get_openai_client
 from handlers.common import get_log_context
+from utils.platform_parity import (
+    build_api_key_required_message,
+    build_api_key_verify_failed_message,
+    build_api_key_verify_no_models_message,
+    build_endpoint_invalid_message,
+    build_prompt_per_persona_message,
+    build_provider_list_usage_message,
+    build_provider_no_saved_message,
+    build_provider_not_found_available_message,
+    build_provider_save_hint_message,
+    build_provider_usage_message,
+    build_set_usage_message,
+    build_unknown_set_key_message,
+)
 
 logger = logging.getLogger(__name__)
 
-AVAILABLE_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright"]
+AVAILABLE_TOOLS = [
+    "memory",
+    "search",
+    "fetch",
+    "wikipedia",
+    "tts",
+    "shell",
+    "cron",
+    "playwright",
+    "crawl4ai",
+    "browser_agent",
+]
 
 
 def _normalize_tools_csv(raw: str) -> str:
@@ -67,6 +92,10 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     prompt = persona["system_prompt"]
     prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
 
+    # Get global prompt for display
+    global_prompt = settings.get("global_prompt", "") or ""
+    global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
+
     enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia,tts")
     cron_tools = _resolve_cron_tools_for_display(settings) or "(none)"
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
@@ -100,6 +129,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"title_model: {title_model_display}\n"
         f"cron_model: {cron_model_display}\n"
         f"persona: {persona_name}\n"
+        f"global_prompt: {global_prompt_display}\n"
         f"prompt: {prompt_display}\n"
         f"tools: {enabled_tools}\n\n"
         f"cron_tools: {cron_tools}\n\n"
@@ -118,6 +148,8 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Handle /set command - set configuration."""
     user_id = update.effective_user.id
     settings = get_user_settings(user_id)
+    ctx = get_log_context(update)
+    logger.info("%s /set %s", ctx, " ".join(context.args)[:120] if context.args else "")
 
     if not context.args or len(context.args) < 2:
         # Check if it's "/set model" without value
@@ -130,7 +162,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
             status = []
             for t in AVAILABLE_TOOLS:
-                icon = "✅" if t in enabled_list else "❌"
+                icon = "[on]" if t in enabled_list else "[off]"
                 status.append(f"{icon} {t}")
             await update.message.reply_text(
                 f"Tool Settings:\n\n" + "\n".join(status) + "\n\n"
@@ -143,7 +175,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
             status = []
             for t in AVAILABLE_TOOLS:
-                icon = "✅" if t in enabled_list else "❌"
+                icon = "[on]" if t in enabled_list else "[off]"
                 status.append(f"{icon} {t}")
             await update.message.reply_text(
                 f"Cron Tool Settings:\n\n" + "\n".join(status) + "\n\n"
@@ -177,31 +209,32 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _show_provider_list(update, settings)
             return
 
-        await update.message.reply_text(
-            "Usage: /set <key> <value>\n\n"
-            "Available keys:\n"
-            "- base_url\n"
-            "- api_key\n"
-            "- model (no value to browse list)\n"
-            "- temperature\n"
-            "- token_limit (当前 persona)\n"
-            "- title_model [provider:]model\n"
-            "- cron_model [provider:]model\n"
-            "- cron_tools <tool1,tool2,...>\n"
-            "- stream_mode (default/time/chars)\n"
-            "- voice\n"
-            "- style\n"
-            "- endpoint\n"
-            "- tool <name> <on|off>\n"
-            "- cron_tool <name> <on|off>\n"
-            "- provider save/load/delete/list\n\n"
-            "For prompt, use /persona prompt <text>"
-        )
+        if context.args and context.args[0].lower() == "stream_mode":
+            current = settings.get("stream_mode", "") or "default"
+            await update.message.reply_text(
+                f"Current stream_mode: {current}\n"
+                "Usage: /set stream_mode <mode>\n\n"
+                "Available modes:\n"
+                "- default: time + chars combined\n"
+                "- time: update by time interval\n"
+                "- chars: update by character interval"
+            )
+            return
+        if context.args and context.args[0].lower() == "global_prompt":
+            current = settings.get("global_prompt", "") or "(none)"
+            display = current[:100] + "..." if len(current) > 100 else current
+            await update.message.reply_text(
+                f"Current global_prompt: {display}\n\n"
+                "Usage: /set global_prompt <prompt>\n"
+                "Use /set global_prompt clear to remove."
+            )
+            return
+
+        await update.message.reply_text(build_set_usage_message("/"))
         return
 
     key = context.args[0].lower()
     value = " ".join(context.args[1:])
-    ctx = get_log_context(update)
 
     if key == "base_url":
         update_user_setting(user_id, "base_url", value)
@@ -218,24 +251,36 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             if models:
                 await update.message.reply_text(
-                    f"api_key set to: {masked}\n✅ Verified ({len(models)} models available)"
+                    f"api_key set to: {masked}\nVerified ({len(models)} models available)"
                 )
             else:
-                await update.message.reply_text(
-                    f"api_key set to: {masked}\n⚠️ Could not verify key (no models returned). Check your base_url."
-                )
+                await update.message.reply_text(build_api_key_verify_no_models_message(masked))
         except Exception:
-            await update.message.reply_text(
-                f"api_key set to: {masked}\n⚠️ Could not verify key. Check your base_url and api_key."
-            )
+            await update.message.reply_text(build_api_key_verify_failed_message(masked))
     elif key == "model":
         update_user_setting(user_id, "model", value)
         logger.info("%s set model = %s", ctx, value)
         await update.message.reply_text(f"model set to: {value}")
     elif key == "prompt":
+        await update.message.reply_text(build_prompt_per_persona_message("/"))
+    elif key == "global_prompt":
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none"}:
+            update_user_setting(user_id, "global_prompt", "")
+            logger.info("%s cleared global_prompt", ctx)
+            await update.message.reply_text(
+                "global_prompt cleared.\n"
+                "Now personas will use their own system prompts only."
+            )
+            return
+        update_user_setting(user_id, "global_prompt", val)
+        logger.info("%s set global_prompt = %s", ctx, val[:50] + "..." if len(val) > 50 else val)
+        # Show truncated prompt
+        display = val[:100] + "..." if len(val) > 100 else val
         await update.message.reply_text(
-            "Prompts are now per-persona.\n"
-            "Use /persona prompt <text> to set the prompt for current persona."
+            f"global_prompt set to: {display}\n\n"
+            "This prompt will be prepended to all personas' system prompts.\n"
+            "Use /set global_prompt clear to remove."
         )
     elif key == "temperature":
         try:
@@ -291,11 +336,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         normalized = normalize_tts_endpoint(endpoint)
         if not normalized:
-            await update.message.reply_text(
-                "Invalid endpoint. Example:\n"
-                "/set endpoint southeastasia\n"
-                "or /set endpoint southeastasia.tts.speech.microsoft.com"
-            )
+            await update.message.reply_text(build_endpoint_invalid_message("/"))
             return
 
         update_user_setting(user_id, "tts_endpoint", normalized)
@@ -310,7 +351,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         action = context.args[2].lower()
 
         if tool_name not in AVAILABLE_TOOLS:
-            await update.message.reply_text(f"Unknown tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}")
+            await update.message.reply_text(
+                f"Unknown/unsupported tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}"
+            )
             return
 
         enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia,tts")
@@ -339,7 +382,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         action = context.args[2].lower()
 
         if tool_name not in AVAILABLE_TOOLS:
-            await update.message.reply_text(f"Unknown tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}")
+            await update.message.reply_text(
+                f"Unknown/unsupported tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}"
+            )
             return
 
         cron_tools = _resolve_cron_tools_for_display(settings)
@@ -385,7 +430,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if unknown:
             await update.message.reply_text(
                 f"cron_tools set to: {normalized}\n"
-                f"⚠️ Ignored unknown tools: {', '.join(sorted(set(unknown)))}"
+                f"Ignored unknown tools: {', '.join(sorted(set(unknown)))}"
             )
         else:
             await update.message.reply_text(f"cron_tools set to: {normalized}")
@@ -412,9 +457,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     available = ", ".join(presets.keys()) if presets else "(none)"
                     await update.message.reply_text(
                         f"title_model set to: {val}\n"
-                        f"⚠️ Provider '{provider}' not found in presets.\n"
+                        f"Provider '{provider}' not found in presets.\n"
                         f"Available: {available}\n"
-                        f"Use /set provider save <name> to save one first."
+                        f"{build_provider_save_hint_message('/')}"
                     )
             else:
                 await update.message.reply_text(
@@ -442,9 +487,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     available = ", ".join(presets.keys()) if presets else "(none)"
                     await update.message.reply_text(
                         f"cron_model set to: {val}\n"
-                        f"⚠️ Provider '{provider}' not found in presets.\n"
+                        f"Provider '{provider}' not found in presets.\n"
                         f"Available: {available}\n"
-                        f"Use /set provider save <name> to save one first."
+                        f"{build_provider_save_hint_message('/')}"
                     )
             else:
                 await update.message.reply_text(
@@ -456,19 +501,15 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if val in {"default", "time", "chars"}:
             update_user_setting(user_id, "stream_mode", val)
             logger.info("%s set stream_mode = %s", ctx, val)
-            mode_desc = {
-                "default": "默认模式：时间+字符双重条件",
-                "time": "时间优先模式：每秒更新一次",
-                "chars": "字符优先模式：每100字符更新一次",
-            }
             await update.message.reply_text(
-                f"stream_mode set to: {val}\n{mode_desc.get(val, '')}"
+                f"stream_mode set to: {val}\n"
+                "Applies to both Telegram and Discord streaming output."
             )
         elif not val or val in {"off", "clear", "none"}:
             update_user_setting(user_id, "stream_mode", "")
             await update.message.reply_text(
                 "stream_mode cleared (will use default mode)\n"
-                "默认模式：时间+字符双重条件"
+                "Default mode: time + chars combined"
             )
         else:
             current = settings.get("stream_mode", "") or "default"
@@ -476,15 +517,12 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 f"Current stream_mode: {current}\n"
                 "Usage: /set stream_mode <mode>\n\n"
                 "Available modes:\n"
-                "- default: 默认模式（时间+字符双重条件）\n"
-                "- time: 时间优先（每秒更新一次）\n"
-                "- chars: 字符优先（每100字符更新一次）"
+                "- default: time + chars combined\n"
+                "- time: update by time interval\n"
+                "- chars: update by character interval"
             )
     else:
-        await update.message.reply_text(
-            f"Unknown key: {key}\n\n"
-            "Available keys: base_url, api_key, model, temperature, token_limit, title_model, cron_model, cron_tools, stream_mode, voice, style, endpoint, tool, cron_tool, provider"
-        )
+        await update.message.reply_text(build_unknown_set_key_message(key))
 
 
 def _fetch_models(user_id: int) -> list[str]:
@@ -541,9 +579,7 @@ async def _show_model_list(
     settings = get_user_settings(user_id)
 
     if not has_api_key(user_id):
-        await update.message.reply_text(
-            "Please set your API key first:\n/set api_key YOUR_API_KEY"
-        )
+        await update.message.reply_text(build_api_key_required_message("/"))
         return
 
     msg = await update.message.reply_text("Fetching models...")
@@ -567,15 +603,10 @@ async def _show_model_list(
 
 async def _show_provider_list(update: Update, settings: dict) -> None:
     """Show saved API provider presets."""
+    p = "/"
     presets = settings.get("api_presets", {})
     if not presets:
-        await update.message.reply_text(
-            "No saved providers.\n\n"
-            "Usage:\n"
-            "/set provider save <name> - Save current API config\n"
-            "/set provider load <name> - Load a saved config\n"
-            "/set provider delete <name> - Delete a saved config"
-        )
+        await update.message.reply_text(build_provider_no_saved_message(p))
         return
 
     lines = ["Saved Providers:\n"]
@@ -592,12 +623,7 @@ async def _show_provider_list(update: Update, settings: dict) -> None:
             f"  model: {preset.get('model', '')}"
         )
 
-    lines.append(
-        "\nUsage:\n"
-        "/set provider save <name>\n"
-        "/set provider load <name>\n"
-        "/set provider delete <name>"
-    )
+    lines.append(build_provider_list_usage_message(p))
     await update.message.reply_text("\n".join(lines))
 
 
@@ -668,10 +694,7 @@ async def _handle_provider_command(
                     break
             else:
                 available = ", ".join(presets.keys()) if presets else "(none)"
-                await update.message.reply_text(
-                    f"Provider '{name}' not found.\n"
-                    f"Available: {available}"
-                )
+                await update.message.reply_text(build_provider_not_found_available_message(name, available))
                 return
 
         preset = presets[name]
@@ -693,10 +716,4 @@ async def _handle_provider_command(
         )
 
     else:
-        await update.message.reply_text(
-            "Usage:\n"
-            "/set provider list\n"
-            "/set provider save <name>\n"
-            "/set provider load <name>\n"
-            "/set provider delete <name>"
-        )
+        await update.message.reply_text(build_provider_usage_message("/"))
