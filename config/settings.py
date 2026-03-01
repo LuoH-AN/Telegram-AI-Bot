@@ -2,11 +2,53 @@
 
 import hashlib
 import os
+import re
 import secrets
 from dotenv import load_dotenv
 
+
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _apply_env_content() -> None:
+    """Hydrate env vars from ENV_CONTENT using KEY=VALUE lines.
+
+    Explicit environment variables keep higher priority and are not overwritten.
+    """
+    raw = os.getenv("ENV_CONTENT", "")
+    if not raw:
+        return
+
+    text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    # Allow one-line secret payloads that encode newlines as "\n".
+    if "\n" not in text and "\\n" in text:
+        text = text.replace("\\n", "\n")
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not _ENV_NAME_RE.match(key):
+            continue
+
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+
+        if key not in os.environ:
+            os.environ[key] = value
+
+
 # Load environment variables
 load_dotenv()
+_apply_env_content()
 
 # Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL")

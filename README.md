@@ -159,6 +159,7 @@ gemen/
 
 | 变量 | 必需 | 说明 |
 |------|------|------|
+| `ENV_CONTENT` | 否 | 多行 `KEY=VALUE` 批量注入环境变量（仅补全未显式设置的变量） |
 | `TELEGRAM_BOT_TOKEN` | 是 | Telegram Bot Token |
 | `DISCORD_BOT_TOKEN` | Discord 模式需要 | Discord Bot Token |
 | `DISCORD_COMMAND_PREFIX` | 否 | Discord 命令前缀（默认 `!`） |
@@ -182,6 +183,17 @@ gemen/
 Discord 反代注意事项：
 - `DISCORD_GATEWAY_BASE` 必须是 `ws://` 或 `wss://`，并且反代必须支持 WebSocket Upgrade。
 - `DISCORD_API_BASE` 和 `DISCORD_CDN_BASE` 需要透传原始路径与查询参数。
+
+`ENV_CONTENT` 示例（支持空行、注释行和 `export KEY=VALUE`）：
+
+```dotenv
+TELEGRAM_BOT_TOKEN=<your_telegram_bot_token>
+
+TELEGRAM_API_BASE=https://your-telegram-proxy.example.com
+DISCORD_API_BASE=https://your-discord-proxy.example.com
+DISCORD_GATEWAY_BASE=wss://your-discord-proxy.example.com/gateway
+DISCORD_CDN_BASE=https://your-discord-proxy.example.com/cdn
+```
 
 ## 部署
 
