@@ -346,9 +346,23 @@ def markdown_to_telegram_html(text: str) -> str:
 
     text = re.sub(r'`([^`]+)`', save_inline_code, text)
 
-    # Convert headers BEFORE escaping (# won't be escaped anyway)
-    # Headers: # text, ## text, etc. -> bold text
-    text = re.sub(r'^#{1,6}\s+(.+)$', r'**\1**', text, flags=re.MULTILINE)
+    # Convert headers BEFORE escaping (# won't be escaped anyway).
+    # We store them as placeholders and restore as plain bold HTML later.
+    # This avoids malformed emphasis nesting for inputs like:
+    #   ### **Title** extra-text
+    heading_placeholders = []
+
+    def convert_header(match):
+        heading = match.group(1).strip()
+        # Strip markdown emphasis markers inside heading text; the whole heading
+        # will be restored as a single <b>...</b> segment.
+        heading = re.sub(r'(\*\*|__|~~|`)', '', heading)
+        heading = re.sub(r'(?<!\*)\*(?!\*)', '', heading)
+        heading = re.sub(r'(?<!_)_(?!_)', '', heading)
+        heading_placeholders.append(heading.strip())
+        return f"\x02HEADING{len(heading_placeholders) - 1}\x02"
+
+    text = re.sub(r'^#{1,6}\s+(.+)$', convert_header, text, flags=re.MULTILINE)
 
     # Convert horizontal rules BEFORE escaping
     # ---, ***, ___ (3 or more) -> unicode line
@@ -417,6 +431,10 @@ def markdown_to_telegram_html(text: str) -> str:
     # Restore tables (already contain final HTML)
     for i, tbl in enumerate(table_placeholders):
         text = text.replace(f"\x02TABLE{i}\x02", tbl)
+
+    # Restore headings as plain bold text.
+    for i, heading in enumerate(heading_placeholders):
+        text = text.replace(f"\x02HEADING{i}\x02", f"<b>{html.escape(heading)}</b>")
 
     # Restore blockquotes
     text = text.replace('\x02BQSTART\x02', '<blockquote>')

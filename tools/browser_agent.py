@@ -60,6 +60,9 @@ def _humanized_mouse_click(
     target_y: float,
     viewport_width: int,
     viewport_height: int,
+    *,
+    button: str = "left",
+    click_count: int = 1,
 ) -> tuple[float, float]:
     """Perform a more human-like click sequence instead of a single instant click."""
     target_x, target_y = _clamp_point(target_x, target_y, viewport_width, viewport_height)
@@ -102,14 +105,51 @@ def _humanized_mouse_click(
         time.sleep(random.uniform(0.008, 0.030))
         page.mouse.move(target_x, target_y, steps=random.randint(2, 4))
 
+    safe_button = str(button or "left").strip().lower()
+    if safe_button not in {"left", "right", "middle"}:
+        safe_button = "left"
+    safe_click_count = max(1, min(int(click_count or 1), 3))
+
     # Press and release with short variable hold.
-    page.mouse.down(button="left")
-    time.sleep(random.uniform(0.040, 0.140))
-    page.mouse.up(button="left")
+    for idx in range(safe_click_count):
+        page.mouse.down(button=safe_button)
+        time.sleep(random.uniform(0.035, 0.130))
+        page.mouse.up(button=safe_button)
+        if idx + 1 < safe_click_count:
+            time.sleep(random.uniform(0.045, 0.150))
 
     session["mouse_x"] = target_x
     session["mouse_y"] = target_y
     return target_x, target_y
+
+
+def _normalize_playwright_key(key: str) -> str:
+    raw = "" if key is None else str(key)
+    if raw == " ":
+        return "Space"
+    trimmed = raw.strip()
+    if not trimmed:
+        return ""
+    aliases = {
+        "esc": "Escape",
+        "escape": "Escape",
+        "return": "Enter",
+        "spacebar": "Space",
+        "space": "Space",
+        "del": "Delete",
+        "ins": "Insert",
+        "left": "ArrowLeft",
+        "right": "ArrowRight",
+        "up": "ArrowUp",
+        "down": "ArrowDown",
+        "pageup": "PageUp",
+        "pagedown": "PageDown",
+        "ctrl+a": "Control+A",
+    }
+    lower = trimmed.lower()
+    if lower in aliases:
+        return aliases[lower]
+    return trimmed
 
 
 def _has_usable_display() -> bool:
@@ -885,19 +925,86 @@ def _op_click(
     index: int,
     timeout_ms: int,
     wait_seconds: float,
+    button: str,
+    click_count: int,
+    human_like: bool,
+    focus_after_click: bool,
 ) -> str:
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
     viewer = _viewer_payload(session_id, user_id)
     click_strategy = "direct"
+    focused_editable = False
 
     target_index = max(index, 0)
+    safe_button = str(button or "left").strip().lower()
+    if safe_button not in {"left", "right", "middle"}:
+        safe_button = "left"
+    safe_click_count = max(1, min(int(click_count or 1), 3))
+    use_human_like = bool(human_like)
 
-    def _click_locator(locator) -> str:
+    def _focus_editable(locator) -> bool:
         try:
-            locator.click(timeout=timeout_ms)
-            return "direct"
+            return bool(
+                locator.evaluate(
+                    """
+                    (el) => {
+                      if (!el) return false;
+                      const tag = (el.tagName || '').toLowerCase();
+                      const isEditable = (
+                        el.isContentEditable === true ||
+                        tag === 'textarea' ||
+                        (tag === 'input' && String(el.type || '').toLowerCase() !== 'hidden')
+                      );
+                      if (!isEditable) return false;
+                      el.focus();
+                      if (typeof el.setSelectionRange === 'function' && typeof el.value === 'string') {
+                        const n = el.value.length;
+                        el.setSelectionRange(n, n);
+                      }
+                      return true;
+                    }
+                    """
+                )
+            )
+        except Exception:
+            return False
+
+    def _click_locator(locator) -> tuple[str, bool]:
+        # Prefer human-like click when possible (actual mouse trajectory + press/release).
+        if use_human_like:
+            try:
+                locator.wait_for(state="visible", timeout=timeout_ms)
+                box = locator.bounding_box()
+                viewport = page.viewport_size or {"width": 1366, "height": 768}
+                viewport_width = int(viewport.get("width") or 1366)
+                viewport_height = int(viewport.get("height") or 768)
+                if box and box.get("width", 0) > 1 and box.get("height", 0) > 1:
+                    jitter_x = random.uniform(box["width"] * 0.18, box["width"] * 0.82)
+                    jitter_y = random.uniform(box["height"] * 0.24, box["height"] * 0.76)
+                    target_x = box["x"] + jitter_x
+                    target_y = box["y"] + jitter_y
+                    _humanized_mouse_click(
+                        page,
+                        session,
+                        target_x,
+                        target_y,
+                        viewport_width,
+                        viewport_height,
+                        button=safe_button,
+                        click_count=safe_click_count,
+                    )
+                    return "humanized", _focus_editable(locator) if focus_after_click else False
+            except Exception:
+                pass
+        try:
+            locator.click(
+                timeout=timeout_ms,
+                button=safe_button,
+                click_count=safe_click_count,
+            )
+            return "direct", _focus_editable(locator) if focus_after_click else False
         except Exception as first_exc:
             first_msg = str(first_exc).lower()
             retryable = (
@@ -909,9 +1016,16 @@ def _op_click(
             if not retryable:
                 raise
             try:
-                locator.click(timeout=timeout_ms, force=True)
-                return "force"
+                locator.click(
+                    timeout=timeout_ms,
+                    force=True,
+                    button=safe_button,
+                    click_count=safe_click_count,
+                )
+                return "force", _focus_editable(locator) if focus_after_click else False
             except Exception as second_exc:
+                if safe_button != "left" or safe_click_count != 1:
+                    raise second_exc
                 try:
                     locator.evaluate(
                         """
@@ -929,7 +1043,7 @@ def _op_click(
                         }
                         """
                     )
-                    return "dom"
+                    return "dom", _focus_editable(locator) if focus_after_click else False
                 except Exception:
                     raise second_exc
 
@@ -938,13 +1052,13 @@ def _op_click(
         if selector and text:
             locator = page.frame_locator(frame_selector).locator(selector).filter(has_text=text)
             locator = locator.nth(target_index)
-            click_strategy = _click_locator(locator)
+            click_strategy, focused_editable = _click_locator(locator)
         elif selector:
             locator = page.frame_locator(frame_selector).locator(selector).nth(target_index)
-            click_strategy = _click_locator(locator)
+            click_strategy, focused_editable = _click_locator(locator)
         elif text:
             locator = page.frame_locator(frame_selector).locator(f"text={text}").nth(target_index)
-            click_strategy = _click_locator(locator)
+            click_strategy, focused_editable = _click_locator(locator)
         else:
             # Fallback: click iframe center (useful for CF/Turnstile-like widgets).
             frame_el = page.locator(frame_selector).nth(target_index)
@@ -952,7 +1066,17 @@ def _op_click(
             box = frame_el.bounding_box()
             if not box:
                 raise ValueError("Frame is not visible/clickable")
-            page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            viewport = page.viewport_size or {"width": 1366, "height": 768}
+            _humanized_mouse_click(
+                page,
+                session,
+                box["x"] + box["width"] / 2,
+                box["y"] + box["height"] / 2,
+                int(viewport.get("width") or 1366),
+                int(viewport.get("height") or 768),
+                button=safe_button,
+                click_count=safe_click_count,
+            )
             click_strategy = "frame-center"
     else:
         if selector and text:
@@ -965,7 +1089,7 @@ def _op_click(
             raise ValueError("Provide selector or text for browser_click")
 
         locator = locator.nth(target_index)
-        click_strategy = _click_locator(locator)
+        click_strategy, focused_editable = _click_locator(locator)
 
     if wait_seconds > 0:
         time.sleep(wait_seconds)
@@ -985,6 +1109,10 @@ def _op_click(
             "text": text or None,
             "index": target_index,
             "click_strategy": click_strategy,
+            "button": safe_button,
+            "click_count": safe_click_count,
+            "human_like": use_human_like,
+            "focused_editable": focused_editable,
             "url": page.url,
             "title": page.title(),
             "challenge_active": cf_active,
@@ -1004,6 +1132,9 @@ def _op_type(
     press_enter: bool,
     timeout_ms: int,
     delay_ms: int,
+    click_first: bool,
+    human_like: bool,
+    wait_seconds: float,
 ) -> str:
     _ = browser
     session = _get_session_for_user(session_id, user_id)
@@ -1012,16 +1143,41 @@ def _op_type(
 
     locator = page.locator(selector).first
     locator.wait_for(state="visible", timeout=timeout_ms)
-    if clear:
-        locator.fill("", timeout=timeout_ms)
+    if click_first:
+        try:
+            locator.click(timeout=timeout_ms)
+        except Exception:
+            locator.focus(timeout=timeout_ms)
+    else:
+        locator.focus(timeout=timeout_ms)
 
-    if delay_ms > 0:
-        locator.type(text, delay=delay_ms, timeout=timeout_ms)
+    if clear:
+        cleared = False
+        try:
+            locator.press("Control+A", timeout=timeout_ms)
+            locator.press("Backspace", timeout=timeout_ms)
+            cleared = True
+        except Exception:
+            pass
+        if not cleared:
+            locator.fill("", timeout=timeout_ms)
+
+    effective_delay = max(0, int(delay_ms))
+    type_mode = "fill"
+    if human_like and effective_delay <= 0:
+        effective_delay = random.randint(28, 76)
+
+    if effective_delay > 0:
+        page.keyboard.type(text, delay=effective_delay)
+        type_mode = "keyboard"
     else:
         locator.fill(text, timeout=timeout_ms)
+        type_mode = "fill"
 
     if press_enter:
-        locator.press("Enter", timeout=timeout_ms)
+        page.keyboard.press("Enter")
+    if wait_seconds > 0:
+        time.sleep(wait_seconds)
 
     return _format_json(
         {
@@ -1031,6 +1187,10 @@ def _op_type(
             "selector": selector,
             "typed_chars": len(text),
             "pressed_enter": press_enter,
+            "click_first": bool(click_first),
+            "human_like": bool(human_like),
+            "type_mode": type_mode,
+            "delay_ms": effective_delay,
             "url": page.url,
             "title": page.title(),
             **viewer,
@@ -1050,13 +1210,14 @@ def _op_press(
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
     viewer = _viewer_payload(session_id, user_id)
-    page.keyboard.press(key)
+    normalized_key = _normalize_playwright_key(key)
+    page.keyboard.press(normalized_key)
     return _format_json(
         {
             "ok": True,
             "action": "browser_press",
             "session_id": session_id,
-            "key": key,
+            "key": normalized_key,
             "url": page.url,
             "title": page.title(),
             **viewer,
@@ -1181,6 +1342,8 @@ def _op_live_view_click(
     rx: float | None,
     ry: float | None,
     wait_ms: int,
+    button: str,
+    click_count: int,
 ) -> dict:
     _ = browser
     session = _get_session_for_user(session_id, user_id)
@@ -1199,6 +1362,10 @@ def _op_live_view_click(
     else:
         safe_x = max(1.0, min(float(x or 1.0), max(1.0, viewport_width - 1.0)))
         safe_y = max(1.0, min(float(y or 1.0), max(1.0, viewport_height - 1.0)))
+    safe_button = str(button or "left").strip().lower()
+    if safe_button not in {"left", "right", "middle"}:
+        safe_button = "left"
+    safe_click_count = max(1, min(int(click_count or 1), 3))
     safe_x, safe_y = _humanized_mouse_click(
         page,
         session,
@@ -1206,6 +1373,8 @@ def _op_live_view_click(
         safe_y,
         viewport_width,
         viewport_height,
+        button=safe_button,
+        click_count=safe_click_count,
     )
 
     if wait_ms > 0:
@@ -1222,12 +1391,84 @@ def _op_live_view_click(
         "input_mode": mode,
         "stealth_click": True,
         "session_id": session_id,
+        "button": safe_button,
+        "click_count": safe_click_count,
         "x": round(safe_x, 2),
         "y": round(safe_y, 2),
         "viewport": {
             "width": viewport_width,
             "height": viewport_height,
         },
+        "url": page.url,
+        "title": page.title(),
+        "challenge_active": cf_active,
+        "challenge_message": cf_message,
+        "captured_at": int(time.time()),
+    }
+
+
+def _op_live_view_input(
+    browser,
+    user_id: int,
+    session_id: str,
+    text: str,
+    key: str,
+    clear: bool,
+    press_enter: bool,
+    wait_ms: int,
+    delay_ms: int,
+) -> dict:
+    _ = browser
+    session = _get_session_for_user(session_id, user_id)
+    page = session["page"]
+
+    typed_text = str(text or "")
+    normalized_key = _normalize_playwright_key(key)
+    safe_wait_ms = max(0, min(int(wait_ms or 0), 120_000))
+    safe_delay_ms = max(0, min(int(delay_ms or 0), 260))
+    input_mode = "none"
+
+    if clear:
+        try:
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
+        except Exception:
+            pass
+
+    if typed_text:
+        if safe_delay_ms > 0:
+            page.keyboard.type(typed_text, delay=safe_delay_ms)
+            input_mode = "keyboard"
+        else:
+            page.keyboard.insert_text(typed_text)
+            input_mode = "insert_text"
+
+    if normalized_key:
+        page.keyboard.press(normalized_key)
+        input_mode = "key" if input_mode == "none" else f"{input_mode}+key"
+
+    if press_enter:
+        page.keyboard.press("Enter")
+        input_mode = "enter" if input_mode == "none" else f"{input_mode}+enter"
+
+    if safe_wait_ms > 0:
+        time.sleep(safe_wait_ms / 1000.0)
+
+    cf_active = _is_cf_challenge(page)
+    cf_message = (
+        "Cloudflare challenge detected. Manual click/wait may be required."
+        if cf_active else None
+    )
+    return {
+        "ok": True,
+        "action": "browser_view_input",
+        "session_id": session_id,
+        "typed_chars": len(typed_text),
+        "key": normalized_key or None,
+        "clear": bool(clear),
+        "pressed_enter": bool(press_enter),
+        "input_mode": input_mode,
+        "delay_ms": safe_delay_ms,
         "url": page.url,
         "title": page.title(),
         "challenge_active": cf_active,
@@ -1281,6 +1522,8 @@ def click_browser_view_by_token(
     rx: float | None = None,
     ry: float | None = None,
     wait_ms: int = 1200,
+    button: str = "left",
+    click_count: int = 1,
 ) -> dict | None:
     """Resolve viewer token and dispatch a click into the live browser session."""
     meta = _get_viewer_link(token)
@@ -1288,6 +1531,10 @@ def click_browser_view_by_token(
         return None
 
     safe_wait_ms = max(0, min(int(wait_ms), 120_000))
+    safe_button = str(button or "left").strip().lower()
+    if safe_button not in {"left", "right", "middle"}:
+        safe_button = "left"
+    safe_click_count = max(1, min(int(click_count or 1), 3))
     try:
         safe_x = None if x is None else float(x)
         safe_y = None if y is None else float(y)
@@ -1302,6 +1549,41 @@ def click_browser_view_by_token(
             safe_rx,
             safe_ry,
             safe_wait_ms,
+            safe_button,
+            safe_click_count,
+        )
+    except Exception:
+        _remove_viewer_token(str(meta.get("token", "")))
+        return None
+
+
+def input_browser_view_by_token(
+    token: str,
+    *,
+    text: str = "",
+    key: str = "",
+    clear: bool = False,
+    press_enter: bool = False,
+    wait_ms: int = 0,
+    delay_ms: int = 0,
+) -> dict | None:
+    """Resolve viewer token and dispatch keyboard input into the live browser session."""
+    meta = _get_viewer_link(token)
+    if not meta:
+        return None
+    try:
+        safe_wait_ms = max(0, min(int(wait_ms), 120_000))
+        safe_delay_ms = max(0, min(int(delay_ms), 260))
+        return _run_on_worker(
+            _op_live_view_input,
+            int(meta["user_id"]),
+            str(meta["session_id"]),
+            str(text or ""),
+            str(key or ""),
+            bool(clear),
+            bool(press_enter),
+            safe_wait_ms,
+            safe_delay_ms,
         )
     except Exception:
         _remove_viewer_token(str(meta.get("token", "")))
@@ -1472,6 +1754,27 @@ BROWSER_CLICK_TOOL = {
                     "default": DEFAULT_ACTION_TIMEOUT_MS,
                     "description": "Action timeout in milliseconds.",
                 },
+                "button": {
+                    "type": "string",
+                    "enum": ["left", "right", "middle"],
+                    "default": "left",
+                    "description": "Mouse button to click.",
+                },
+                "click_count": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Number of clicks (1=single, 2=double).",
+                },
+                "human_like": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Use human-like mouse movement and click timing.",
+                },
+                "focus_after_click": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "After click, focus editable target when possible.",
+                },
                 "wait": {
                     "type": "number",
                     "default": DEFAULT_WAIT_SECONDS,
@@ -1508,6 +1811,16 @@ BROWSER_TYPE_TOOL = {
                     "default": True,
                     "description": "Clear existing content before typing.",
                 },
+                "click_first": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Click/focus target input before typing.",
+                },
+                "human_like": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Prefer keyboard typing (with delay) instead of direct fill.",
+                },
                 "press_enter": {
                     "type": "boolean",
                     "default": False,
@@ -1522,6 +1835,11 @@ BROWSER_TYPE_TOOL = {
                     "type": "integer",
                     "default": 0,
                     "description": "Per-character typing delay; 0 means use fill().",
+                },
+                "wait": {
+                    "type": "number",
+                    "default": DEFAULT_WAIT_SECONDS,
+                    "description": "Extra seconds to wait after typing.",
                 },
             },
             "required": ["selector", "text"],
@@ -1684,9 +2002,22 @@ class BrowserAgentTool(BaseTool):
             parsed = default
         return max(minimum, min(parsed, maximum))
 
+    @staticmethod
+    def _bool_arg(value, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "y", "on"}:
+            return True
+        if text in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+
     def _start_session(self, user_id: int, arguments: dict) -> str:
         start_url = (arguments.get("start_url") or "").strip()
-        force_new = bool(arguments.get("force_new", False))
+        force_new = self._bool_arg(arguments.get("force_new"), False)
         wait_seconds = self._float_arg(
             arguments.get("wait"),
             DEFAULT_WAIT_SECONDS,
@@ -1797,6 +2128,12 @@ class BrowserAgentTool(BaseTool):
             1000,
             MAX_ACTION_TIMEOUT_MS,
         )
+        button = str(arguments.get("button") or "left").strip().lower()
+        if button not in {"left", "right", "middle"}:
+            button = "left"
+        click_count = self._int_arg(arguments.get("click_count"), 1, 1, 3)
+        human_like = self._bool_arg(arguments.get("human_like"), True)
+        focus_after_click = self._bool_arg(arguments.get("focus_after_click"), True)
         wait_seconds = self._float_arg(arguments.get("wait"), DEFAULT_WAIT_SECONDS, 0, MAX_WAIT_SECONDS)
         try:
             return _run_on_worker(
@@ -1809,6 +2146,10 @@ class BrowserAgentTool(BaseTool):
                 index,
                 timeout_ms,
                 wait_seconds,
+                button,
+                click_count,
+                human_like,
+                focus_after_click,
             )
         except Exception as e:
             logger.exception("browser_click failed for user=%d session=%s", user_id, session_id)
@@ -1825,8 +2166,10 @@ class BrowserAgentTool(BaseTool):
         except ValueError as e:
             return str(e)
 
-        clear = bool(arguments.get("clear", True))
-        press_enter = bool(arguments.get("press_enter", False))
+        clear = self._bool_arg(arguments.get("clear"), True)
+        click_first = self._bool_arg(arguments.get("click_first"), True)
+        human_like = self._bool_arg(arguments.get("human_like"), True)
+        press_enter = self._bool_arg(arguments.get("press_enter"), False)
         timeout_ms = self._int_arg(
             arguments.get("timeout_ms"),
             DEFAULT_ACTION_TIMEOUT_MS,
@@ -1834,6 +2177,7 @@ class BrowserAgentTool(BaseTool):
             MAX_ACTION_TIMEOUT_MS,
         )
         delay_ms = self._int_arg(arguments.get("delay_ms"), 0, 0, 1000)
+        wait_seconds = self._float_arg(arguments.get("wait"), DEFAULT_WAIT_SECONDS, 0, MAX_WAIT_SECONDS)
         try:
             return _run_on_worker(
                 _op_type,
@@ -1845,6 +2189,9 @@ class BrowserAgentTool(BaseTool):
                 press_enter,
                 timeout_ms,
                 delay_ms,
+                click_first,
+                human_like,
+                wait_seconds,
             )
         except Exception as e:
             logger.exception("browser_type failed for user=%d session=%s", user_id, session_id)
@@ -1940,6 +2287,7 @@ class BrowserAgentTool(BaseTool):
             "- Set force_new=true only when you explicitly need a new isolated session.\n"
             "- browser_start_session returns viewer_url so users can watch live browser actions.\n"
             "- Use browser_goto / browser_click / browser_type / browser_press / browser_wait_for in sequence.\n"
+            "- For forms, prefer browser_click on input then browser_type with click_first=true and human_like=true.\n"
             "- Call browser_get_state after important actions to inspect current page state.\n"
             "- Runtime uses Playwright Chromium (prefers local executable path when available).\n"
             "- Cloudflare challenge is only detected, not auto-passed; use viewer control click or manual waits.\n"

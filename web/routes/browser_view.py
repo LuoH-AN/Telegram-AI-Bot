@@ -1,4 +1,4 @@
-"""Public browser live-view routes (token-based view + click control)."""
+"""Public browser live-view routes (token-based view + click/input control)."""
 
 import asyncio
 import html
@@ -173,6 +173,19 @@ def _build_view_page_html(token: str, state: dict) -> str:
       padding: 12px 14px;
       min-height: 52px;
     }}
+    .toolbar-row {{
+      width: 100%;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }}
+    .toolbar-row.main {{
+      min-height: 36px;
+    }}
+    .toolbar-row.input {{
+      align-items: stretch;
+    }}
     .btn {{
       border: 1px solid var(--line-soft);
       border-radius: var(--radius-sm);
@@ -203,6 +216,29 @@ def _build_view_page_html(token: str, state: dict) -> str:
       font-size: 0.8rem;
       min-height: 16px;
       line-height: 1.42;
+    }}
+    .remote-input {{
+      flex: 1;
+      min-width: min(100%, 280px);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-sm);
+      background: var(--soft-fill);
+      color: var(--text-1);
+      padding: 8px 10px;
+      font-size: 0.88rem;
+      font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+    }}
+    .remote-input:focus-visible {{
+      outline: 2px solid var(--pill-focus);
+      outline-offset: 1px;
+      border-color: var(--line);
+    }}
+    .mini-note {{
+      width: 100%;
+      margin-top: -2px;
+      color: var(--text-3);
+      font-size: 0.73rem;
+      line-height: 1.35;
     }}
     .viewer-panel {{
       padding: 8px;
@@ -301,10 +337,16 @@ def _build_view_page_html(token: str, state: dict) -> str:
         align-items: stretch;
         flex-direction: column;
       }}
+      .toolbar-row {{
+        align-items: stretch;
+      }}
       .btn {{
         width: 100%;
       }}
       .action {{
+        width: 100%;
+      }}
+      .remote-input {{
         width: 100%;
       }}
     }}
@@ -328,8 +370,17 @@ def _build_view_page_html(token: str, state: dict) -> str:
       </div>
     </section>
     <section class="panel glass toolbar">
-      <button id="controlToggle" class="btn" type="button">接管模式：关闭</button>
-      <div id="actionText" class="action">默认只读。开启接管后，点击画面会把点击转发到远端浏览器。</div>
+      <div class="toolbar-row main">
+        <button id="controlToggle" class="btn" type="button">接管模式：关闭</button>
+        <div id="actionText" class="action">默认只读。开启接管后，点击画面会把点击转发到远端浏览器。</div>
+      </div>
+      <div class="toolbar-row input">
+        <input id="remoteInput" class="remote-input" type="text" autocomplete="off" spellcheck="false" placeholder="发送文本到当前焦点输入框（先点击输入框再发送）" />
+        <button id="sendInputBtn" class="btn" type="button">发送文本</button>
+        <button id="sendEnterBtn" class="btn" type="button">回车</button>
+        <button id="sendBackspaceBtn" class="btn" type="button">退格</button>
+      </div>
+      <div class="mini-note">接管模式支持左/中/右键点击。输入有两种方式：1) 点击画面后直接敲键盘（常用键） 2) 在上方输入框批量发送文本（适合中文输入法）。</div>
     </section>
     <section class="panel glass viewer-panel">
       <div id="viewerBox" class="viewer">
@@ -338,7 +389,7 @@ def _build_view_page_html(token: str, state: dict) -> str:
       </div>
     </section>
     <section class="hint panel glass">
-      支持手机和桌面浏览器。开启“接管模式”可远程点击（仅左键单击）；会话结束后链接会失效。
+      支持手机和桌面浏览器。开启“接管模式”可远程点击与输入；会话结束后链接会失效。
     </section>
   </main>
   <script>
@@ -348,11 +399,17 @@ def _build_view_page_html(token: str, state: dict) -> str:
     const controlToggle = document.getElementById("controlToggle");
     const actionText = document.getElementById("actionText");
     const tapMarker = document.getElementById("tapMarker");
+    const remoteInput = document.getElementById("remoteInput");
+    const sendInputBtn = document.getElementById("sendInputBtn");
+    const sendEnterBtn = document.getElementById("sendEnterBtn");
+    const sendBackspaceBtn = document.getElementById("sendBackspaceBtn");
     const pageTitle = document.getElementById("pageTitle");
     const pageUrl = document.getElementById("pageUrl");
     const statusChip = document.getElementById("statusChip");
     const timeChip = document.getElementById("timeChip");
     let clickBusy = false;
+    let inputBusy = false;
+    const inputQueue = [];
     let controlEnabled = false;
     let streamSocket = null;
     let reconnectTimer = null;
@@ -369,6 +426,10 @@ def _build_view_page_html(token: str, state: dict) -> str:
       controlToggle.textContent = controlEnabled ? "接管模式：开启" : "接管模式：关闭";
       controlToggle.className = controlEnabled ? "btn on" : "btn";
       viewerBox.className = controlEnabled ? "viewer control-on" : "viewer";
+      remoteInput.disabled = !controlEnabled;
+      sendInputBtn.disabled = !controlEnabled;
+      sendEnterBtn.disabled = !controlEnabled;
+      sendBackspaceBtn.disabled = !controlEnabled;
     }}
 
     function stampNow() {{
@@ -489,10 +550,10 @@ def _build_view_page_html(token: str, state: dict) -> str:
       }};
     }}
 
-    async function sendRemoteClick(x, y) {{
+    async function sendRemoteClick(x, y, button = "left") {{
       if (clickBusy) return;
       clickBusy = true;
-      actionText.textContent = `正在点击远端位置 (${{Math.round(x * 100)}}%, ${{Math.round(y * 100)}}%)...`;
+      actionText.textContent = `正在发送${{button}}点击 (${{Math.round(x * 100)}}%, ${{Math.round(y * 100)}}%)...`;
       setStatus(true, "CLICKING");
       try {{
         const resp = await fetch(`/browser-view/${{encodeURIComponent(token)}}/control/click`, {{
@@ -500,7 +561,7 @@ def _build_view_page_html(token: str, state: dict) -> str:
           headers: {{
             "Content-Type": "application/json",
           }},
-          body: JSON.stringify({{ rx: x, ry: y, wait_ms: 1200 }}),
+          body: JSON.stringify({{ rx: x, ry: y, button, click_count: 1, wait_ms: 1200 }}),
         }});
         if (!resp.ok) {{
           setStatus(false, "CLICK FAILED");
@@ -525,12 +586,82 @@ def _build_view_page_html(token: str, state: dict) -> str:
       }}
     }}
 
+    function isEditableTarget(el) {{
+      if (!el) return false;
+      const tag = (el.tagName || "").toLowerCase();
+      return el.isContentEditable || tag === "input" || tag === "textarea" || tag === "select";
+    }}
+
+    async function sendRemoteInput(payload, label = "输入") {{
+      inputQueue.push({{ payload, label }});
+      if (inputBusy) return;
+      inputBusy = true;
+      try {{
+        while (inputQueue.length > 0) {{
+          const next = inputQueue.shift() || {{}};
+          const nextPayload = next.payload || {{}};
+          const nextLabel = next.label || "输入";
+          setStatus(true, "INPUT");
+          actionText.textContent = `${{nextLabel}}已发送到远端浏览器...`;
+          try {{
+            const resp = await fetch(`/browser-view/${{encodeURIComponent(token)}}/control/input`, {{
+              method: "POST",
+              headers: {{
+                "Content-Type": "application/json",
+              }},
+              body: JSON.stringify(nextPayload),
+            }});
+            if (!resp.ok) {{
+              setStatus(false, "INPUT FAILED");
+              actionText.textContent = "输入失败：会话可能已过期或页面暂不可输入。";
+              continue;
+            }}
+            const data = await resp.json();
+            if (data.url) pageUrl.textContent = data.url;
+            if (data.title) pageTitle.textContent = data.title;
+            if (data.challenge_active) {{
+              actionText.textContent = data.challenge_message || "挑战仍在进行中，可继续点击或输入。";
+            }} else {{
+              actionText.textContent = `${{nextLabel}}已发送。`;
+            }}
+            setStatus(true, "LIVE");
+            stampNow();
+          }} catch (_) {{
+            setStatus(false, "INPUT FAILED");
+            actionText.textContent = "输入失败：网络异常。";
+          }}
+        }}
+      }} finally {{
+        inputBusy = false;
+      }}
+    }}
+
     frameImg.onerror = () => {{
       setStatus(false, "STREAM ERR");
     }};
 
     controlToggle.addEventListener("click", () => {{
       setControl(!controlEnabled);
+    }});
+
+    sendInputBtn.addEventListener("click", async () => {{
+      if (!controlEnabled) return;
+      const text = remoteInput.value || "";
+      if (!text) {{
+        actionText.textContent = "请输入要发送到远端输入框的文本。";
+        return;
+      }}
+      await sendRemoteInput({{ text, delay_ms: 42 }}, "文本");
+    }});
+
+    sendEnterBtn.addEventListener("click", async () => {{
+      if (!controlEnabled) return;
+      await sendRemoteInput({{ key: "Enter" }}, "回车");
+    }});
+
+    sendBackspaceBtn.addEventListener("click", async () => {{
+      if (!controlEnabled) return;
+      await sendRemoteInput({{ key: "Backspace" }}, "退格");
     }});
 
     window.addEventListener("beforeunload", () => {{
@@ -545,7 +676,6 @@ def _build_view_page_html(token: str, state: dict) -> str:
 
     viewerBox.addEventListener("pointerdown", (event) => {{
       if (!controlEnabled || clickBusy) return;
-      if (event.pointerType === "mouse" && event.button !== 0) return;
       const rect = frameImg.getBoundingClientRect();
       if (rect.width < 2 || rect.height < 2) return;
 
@@ -560,9 +690,52 @@ def _build_view_page_html(token: str, state: dict) -> str:
       const displayY = event.clientY - rect.top;
       const px = Math.max(0, Math.min(1, displayX / rect.width));
       const py = Math.max(0, Math.min(1, displayY / rect.height));
+      let button = "left";
+      if (event.pointerType === "mouse") {{
+        if (event.button === 2) button = "right";
+        else if (event.button === 1) button = "middle";
+        else if (event.button !== 0) return;
+      }}
       markTap(event.clientX, event.clientY);
-      sendRemoteClick(px, py);
+      sendRemoteClick(px, py, button);
       event.preventDefault();
+    }});
+
+    viewerBox.addEventListener("contextmenu", (event) => {{
+      if (!controlEnabled) return;
+      event.preventDefault();
+    }});
+
+    window.addEventListener("keydown", (event) => {{
+      if (!controlEnabled) return;
+      const active = document.activeElement;
+      if (isEditableTarget(active) && active !== remoteInput) {{
+        return;
+      }}
+      if (active === remoteInput) {{
+        return;
+      }}
+      if (event.ctrlKey || event.metaKey || event.altKey) {{
+        return;
+      }}
+
+      const key = event.key || "";
+      if (!key) return;
+
+      const passKeys = new Set([
+        "Enter", "Backspace", "Tab", "Escape", "Delete",
+        "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+        "Home", "End", "PageUp", "PageDown",
+      ]);
+      if (key.length === 1) {{
+        sendRemoteInput({{ text: key }}, "按键");
+        event.preventDefault();
+        return;
+      }}
+      if (passKeys.has(key)) {{
+        sendRemoteInput({{ key }}, `按键 ${{key}}`);
+        event.preventDefault();
+      }}
     }});
 
     setControl(false);
@@ -698,8 +871,61 @@ async def browser_view_control_click(token: str, body: dict):
         wait_ms = int(body.get("wait_ms", 1200))
     except (TypeError, ValueError):
         wait_ms = 1200
+    button = str(body.get("button") or "left").strip().lower()
+    if button not in {"left", "right", "middle"}:
+        button = "left"
+    try:
+        click_count = int(body.get("click_count", 1))
+    except (TypeError, ValueError):
+        click_count = 1
 
-    result = await asyncio.to_thread(click_browser_view_by_token, token, x=x, y=y, rx=rx, ry=ry, wait_ms=wait_ms)
+    result = await asyncio.to_thread(
+        click_browser_view_by_token,
+        token,
+        x=x,
+        y=y,
+        rx=rx,
+        ry=ry,
+        wait_ms=wait_ms,
+        button=button,
+        click_count=click_count,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Live view not found or expired")
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/browser-view/{token}/control/input")
+async def browser_view_control_input(token: str, body: dict):
+    from tools.browser_agent import input_browser_view_by_token
+
+    text = str(body.get("text") or "")
+    key = str(body.get("key") or "")
+    clear = bool(body.get("clear", False))
+    press_enter = bool(body.get("press_enter", False))
+
+    if not text and not key and not clear and not press_enter:
+        raise HTTPException(status_code=400, detail="Provide text, key, clear, or press_enter")
+
+    try:
+        wait_ms = int(body.get("wait_ms", 0))
+    except (TypeError, ValueError):
+        wait_ms = 0
+    try:
+        delay_ms = int(body.get("delay_ms", 0))
+    except (TypeError, ValueError):
+        delay_ms = 0
+
+    result = await asyncio.to_thread(
+        input_browser_view_by_token,
+        token,
+        text=text,
+        key=key,
+        clear=clear,
+        press_enter=press_enter,
+        wait_ms=wait_ms,
+        delay_ms=delay_ms,
+    )
     if not result:
         raise HTTPException(status_code=404, detail="Live view not found or expired")
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
