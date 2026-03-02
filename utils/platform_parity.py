@@ -243,6 +243,7 @@ def build_set_usage_message(prefix: str) -> str:
         "- model (no value to browse list)\n"
         "- temperature\n"
         "- token_limit (current persona)\n"
+        "- global_prompt <text|clear>\n"
         "- title_model [provider:]model\n"
         "- cron_model [provider:]model\n"
         "- cron_tools <tool1,tool2,...>\n"
@@ -329,7 +330,7 @@ def build_provider_not_found_available_message(name: str, available: str) -> str
 def build_unknown_set_key_message(key: str) -> str:
     return (
         f"Unknown key: {key}\n\n"
-        "Available keys: base_url, api_key, model, temperature, token_limit, title_model, "
+        "Available keys: base_url, api_key, model, temperature, token_limit, global_prompt, title_model, "
         "cron_model, cron_tools, stream_mode, voice, style, endpoint, tool, cron_tool, provider"
     )
 

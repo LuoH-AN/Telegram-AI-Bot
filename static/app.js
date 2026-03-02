@@ -5,6 +5,7 @@
   const SETTINGS_TEXT_FIELDS = [
     "base_url",
     "model",
+    "global_prompt",
     "title_model",
     "cron_model",
     "tts_voice",

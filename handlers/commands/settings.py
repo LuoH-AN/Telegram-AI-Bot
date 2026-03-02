@@ -12,6 +12,7 @@ from services import (
     get_user_settings,
     update_user_setting,
     set_token_limit,
+    get_token_limit,
     has_api_key,
     get_current_persona_name,
     get_current_persona,
@@ -50,6 +51,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     settings = get_user_settings(user_id)
     persona_name = get_current_persona_name(user_id)
     persona = get_current_persona(user_id)
+    token_limit = get_token_limit(user_id, persona_name)
 
     # Mask API key for security
     masked_key = (
@@ -71,6 +73,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
+    stream_mode = settings.get("stream_mode", "") or "default"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
     title_model_raw = settings.get("title_model", "")
@@ -96,9 +99,11 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"api_key: {masked_key}\n"
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
+        f"stream_mode: {stream_mode}\n"
         f"title_model: {title_model_display}\n"
         f"cron_model: {cron_model_display}\n"
         f"persona: {persona_name}\n"
+        f"token_limit({persona_name}): {token_limit if token_limit > 0 else 'unlimited'}\n"
         f"global_prompt: {global_prompt_display}\n"
         f"prompt: {prompt_display}\n"
         f"tools: {enabled_tools}\n\n"

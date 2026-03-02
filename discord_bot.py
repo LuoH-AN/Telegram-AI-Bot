@@ -69,6 +69,7 @@ from services import (
     get_usage_percentage,
     export_to_markdown,
     set_token_limit,
+    get_token_limit,
     reset_token_usage,
     get_memories,
     add_memory,
@@ -1202,15 +1203,19 @@ async def settings_command(ctx: commands.Context) -> None:
     settings = get_user_settings(user_id)
     persona_name = get_current_persona_name(user_id)
     persona = get_current_persona(user_id)
+    token_limit = get_token_limit(user_id, persona_name)
 
     prompt = persona["system_prompt"]
     prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
+    global_prompt = settings.get("global_prompt", "") or ""
+    global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
 
     enabled_tools = resolve_enabled_tools_csv(settings) or "(none)"
     cron_tools = resolve_cron_tools_csv(settings) or "(none)"
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
+    stream_mode = settings.get("stream_mode", "") or "default"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
 
@@ -1225,9 +1230,12 @@ async def settings_command(ctx: commands.Context) -> None:
         f"api_key: {_mask_key(settings['api_key'])}\n"
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
+        f"stream_mode: {stream_mode}\n"
         f"title_model: {title_model_display}\n"
         f"cron_model: {cron_model_display}\n"
         f"persona: {persona_name}\n"
+        f"token_limit({persona_name}): {token_limit if token_limit > 0 else 'unlimited'}\n"
+        f"global_prompt: {global_prompt_display}\n"
         f"prompt: {prompt_display}\n"
         f"tools: {enabled_tools}\n\n"
         f"cron_tools: {cron_tools}\n\n"
@@ -1344,6 +1352,16 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                 "- chars: update by character interval",
             )
             return
+        if key == "global_prompt":
+            current = settings.get("global_prompt", "") or "(none)"
+            display = current[:100] + "..." if len(current) > 100 else current
+            await _send_ctx_reply(
+                ctx,
+                f"Current global_prompt: {display}\n\n"
+                f"Usage: {p}set global_prompt <prompt>\n"
+                f"Use {p}set global_prompt clear to remove.",
+            )
+            return
 
         await _send_ctx_reply(ctx, build_set_usage_message(p))
         return
@@ -1384,6 +1402,28 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
     if key == "prompt":
         await _send_ctx_reply(ctx, build_prompt_per_persona_message(p))
+        return
+
+    if key == "global_prompt":
+        val = value.strip()
+        if not val or val.lower() in {"off", "clear", "none"}:
+            update_user_setting(user_id, "global_prompt", "")
+            logger.info("%s cleared global_prompt", ctx_log)
+            await _send_ctx_reply(
+                ctx,
+                "global_prompt cleared.\n"
+                "Now personas will use their own system prompts only.",
+            )
+            return
+        update_user_setting(user_id, "global_prompt", val)
+        logger.info("%s set global_prompt = %s", ctx_log, val[:50] + "..." if len(val) > 50 else val)
+        display = val[:100] + "..." if len(val) > 100 else val
+        await _send_ctx_reply(
+            ctx,
+            f"global_prompt set to: {display}\n\n"
+            "This prompt will be prepended to all personas' system prompts.\n"
+            f"Use {p}set global_prompt clear to remove.",
+        )
         return
 
     if key == "temperature":
