@@ -461,6 +461,16 @@ def _latest_session_id_for_user(user_id: int) -> str | None:
     return latest_sid
 
 
+def _resolve_session_id_for_user(user_id: int, session_id: str | None) -> str:
+    requested = (session_id or "").strip()
+    if requested:
+        return requested
+    latest_sid = _latest_session_id_for_user(user_id)
+    if latest_sid:
+        return latest_sid
+    raise ValueError("No active browser session found. Start one with browser_start_session.")
+
+
 def _get_session_for_user(session_id: str, user_id: int) -> dict:
     session = _sessions.get(session_id)
     if not session:
@@ -850,21 +860,61 @@ def _op_click(
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    click_strategy = "direct"
 
     target_index = max(index, 0)
+
+    def _click_locator(locator) -> str:
+        try:
+            locator.click(timeout=timeout_ms)
+            return "direct"
+        except Exception as first_exc:
+            first_msg = str(first_exc).lower()
+            retryable = (
+                "intercepts pointer events" in first_msg
+                or "timeout" in first_msg
+                or "not receiving pointer events" in first_msg
+                or "element is outside of the viewport" in first_msg
+            )
+            if not retryable:
+                raise
+            try:
+                locator.click(timeout=timeout_ms, force=True)
+                return "force"
+            except Exception as second_exc:
+                try:
+                    locator.evaluate(
+                        """
+                        (el) => {
+                          el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+                          if (typeof el.click === 'function') {
+                            el.click();
+                            return;
+                          }
+                          el.dispatchEvent(new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true
+                          }));
+                        }
+                        """
+                    )
+                    return "dom"
+                except Exception:
+                    raise second_exc
 
     if frame_selector:
         frame_selector = frame_selector.strip()
         if selector and text:
             locator = page.frame_locator(frame_selector).locator(selector).filter(has_text=text)
             locator = locator.nth(target_index)
-            locator.click(timeout=timeout_ms)
+            click_strategy = _click_locator(locator)
         elif selector:
             locator = page.frame_locator(frame_selector).locator(selector).nth(target_index)
-            locator.click(timeout=timeout_ms)
+            click_strategy = _click_locator(locator)
         elif text:
             locator = page.frame_locator(frame_selector).locator(f"text={text}").nth(target_index)
-            locator.click(timeout=timeout_ms)
+            click_strategy = _click_locator(locator)
         else:
             # Fallback: click iframe center (useful for CF/Turnstile-like widgets).
             frame_el = page.locator(frame_selector).nth(target_index)
@@ -873,6 +923,7 @@ def _op_click(
             if not box:
                 raise ValueError("Frame is not visible/clickable")
             page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            click_strategy = "frame-center"
     else:
         if selector and text:
             locator = page.locator(selector).filter(has_text=text)
@@ -884,7 +935,7 @@ def _op_click(
             raise ValueError("Provide selector or text for browser_click")
 
         locator = locator.nth(target_index)
-        locator.click(timeout=timeout_ms)
+        click_strategy = _click_locator(locator)
 
     if wait_seconds > 0:
         time.sleep(wait_seconds)
@@ -903,6 +954,7 @@ def _op_click(
             "selector": selector or None,
             "text": text or None,
             "index": target_index,
+            "click_strategy": click_strategy,
             "url": page.url,
             "title": page.title(),
             "challenge_active": cf_active,
@@ -1056,13 +1108,19 @@ def _op_get_live_view_state(browser, user_id: int, session_id: str) -> dict:
     }
 
 
-def _op_get_live_view_frame(browser, user_id: int, session_id: str) -> dict:
+def _op_get_live_view_frame(
+    browser,
+    user_id: int,
+    session_id: str,
+    quality: int = 72,
+) -> dict:
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    safe_quality = max(30, min(int(quality), 90))
     image = page.screenshot(
         type="jpeg",
-        quality=72,
+        quality=safe_quality,
         animations="disabled",
     )
     return {
@@ -1158,16 +1216,18 @@ def get_browser_view_state_by_token(token: str) -> dict | None:
     return state
 
 
-def get_browser_view_frame_by_token(token: str) -> dict | None:
+def get_browser_view_frame_by_token(token: str, *, quality: int = 72) -> dict | None:
     """Resolve viewer token and capture a live viewport frame."""
     meta = _get_viewer_link(token)
     if not meta:
         return None
     try:
+        safe_quality = max(30, min(int(quality), 90))
         return _run_on_worker(
             _op_get_live_view_frame,
             int(meta["user_id"]),
             str(meta["session_id"]),
+            safe_quality,
         )
     except Exception:
         _remove_viewer_token(str(meta.get("token", "")))
@@ -1288,7 +1348,7 @@ BROWSER_GOTO_TOOL = {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "Session ID.",
+                    "description": "Optional session ID. If omitted, uses the latest active session for current user.",
                 },
                 "url": {
                     "type": "string",
@@ -1306,7 +1366,7 @@ BROWSER_GOTO_TOOL = {
                     "description": "Navigation completion event.",
                 },
             },
-            "required": ["session_id", "url"],
+            "required": ["url"],
         },
     },
 }
@@ -1324,7 +1384,7 @@ BROWSER_CLICK_TOOL = {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "Session ID.",
+                    "description": "Optional session ID. If omitted, uses the latest active session for current user.",
                 },
                 "selector": {
                     "type": "string",
@@ -1358,7 +1418,7 @@ BROWSER_CLICK_TOOL = {
                     "description": "Extra seconds to wait after click.",
                 },
             },
-            "required": ["session_id"],
+            "required": [],
         },
     },
 }
@@ -1373,7 +1433,7 @@ BROWSER_TYPE_TOOL = {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "Session ID.",
+                    "description": "Optional session ID. If omitted, uses the latest active session for current user.",
                 },
                 "selector": {
                     "type": "string",
@@ -1404,7 +1464,7 @@ BROWSER_TYPE_TOOL = {
                     "description": "Per-character typing delay; 0 means use fill().",
                 },
             },
-            "required": ["session_id", "selector", "text"],
+            "required": ["selector", "text"],
         },
     },
 }
@@ -1419,7 +1479,7 @@ BROWSER_PRESS_TOOL = {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "Session ID.",
+                    "description": "Optional session ID. If omitted, uses the latest active session for current user.",
                 },
                 "key": {
                     "type": "string",
@@ -1431,7 +1491,7 @@ BROWSER_PRESS_TOOL = {
                     "description": "Action timeout in milliseconds.",
                 },
             },
-            "required": ["session_id", "key"],
+            "required": ["key"],
         },
     },
 }
@@ -1449,7 +1509,7 @@ BROWSER_WAIT_FOR_TOOL = {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "Session ID.",
+                    "description": "Optional session ID. If omitted, uses the latest active session for current user.",
                 },
                 "selector": {
                     "type": "string",
@@ -1472,7 +1532,7 @@ BROWSER_WAIT_FOR_TOOL = {
                     "description": "Optional fixed sleep in milliseconds.",
                 },
             },
-            "required": ["session_id"],
+            "required": [],
         },
     },
 }
@@ -1487,7 +1547,7 @@ BROWSER_GET_STATE_TOOL = {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "Session ID.",
+                    "description": "Optional session ID. If omitted, uses the latest active session for current user.",
                 },
                 "max_elements": {
                     "type": "integer",
@@ -1500,7 +1560,7 @@ BROWSER_GET_STATE_TOOL = {
                     "description": "Maximum body_text characters to return.",
                 },
             },
-            "required": ["session_id"],
+            "required": [],
         },
     },
 }
@@ -1613,12 +1673,14 @@ class BrowserAgentTool(BaseTool):
             return f"browser_close_session failed: {e}"
 
     def _goto(self, user_id: int, arguments: dict) -> str:
-        session_id = (arguments.get("session_id") or "").strip()
+        requested_session_id = (arguments.get("session_id") or "").strip()
         raw_url = (arguments.get("url") or "").strip()
-        if not session_id:
-            return "No session_id provided."
         if not raw_url:
             return "No URL provided."
+        try:
+            session_id = _resolve_session_id_for_user(user_id, requested_session_id)
+        except ValueError as e:
+            return str(e)
 
         try:
             url = _validate_url(raw_url)
@@ -1642,14 +1704,16 @@ class BrowserAgentTool(BaseTool):
             return f"browser_goto failed: {e}"
 
     def _click(self, user_id: int, arguments: dict) -> str:
-        session_id = (arguments.get("session_id") or "").strip()
+        requested_session_id = (arguments.get("session_id") or "").strip()
         frame_selector = (arguments.get("frame_selector") or "").strip()
         selector = (arguments.get("selector") or "").strip()
         text = (arguments.get("text") or "").strip()
-        if not session_id:
-            return "No session_id provided."
         if not frame_selector and not selector and not text:
             return "Provide selector or text. For iframe center-click, set frame_selector."
+        try:
+            session_id = _resolve_session_id_for_user(user_id, requested_session_id)
+        except ValueError as e:
+            return str(e)
 
         index = self._int_arg(arguments.get("index"), 0, 0, 100)
         timeout_ms = self._int_arg(
@@ -1676,13 +1740,15 @@ class BrowserAgentTool(BaseTool):
             return f"browser_click failed: {e}"
 
     def _type(self, user_id: int, arguments: dict) -> str:
-        session_id = (arguments.get("session_id") or "").strip()
+        requested_session_id = (arguments.get("session_id") or "").strip()
         selector = (arguments.get("selector") or "").strip()
         text = str(arguments.get("text") or "")
-        if not session_id:
-            return "No session_id provided."
         if not selector:
             return "No selector provided."
+        try:
+            session_id = _resolve_session_id_for_user(user_id, requested_session_id)
+        except ValueError as e:
+            return str(e)
 
         clear = bool(arguments.get("clear", True))
         press_enter = bool(arguments.get("press_enter", False))
@@ -1710,12 +1776,14 @@ class BrowserAgentTool(BaseTool):
             return f"browser_type failed: {e}"
 
     def _press(self, user_id: int, arguments: dict) -> str:
-        session_id = (arguments.get("session_id") or "").strip()
+        requested_session_id = (arguments.get("session_id") or "").strip()
         key = (arguments.get("key") or "").strip()
-        if not session_id:
-            return "No session_id provided."
         if not key:
             return "No key provided."
+        try:
+            session_id = _resolve_session_id_for_user(user_id, requested_session_id)
+        except ValueError as e:
+            return str(e)
 
         timeout_ms = self._int_arg(
             arguments.get("timeout_ms"),
@@ -1730,10 +1798,12 @@ class BrowserAgentTool(BaseTool):
             return f"browser_press failed: {e}"
 
     def _wait_for(self, user_id: int, arguments: dict) -> str:
-        session_id = (arguments.get("session_id") or "").strip()
+        requested_session_id = (arguments.get("session_id") or "").strip()
         selector = (arguments.get("selector") or "").strip()
-        if not session_id:
-            return "No session_id provided."
+        try:
+            session_id = _resolve_session_id_for_user(user_id, requested_session_id)
+        except ValueError as e:
+            return str(e)
 
         state = str(arguments.get("state") or "visible").strip().lower()
         if state not in ALLOWED_WAIT_STATES:
@@ -1765,9 +1835,11 @@ class BrowserAgentTool(BaseTool):
             return f"browser_wait_for failed: {e}"
 
     def _get_state(self, user_id: int, arguments: dict) -> str:
-        session_id = (arguments.get("session_id") or "").strip()
-        if not session_id:
-            return "No session_id provided."
+        requested_session_id = (arguments.get("session_id") or "").strip()
+        try:
+            session_id = _resolve_session_id_for_user(user_id, requested_session_id)
+        except ValueError as e:
+            return str(e)
 
         max_elements = self._int_arg(arguments.get("max_elements"), 40, 5, 120)
         max_text_length = self._int_arg(arguments.get("max_text_length"), 3000, 300, 10_000)
@@ -1787,6 +1859,7 @@ class BrowserAgentTool(BaseTool):
         return (
             "\n\nYou have stateful browser_agent tools for step-by-step web automation.\n"
             "- Start with browser_start_session; it reuses an active session by default.\n"
+            "- After a session starts, prefer continuing directly; session_id can be omitted and latest active session is auto-used.\n"
             "- Set force_new=true only when you explicitly need a new isolated session.\n"
             "- browser_start_session returns viewer_url so users can watch live browser actions.\n"
             "- Use browser_goto / browser_click / browser_type / browser_press / browser_wait_for in sequence.\n"

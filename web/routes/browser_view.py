@@ -1,19 +1,52 @@
 """Public browser live-view routes (token-based view + click control)."""
 
+import asyncio
 import html
 import json
+import time
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse
 
 router = APIRouter(tags=["browser-view"])
+
+
+def _clamp_int(value: int | str | None, low: int, high: int, default: int) -> int:
+    try:
+        parsed = int(value) if value is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    return max(low, min(parsed, high))
+
+
+def _pack_ws_state(
+    state: dict,
+    *,
+    quality: int | None = None,
+    target_fps: float | None = None,
+    stream_mode: str = "ws",
+) -> dict:
+    payload = {
+        "type": "state",
+        "stream_mode": stream_mode,
+        "url": state.get("url") or "about:blank",
+        "title": state.get("title") or "(untitled)",
+        "viewport": state.get("viewport") or {"width": 1366, "height": 768},
+        "challenge_active": bool(state.get("challenge_active")),
+        "captured_at": state.get("captured_at"),
+        "refresh_ms": state.get("refresh_ms"),
+    }
+    if quality is not None:
+        payload["quality"] = int(quality)
+    if target_fps is not None:
+        payload["target_fps"] = round(float(target_fps), 1)
+    return payload
 
 
 def _build_view_page_html(token: str, state: dict) -> str:
     token_js = json.dumps(token, ensure_ascii=False)
     title = html.escape(str(state.get("title") or "(untitled)"))
     url = html.escape(str(state.get("url") or "about:blank"))
-    refresh_ms = int(state.get("refresh_ms") or 1200)
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -319,9 +352,11 @@ def _build_view_page_html(token: str, state: dict) -> str:
     const pageUrl = document.getElementById("pageUrl");
     const statusChip = document.getElementById("statusChip");
     const timeChip = document.getElementById("timeChip");
-    let frameBusy = false;
     let clickBusy = false;
     let controlEnabled = false;
+    let streamSocket = null;
+    let reconnectTimer = null;
+    let activeObjectUrl = null;
     let viewport = {{ width: 1366, height: 768 }};
 
     function setStatus(ok, text) {{
@@ -349,6 +384,109 @@ def _build_view_page_html(token: str, state: dict) -> str:
       // Trigger animation restart.
       void tapMarker.offsetWidth;
       tapMarker.classList.add("show");
+    }}
+
+    function updateStateFromPayload(data, fromStream = false) {{
+      pageTitle.textContent = data.title || "(untitled)";
+      pageUrl.textContent = data.url || "about:blank";
+      if (data.viewport && data.viewport.width && data.viewport.height) {{
+        viewport = {{
+          width: Number(data.viewport.width) || viewport.width,
+          height: Number(data.viewport.height) || viewport.height,
+        }};
+      }}
+      if (data.challenge_active) {{
+        actionText.textContent = "检测到人机验证挑战，可开启接管并点击验证区域。";
+      }} else if (fromStream && !clickBusy) {{
+        const fps = Number(data.target_fps) || 0;
+        const quality = Number(data.quality) || 0;
+        if (fps > 0 && quality > 0) {{
+          actionText.textContent = `实时流已连接（约 ${{fps.toFixed(1)}} FPS，质量 ${{Math.round(quality)}}）。`;
+        }}
+      }}
+    }}
+
+    function releaseFrameUrl() {{
+      if (activeObjectUrl) {{
+        URL.revokeObjectURL(activeObjectUrl);
+        activeObjectUrl = null;
+      }}
+    }}
+
+    function scheduleReconnect() {{
+      if (reconnectTimer) return;
+      reconnectTimer = window.setTimeout(() => {{
+        reconnectTimer = null;
+        connectStream();
+      }}, 1200);
+    }}
+
+    function connectStream() {{
+      if (!("WebSocket" in window)) {{
+        setStatus(false, "UNSUPPORTED");
+        actionText.textContent = "当前浏览器不支持 WebSocket，无法显示实时画面。";
+        return;
+      }}
+      if (streamSocket && (streamSocket.readyState === WebSocket.OPEN || streamSocket.readyState === WebSocket.CONNECTING)) {{
+        return;
+      }}
+
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      const wsUrl = `${{proto}}://${{window.location.host}}/browser-view/${{encodeURIComponent(token)}}/ws`;
+      streamSocket = new WebSocket(wsUrl);
+      streamSocket.binaryType = "blob";
+
+      streamSocket.onopen = () => {{
+        setStatus(true, "LIVE");
+      }};
+
+      streamSocket.onmessage = async (event) => {{
+        if (typeof event.data === "string") {{
+          try {{
+            const packet = JSON.parse(event.data);
+            if (packet.type === "state") {{
+              updateStateFromPayload(packet, true);
+              setStatus(true, "LIVE");
+              stampNow();
+              return;
+            }}
+            if (packet.type === "expired") {{
+              setStatus(false, "EXPIRED");
+              actionText.textContent = "会话已过期，请重新发起 browser_start_session。";
+              return;
+            }}
+            if (packet.type === "error") {{
+              setStatus(false, "STREAM ERR");
+              if (packet.message) {{
+                actionText.textContent = `实时流异常：${{packet.message}}`;
+              }}
+            }}
+          }} catch (_) {{
+            // Ignore malformed text packets.
+          }}
+          return;
+        }}
+
+        const blob = event.data instanceof Blob ? event.data : new Blob([event.data], {{ type: "image/jpeg" }});
+        if (!blob || blob.size < 1) return;
+        const nextUrl = URL.createObjectURL(blob);
+        const prevUrl = activeObjectUrl;
+        activeObjectUrl = nextUrl;
+        frameImg.src = nextUrl;
+        if (prevUrl) {{
+          window.setTimeout(() => URL.revokeObjectURL(prevUrl), 3000);
+        }}
+      }};
+
+      streamSocket.onclose = () => {{
+        setStatus(false, "RECONNECT");
+        actionText.textContent = "实时流中断，正在重连。";
+        scheduleReconnect();
+      }};
+
+      streamSocket.onerror = () => {{
+        setStatus(false, "STREAM ERR");
+      }};
     }}
 
     async function sendRemoteClick(x, y) {{
@@ -384,57 +522,25 @@ def _build_view_page_html(token: str, state: dict) -> str:
         actionText.textContent = "点击失败：网络异常。";
       }} finally {{
         clickBusy = false;
-        refreshState();
-        refreshFrame();
       }}
     }}
 
-    async function refreshState() {{
-      try {{
-        const resp = await fetch(`/browser-view/${{encodeURIComponent(token)}}/state?ts=${{Date.now()}}`, {{
-          cache: "no-store",
-        }});
-        if (!resp.ok) {{
-          setStatus(false, "OFFLINE");
-          return;
-        }}
-        const data = await resp.json();
-        pageTitle.textContent = data.title || "(untitled)";
-        pageUrl.textContent = data.url || "about:blank";
-        if (data.viewport && data.viewport.width && data.viewport.height) {{
-          viewport = {{
-            width: Number(data.viewport.width) || viewport.width,
-            height: Number(data.viewport.height) || viewport.height,
-          }};
-        }}
-        if (data.challenge_active) {{
-          actionText.textContent = "检测到人机验证挑战，可开启接管并点击验证区域。";
-        }}
-        setStatus(true, "LIVE");
-        stampNow();
-      }} catch (_) {{
-        setStatus(false, "OFFLINE");
-      }}
-    }}
-
-    function refreshFrame() {{
-      if (frameBusy) return;
-      frameBusy = true;
-      frameImg.src = `/browser-view/${{encodeURIComponent(token)}}/frame?ts=${{Date.now()}}`;
-    }}
-
-    frameImg.onload = () => {{
-      frameBusy = false;
-      setStatus(true, "LIVE");
-      stampNow();
-    }};
     frameImg.onerror = () => {{
-      frameBusy = false;
-      setStatus(false, "OFFLINE");
+      setStatus(false, "STREAM ERR");
     }};
 
     controlToggle.addEventListener("click", () => {{
       setControl(!controlEnabled);
+    }});
+
+    window.addEventListener("beforeunload", () => {{
+      releaseFrameUrl();
+      if (reconnectTimer) {{
+        clearTimeout(reconnectTimer);
+      }}
+      if (streamSocket && streamSocket.readyState <= 1) {{
+        streamSocket.close();
+      }}
     }});
 
     viewerBox.addEventListener("pointerdown", (event) => {{
@@ -460,10 +566,7 @@ def _build_view_page_html(token: str, state: dict) -> str:
     }});
 
     setControl(false);
-    refreshState();
-    refreshFrame();
-    setInterval(refreshState, Math.max({refresh_ms}, 1200) * 2);
-    setInterval(refreshFrame, Math.max({refresh_ms}, 1200));
+    connectStream();
   </script>
 </body>
 </html>
@@ -474,7 +577,7 @@ def _build_view_page_html(token: str, state: dict) -> str:
 async def browser_view_page(token: str):
     from tools.browser_agent import get_browser_view_state_by_token
 
-    state = get_browser_view_state_by_token(token)
+    state = await asyncio.to_thread(get_browser_view_state_by_token, token)
     if not state:
         raise HTTPException(status_code=404, detail="Live view not found or expired")
     return HTMLResponse(
@@ -483,35 +586,83 @@ async def browser_view_page(token: str):
     )
 
 
-@router.get("/browser-view/{token}/state")
-async def browser_view_state(token: str):
-    from tools.browser_agent import get_browser_view_state_by_token
+@router.websocket("/browser-view/{token}/ws")
+async def browser_view_stream(token: str, websocket: WebSocket):
+    from tools.browser_agent import get_browser_view_frame_by_token, get_browser_view_state_by_token
 
-    state = get_browser_view_state_by_token(token)
-    if not state:
-        raise HTTPException(status_code=404, detail="Live view not found or expired")
-    return JSONResponse(
-        state,
-        headers={"Cache-Control": "no-store"},
-    )
+    await websocket.accept()
+    min_quality = 52
+    max_quality = 82
+    quality = _clamp_int(websocket.query_params.get("quality"), min_quality, max_quality, 72)
+    min_fps = 4.0
+    max_fps = 12.0
+    target_fps = float(_clamp_int(websocket.query_params.get("fps"), int(min_fps), int(max_fps), 8))
+    last_state_sent = 0.0
 
+    async def _send_state(force: bool = False) -> bool:
+        nonlocal last_state_sent, quality, target_fps
+        now = time.monotonic()
+        if not force and now - last_state_sent < 2.0:
+            return True
+        state = await asyncio.to_thread(get_browser_view_state_by_token, token)
+        if not state:
+            await websocket.send_text(
+                json.dumps({"type": "expired", "message": "Live view not found or expired"}, ensure_ascii=False)
+            )
+            await websocket.close(code=4404)
+            return False
+        packet = _pack_ws_state(state, quality=quality, target_fps=target_fps, stream_mode="ws")
+        await websocket.send_text(json.dumps(packet, ensure_ascii=False))
+        last_state_sent = now
+        return True
 
-@router.get("/browser-view/{token}/frame")
-async def browser_view_frame(token: str):
-    from tools.browser_agent import get_browser_view_frame_by_token
+    try:
+        if not await _send_state(force=True):
+            return
 
-    frame = get_browser_view_frame_by_token(token)
-    if not frame:
-        raise HTTPException(status_code=404, detail="Live view not found or expired")
-    image = frame.get("image")
-    if not image:
-        raise HTTPException(status_code=500, detail="No frame available")
+        while True:
+            tick = time.perf_counter()
+            frame = await asyncio.to_thread(get_browser_view_frame_by_token, token, quality=quality)
+            capture_ms = (time.perf_counter() - tick) * 1000.0
+            if not frame or not frame.get("image"):
+                await websocket.send_text(
+                    json.dumps({"type": "expired", "message": "Live view not found or expired"}, ensure_ascii=False)
+                )
+                await websocket.close(code=4404)
+                return
 
-    headers = {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-    }
-    return Response(content=image, media_type="image/jpeg", headers=headers)
+            send_start = time.perf_counter()
+            await websocket.send_bytes(frame["image"])
+            send_ms = (time.perf_counter() - send_start) * 1000.0
+
+            if capture_ms > 190 or send_ms > 95:
+                quality = max(min_quality, quality - 4)
+                target_fps = max(min_fps, target_fps - 1.0)
+            elif capture_ms > 135 or send_ms > 60:
+                quality = max(min_quality, quality - 2)
+                target_fps = max(min_fps, target_fps - 0.5)
+            elif capture_ms < 78 and send_ms < 30:
+                quality = min(max_quality, quality + 2)
+                target_fps = min(max_fps, target_fps + 0.4)
+
+            if not await _send_state():
+                return
+
+            frame_time = time.perf_counter() - tick
+            sleep_for = max(0.0, (1.0 / max(target_fps, 1.0)) - frame_time)
+            if sleep_for > 0:
+                await asyncio.sleep(sleep_for)
+    except WebSocketDisconnect:
+        return
+    except Exception as e:
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False))
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 
 @router.post("/browser-view/{token}/control/click")
@@ -548,7 +699,7 @@ async def browser_view_control_click(token: str, body: dict):
     except (TypeError, ValueError):
         wait_ms = 1200
 
-    result = click_browser_view_by_token(token, x=x, y=y, rx=rx, ry=ry, wait_ms=wait_ms)
+    result = await asyncio.to_thread(click_browser_view_by_token, token, x=x, y=y, rx=rx, ry=ry, wait_ms=wait_ms)
     if not result:
         raise HTTPException(status_code=404, detail="Live view not found or expired")
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
