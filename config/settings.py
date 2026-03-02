@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+ALLOWED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
 def _apply_env_content() -> None:
@@ -49,6 +50,12 @@ def _apply_env_content() -> None:
 # Load environment variables
 load_dotenv()
 _apply_env_content()
+
+
+def _normalize_reasoning_effort(value: str | None) -> str:
+    """Normalize configured reasoning effort; return empty string when unset/invalid."""
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in ALLOWED_REASONING_EFFORTS else ""
 
 # Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -121,6 +128,9 @@ DEFAULT_CRON_ENABLED_TOOLS = os.getenv(
     "CRON_ENABLED_TOOLS", "search,fetch,wikipedia,tts"
 )
 DEFAULT_TTS_OUTPUT_FORMAT = os.getenv("TTS_OUTPUT_FORMAT", "ogg-24khz-16bit-mono-opus")
+DEFAULT_REASONING_EFFORT = _normalize_reasoning_effort(
+    os.getenv("OPENAI_REASONING_EFFORT", "")
+)
 
 
 def get_default_settings() -> dict:
@@ -130,6 +140,7 @@ def get_default_settings() -> dict:
         "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
         "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
+        "reasoning_effort": DEFAULT_REASONING_EFFORT,
         # Empty means "follow global default STREAM_UPDATE_MODE".
         "stream_mode": "",
         "token_limit": 0,

@@ -187,6 +187,7 @@ STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 STREAM_PREVIEW_PREFIX = "[...]\n"
 CRON_SCHEDULER_STARTED = False
 TOOL_STATUS_MAP = SHARED_TOOL_STATUS_MAP
+VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
 _DISCORD_CDN_PROXY_BASE: str | None = None
@@ -361,6 +362,13 @@ def _normalize_stream_mode(mode: str | None) -> str:
     return "default"
 
 
+def _normalize_reasoning_effort(value: str | None) -> str:
+    current = (value or "").strip().lower()
+    if current in VALID_REASONING_EFFORTS:
+        return current
+    return ""
+
+
 def _build_stream_preview(display_text: str, *, thinking_prefix: str = "", cursor: bool = True) -> str:
     suffix = " ▌" if cursor else ""
     text = f"{thinking_prefix}{display_text}{suffix}"
@@ -411,6 +419,7 @@ async def _run_stream_completion_round(
     messages: list[dict],
     model: str,
     temperature: float,
+    reasoning_effort: str | None,
     tools: list[dict] | None,
     placeholder: discord.Message,
     *,
@@ -427,6 +436,7 @@ async def _run_stream_completion_round(
             messages=messages,
             model=model,
             temperature=temperature,
+            reasoning_effort=reasoning_effort or None,
             stream=True,
             tools=tools,
         ),
@@ -774,6 +784,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     settings = get_user_settings(user_id)
     enabled_tools = resolve_enabled_tools_csv(settings)
     user_stream_mode = _normalize_stream_mode(settings.get("stream_mode", "") or STREAM_UPDATE_MODE)
+    user_reasoning_effort = _normalize_reasoning_effort(settings.get("reasoning_effort", ""))
     session_id = ensure_session(user_id, persona_name)
     conversation = list(get_conversation(session_id))
 
@@ -826,6 +837,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 messages,
                 settings["model"],
                 settings["temperature"],
+                user_reasoning_effort,
                 tools,
                 placeholder,
                 show_waiting=(round_num == 0),
@@ -1015,6 +1027,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 messages,
                 settings["model"],
                 settings["temperature"],
+                user_reasoning_effort,
                 None,
                 placeholder,
                 show_waiting=False,
@@ -1237,6 +1250,7 @@ async def settings_command(ctx: commands.Context) -> None:
         f"api_key: {_mask_key(settings['api_key'])}\n"
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
+        f"reasoning_effort: {settings.get('reasoning_effort', '') or '(provider/model default)'}\n"
         f"stream_mode: {stream_mode}\n"
         f"title_model: {title_model_display}\n"
         f"cron_model: {cron_model_display}\n"
@@ -1359,6 +1373,22 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
                 "- chars: update by character interval",
             )
             return
+        if key == "reasoning_effort":
+            current = settings.get("reasoning_effort", "") or "(provider/model default)"
+            await _send_ctx_reply(
+                ctx,
+                f"Current reasoning_effort: {current}\n"
+                f"Usage: {p}set reasoning_effort <value>\n\n"
+                "Available values:\n"
+                "- none\n"
+                "- minimal\n"
+                "- low\n"
+                "- medium\n"
+                "- high\n"
+                "- xhigh\n\n"
+                f"Use {p}set reasoning_effort clear to follow provider/model default.",
+            )
+            return
         if key == "global_prompt":
             current = settings.get("global_prompt", "") or "(none)"
             display = current[:100] + "..." if len(current) > 100 else current
@@ -1447,6 +1477,29 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         update_user_setting(user_id, "temperature", temp)
         logger.info("%s set temperature = %s", ctx_log, temp)
         await _send_ctx_reply(ctx, f"temperature set to: {temp}")
+        return
+
+    if key == "reasoning_effort":
+        val = value.strip().lower()
+        if not val or val in {"off", "clear"}:
+            update_user_setting(user_id, "reasoning_effort", "")
+            logger.info("%s cleared reasoning_effort", ctx_log)
+            await _send_ctx_reply(
+                ctx,
+                "reasoning_effort cleared (follow provider/model default).",
+            )
+            return
+
+        if val not in VALID_REASONING_EFFORTS:
+            await _send_ctx_reply(
+                ctx,
+                "Invalid reasoning_effort. Available: none, minimal, low, medium, high, xhigh.",
+            )
+            return
+
+        update_user_setting(user_id, "reasoning_effort", val)
+        logger.info("%s set reasoning_effort = %s", ctx_log, val)
+        await _send_ctx_reply(ctx, f"reasoning_effort set to: {val}")
         return
 
     if key == "token_limit":

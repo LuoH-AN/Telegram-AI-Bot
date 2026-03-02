@@ -75,6 +75,26 @@ def _text_size(value: object) -> int:
     return len(str(value))
 
 
+def _is_reasoning_param_error(error_text: str) -> bool:
+    """Return True when provider rejects reasoning-specific parameters."""
+    normalized = (error_text or "").lower()
+    if "reasoning_effort" not in normalized:
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "unsupported",
+            "unknown",
+            "unrecognized",
+            "not allowed",
+            "not supported",
+            "extra inputs are not permitted",
+            "unexpected keyword argument",
+            "invalid parameter",
+        )
+    )
+
+
 class OpenAIClient(AIClient):
     """OpenAI-compatible API client."""
 
@@ -94,6 +114,7 @@ class OpenAIClient(AIClient):
         messages: list[dict],
         model: str,
         temperature: float,
+        reasoning_effort: str | None = None,
         stream: bool = True,
         tools: list[dict] | None = None,
     ) -> Iterator[StreamChunk]:
@@ -103,7 +124,7 @@ class OpenAIClient(AIClient):
         tools_count = len(tools or [])
 
         logger.info(
-            "%sAI request start req=%s endpoint=chat.completions model=%s stream=%s msgs=%d roles=%s tools=%d temp=%.2f base=%s last_user=%s",
+            "%sAI request start req=%s endpoint=chat.completions model=%s stream=%s msgs=%d roles=%s tools=%d temp=%.2f reasoning_effort=%s base=%s last_user=%s",
             self._ctx_prefix(),
             request_id,
             model,
@@ -112,6 +133,7 @@ class OpenAIClient(AIClient):
             _role_summary(messages),
             tools_count,
             temperature,
+            reasoning_effort or "-",
             self.base_host,
             _find_last_user_preview(messages),
         )
@@ -123,44 +145,49 @@ class OpenAIClient(AIClient):
             "temperature": temperature,
             "stream": stream,
         }
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
         if stream:
             kwargs["stream_options"] = {"include_usage": True}
         if tools:
             kwargs["tools"] = tools
 
-        try:
-            response = self.client.chat.completions.create(**kwargs)
-        except Exception as e:
-            # If tools not supported by provider/model, retry without tools.
-            # But never silently swallow invalid tool schema errors.
-            err = str(e).lower()
-            has_tool_error = "tool" in err or "function" in err
-            invalid_schema = (
-                "invalid_function_parameters" in err
-                or "invalid schema for function" in err
-                or "array schema missing items" in err
-            )
-            if tools and has_tool_error and not invalid_schema:
-                logger.warning(
-                    "%sAI request req=%s tools unsupported, retrying without tools: %s",
-                    self._ctx_prefix(),
-                    request_id,
-                    _shorten_text(str(e), 280),
+        while True:
+            try:
+                response = self.client.chat.completions.create(**kwargs)
+                break
+            except Exception as e:
+                err = str(e).lower()
+
+                # If tools not supported by provider/model, retry without tools.
+                # But never silently swallow invalid tool schema errors.
+                has_tool_error = "tool" in err or "function" in err
+                invalid_schema = (
+                    "invalid_function_parameters" in err
+                    or "invalid schema for function" in err
+                    or "array schema missing items" in err
                 )
-                del kwargs["tools"]
-                try:
-                    response = self.client.chat.completions.create(**kwargs)
-                except Exception:
-                    logger.exception(
-                        "%sAI request failed req=%s endpoint=chat.completions model=%s stream=%s latency_ms=%d",
+                if "tools" in kwargs and has_tool_error and not invalid_schema:
+                    logger.warning(
+                        "%sAI request req=%s tools unsupported, retrying without tools: %s",
                         self._ctx_prefix(),
                         request_id,
-                        model,
-                        stream,
-                        int((time.monotonic() - request_start) * 1000),
+                        _shorten_text(str(e), 280),
                     )
-                    raise
-            else:
+                    del kwargs["tools"]
+                    continue
+
+                # Some OpenAI-compatible providers reject reasoning_effort.
+                if "reasoning_effort" in kwargs and _is_reasoning_param_error(err):
+                    logger.warning(
+                        "%sAI request req=%s reasoning_effort unsupported, retrying without reasoning_effort: %s",
+                        self._ctx_prefix(),
+                        request_id,
+                        _shorten_text(str(e), 280),
+                    )
+                    del kwargs["reasoning_effort"]
+                    continue
+
                 logger.exception(
                     "%sAI request failed req=%s endpoint=chat.completions model=%s stream=%s latency_ms=%d",
                     self._ctx_prefix(),

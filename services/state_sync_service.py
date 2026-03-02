@@ -15,6 +15,7 @@ from config import (
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_ENDPOINT,
     DEFAULT_ENABLED_TOOLS,
+    DEFAULT_REASONING_EFFORT,
 )
 from database.connection import get_connection, get_dict_cursor
 from utils.tooling import normalize_tools_csv, resolve_cron_tools_csv
@@ -87,6 +88,7 @@ def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
                         "base_url": row.get("base_url") or "https://api.openai.com/v1",
                         "model": row.get("model") or "gpt-4o",
                         "temperature": row.get("temperature") or 0.7,
+                        "reasoning_effort": row.get("reasoning_effort") or DEFAULT_REASONING_EFFORT,
                         "stream_mode": row.get("stream_mode") or "",
                         "token_limit": row.get("token_limit") or 0,
                         "current_persona": row.get("current_persona") or "default",

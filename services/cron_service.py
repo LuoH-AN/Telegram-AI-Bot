@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _CST = timezone(timedelta(hours=8))
 _POLL_INTERVAL = 30  # seconds
 _MAX_TOOL_ROUNDS = 5
+_VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 # Track currently running tasks to prevent duplicate execution
 _running_tasks: set[tuple[int, str]] = set()  # (user_id, task_name)
@@ -122,6 +123,9 @@ def _execute_cron_task(bot, task: dict) -> None:
         if not settings.get("api_key"):
             logger.warning("[user=%d] cron task '%s' skipped: no API key", user_id, task_name)
             return
+        reasoning_effort = str(settings.get("reasoning_effort", "") or "").strip().lower()
+        if reasoning_effort not in _VALID_REASONING_EFFORTS:
+            reasoning_effort = ""
 
         # Resolve cron_model — same logic as title_model
         cron_model_raw = settings.get("cron_model", "")
@@ -192,6 +196,7 @@ def _execute_cron_task(bot, task: dict) -> None:
                 messages=messages,
                 model=cron_model,
                 temperature=settings["temperature"],
+                reasoning_effort=reasoning_effort or None,
                 stream=False,
                 tools=tools if round_num < _MAX_TOOL_ROUNDS else None,
             ))
@@ -243,6 +248,7 @@ def _execute_cron_task(bot, task: dict) -> None:
                 messages=messages,
                 model=cron_model,
                 temperature=settings["temperature"],
+                reasoning_effort=reasoning_effort or None,
                 stream=False,
                 tools=None,
             ))

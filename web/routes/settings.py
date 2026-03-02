@@ -15,6 +15,7 @@ ALLOWED_FIELDS = {
     "base_url",
     "model",
     "temperature",
+    "reasoning_effort",
     "stream_mode",
     "enabled_tools",
     "cron_enabled_tools",
@@ -25,6 +26,7 @@ ALLOWED_FIELDS = {
     "cron_model",
     "global_prompt",
 }
+ALLOWED_REASONING_EFFORTS = {"", "none", "minimal", "low", "medium", "high", "xhigh"}
 ALLOWED_STREAM_MODES = {"", "default", "time", "chars"}
 CLEARABLE_VALUES = {"off", "clear", "none"}
 
@@ -42,6 +44,7 @@ class SettingsUpdate(BaseModel):
     base_url: str | None = None
     model: str | None = None
     temperature: float | None = None
+    reasoning_effort: str | None = None
     stream_mode: str | None = None
     enabled_tools: str | None = None
     cron_enabled_tools: str | None = None
@@ -60,6 +63,20 @@ class SettingsUpdate(BaseModel):
         if value < 0.0 or value > 2.0:
             raise ValueError("temperature must be between 0.0 and 2.0")
         return value
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def validate_reasoning_effort(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized in {"off", "clear"}:
+            normalized = ""
+        if normalized not in ALLOWED_REASONING_EFFORTS:
+            raise ValueError(
+                "reasoning_effort must be one of: none, minimal, low, medium, high, xhigh, clear"
+            )
+        return normalized
 
     @field_validator("stream_mode")
     @classmethod

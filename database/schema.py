@@ -14,6 +14,7 @@ CREATE_USER_SETTINGS_TABLE = """
         base_url TEXT,
         model TEXT,
         temperature REAL,
+        reasoning_effort TEXT,
         token_limit BIGINT DEFAULT 0,
         current_persona TEXT DEFAULT 'default',
         enabled_tools TEXT,
@@ -122,6 +123,11 @@ MIGRATE_SETTINGS_ADD_GLOBAL_PROMPT = """
     ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS global_prompt TEXT
 """
 
+# Migration: add reasoning_effort column to existing user_settings tables
+MIGRATE_SETTINGS_ADD_REASONING_EFFORT = """
+    ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS reasoning_effort TEXT
+"""
+
 # Memories (shared across personas)
 CREATE_USER_MEMORIES_TABLE = """
     CREATE TABLE IF NOT EXISTS user_memories (
@@ -199,6 +205,7 @@ SCHEMA_STATEMENTS = [
     MIGRATE_SETTINGS_ADD_CRON_ENABLED_TOOLS,
     MIGRATE_SETTINGS_ADD_STREAM_MODE,
     MIGRATE_SETTINGS_ADD_GLOBAL_PROMPT,
+    MIGRATE_SETTINGS_ADD_REASONING_EFFORT,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
     CREATE_USER_LOGS_TABLE,

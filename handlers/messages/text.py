@@ -68,6 +68,7 @@ TOOL_TIMEOUT = 30  # seconds (default, may be extended by shell_exec)
 AI_STREAM_INIT_TIMEOUT = 25  # seconds waiting for stream object creation
 AI_STREAM_CHUNK_TIMEOUT = 45  # seconds waiting for next streamed chunk
 MAX_TOOL_ERROR_SNIPPETS = 3
+VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
 async def _send_screenshot_with_fallback(update: Update, image_data: bytes, filename: str, caption: str | None) -> None:
@@ -133,7 +134,22 @@ def _build_empty_response_fallback(tool_error_snippets: list[str]) -> str:
     )
 
 
-async def _stream_response(client, messages, model, temperature, tools, bot_message, show_waiting=True, stream_mode="default"):
+def _normalize_reasoning_effort(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in VALID_REASONING_EFFORTS else ""
+
+
+async def _stream_response(
+    client,
+    messages,
+    model,
+    temperature,
+    reasoning_effort,
+    tools,
+    bot_message,
+    show_waiting=True,
+    stream_mode="default",
+):
     """Stream an AI response, updating bot_message in real-time.
 
     The synchronous OpenAI streaming iterator is wrapped with run_in_executor
@@ -161,6 +177,7 @@ async def _stream_response(client, messages, model, temperature, tools, bot_mess
                     messages=messages,
                     model=model,
                     temperature=temperature,
+                    reasoning_effort=reasoning_effort or None,
                     stream=True,
                     tools=tools,
                 ),
@@ -437,6 +454,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
         # Get user's stream_mode setting (default/time/chars)
         user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
+        user_reasoning_effort = _normalize_reasoning_effort(settings.get("reasoning_effort", ""))
 
         # Tool call loop: stream response, process tools, re-call if needed
         last_text_response = ""  # fallback if final round is empty
@@ -447,7 +465,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         for round_num in range(MAX_TOOL_ROUNDS + 1):
 
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _stream_response(
-                client, messages, settings["model"], settings["temperature"],
+                client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
                 tools, bot_message, show_waiting=(round_num == 0),
                 stream_mode=user_stream_mode,
             )
@@ -626,7 +644,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 "content": "Please respond to the user based on the information you have gathered above. Do not attempt to call any more tools.",
             })
             full_response, usage_info, _, thinking_seconds, _ = await _stream_response(
-                client, messages, settings["model"], settings["temperature"],
+                client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
                 None, bot_message, show_waiting=False,
                 stream_mode=user_stream_mode,
             )

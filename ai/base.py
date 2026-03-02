@@ -33,6 +33,7 @@ class AIClient(ABC):
         messages: list[dict],
         model: str,
         temperature: float,
+        reasoning_effort: str | None = None,
         stream: bool = True,
         tools: list[dict] | None = None,
     ) -> Iterator[StreamChunk]:
@@ -42,6 +43,7 @@ class AIClient(ABC):
             messages: List of message dicts with 'role' and 'content'
             model: Model name to use
             temperature: Temperature setting
+            reasoning_effort: Optional reasoning effort level
             stream: Whether to stream the response
             tools: Optional list of tool definitions
 

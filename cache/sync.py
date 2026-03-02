@@ -12,6 +12,7 @@ from config import (
     DEFAULT_TTS_ENDPOINT,
     DEFAULT_ENABLED_TOOLS,
     DEFAULT_CRON_ENABLED_TOOLS,
+    DEFAULT_REASONING_EFFORT,
 )
 from database import get_connection, get_dict_cursor
 from database.schema import create_tables
@@ -45,6 +46,7 @@ def load_from_database() -> None:
                         "base_url": row["base_url"] or "https://api.openai.com/v1",
                         "model": row["model"] or "gpt-4o",
                         "temperature": row["temperature"] or 0.7,
+                        "reasoning_effort": row.get("reasoning_effort") or DEFAULT_REASONING_EFFORT,
                         "stream_mode": row.get("stream_mode") or "",
                         "token_limit": row.get("token_limit") or 0,
                         "current_persona": row.get("current_persona") or "default",
@@ -198,16 +200,17 @@ def sync_to_database() -> None:
                     api_presets_json = json.dumps(s.get("api_presets", {}), ensure_ascii=False) if s.get("api_presets") else None
                     cur.execute("""
                         INSERT INTO user_settings (
-                            user_id, api_key, base_url, model, temperature,
+                            user_id, api_key, base_url, model, temperature, reasoning_effort,
                             token_limit, current_persona, enabled_tools,
                             cron_enabled_tools, stream_mode, tts_voice, tts_style, tts_endpoint, api_presets, title_model, cron_model, global_prompt
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (user_id) DO UPDATE SET
                             api_key = EXCLUDED.api_key,
                             base_url = EXCLUDED.base_url,
                             model = EXCLUDED.model,
                             temperature = EXCLUDED.temperature,
+                            reasoning_effort = EXCLUDED.reasoning_effort,
                             token_limit = EXCLUDED.token_limit,
                             current_persona = EXCLUDED.current_persona,
                             enabled_tools = EXCLUDED.enabled_tools,
@@ -222,7 +225,8 @@ def sync_to_database() -> None:
                             global_prompt = EXCLUDED.global_prompt
                     """, (
                         user_id, s["api_key"], s["base_url"],
-                        s["model"], s["temperature"], s["token_limit"], s["current_persona"],
+                        s["model"], s["temperature"], s.get("reasoning_effort", DEFAULT_REASONING_EFFORT),
+                        s["token_limit"], s["current_persona"],
                         s["enabled_tools"], s.get("cron_enabled_tools", DEFAULT_CRON_ENABLED_TOOLS),
                         s.get("stream_mode", ""),
                         s.get("tts_voice", DEFAULT_TTS_VOICE),

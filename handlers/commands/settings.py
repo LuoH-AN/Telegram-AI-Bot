@@ -42,6 +42,7 @@ from utils.platform_parity import (
 )
 
 logger = logging.getLogger(__name__)
+VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -99,6 +100,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"api_key: {masked_key}\n"
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
+        f"reasoning_effort: {settings.get('reasoning_effort', '') or '(provider/model default)'}\n"
         f"stream_mode: {stream_mode}\n"
         f"title_model: {title_model_display}\n"
         f"cron_model: {cron_model_display}\n"
@@ -195,6 +197,21 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "- chars: update by character interval"
             )
             return
+        if context.args and context.args[0].lower() == "reasoning_effort":
+            current = settings.get("reasoning_effort", "") or "(provider/model default)"
+            await update.message.reply_text(
+                f"Current reasoning_effort: {current}\n"
+                "Usage: /set reasoning_effort <value>\n\n"
+                "Available values:\n"
+                "- none\n"
+                "- minimal\n"
+                "- low\n"
+                "- medium\n"
+                "- high\n"
+                "- xhigh\n\n"
+                "Use /set reasoning_effort clear to follow provider/model default."
+            )
+            return
         if context.args and context.args[0].lower() == "global_prompt":
             current = settings.get("global_prompt", "") or "(none)"
             display = current[:100] + "..." if len(current) > 100 else current
@@ -270,6 +287,23 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 )
         except ValueError:
             await update.message.reply_text("Invalid temperature value")
+    elif key == "reasoning_effort":
+        val = value.strip().lower()
+        if not val or val in {"off", "clear"}:
+            update_user_setting(user_id, "reasoning_effort", "")
+            logger.info("%s cleared reasoning_effort", ctx)
+            await update.message.reply_text(
+                "reasoning_effort cleared (follow provider/model default)."
+            )
+            return
+        if val not in VALID_REASONING_EFFORTS:
+            await update.message.reply_text(
+                "Invalid reasoning_effort. Available: none, minimal, low, medium, high, xhigh."
+            )
+            return
+        update_user_setting(user_id, "reasoning_effort", val)
+        logger.info("%s set reasoning_effort = %s", ctx, val)
+        await update.message.reply_text(f"reasoning_effort set to: {val}")
     elif key == "token_limit":
         try:
             limit = int(value)
