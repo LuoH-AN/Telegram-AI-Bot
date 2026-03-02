@@ -7,7 +7,12 @@ from telegram import Message
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from utils.platform_parity import format_log_context
+from services import has_api_key, get_current_persona_name, get_remaining_tokens
+from utils.platform_parity import (
+    build_api_key_required_message,
+    build_token_limit_reached_message,
+    format_log_context,
+)
 
 _MEDIA_GROUP_WAIT_SECONDS = 1.0
 _MEDIA_GROUP_LOCK = threading.Lock()
@@ -100,3 +105,60 @@ async def collect_media_group_messages(message: Message) -> list[Message] | None
 
     grouped.sort(key=lambda m: m.message_id)
     return grouped
+
+
+def build_media_caption(
+    grouped_messages: list[Message],
+    *,
+    bot_username: str | None,
+    reply_message: Message | None,
+) -> str:
+    """Build caption text from grouped media, mention cleanup, and quoted reply context."""
+    caption = next((msg.caption for msg in grouped_messages if msg.caption), "") or ""
+
+    if bot_username and f"@{bot_username}" in caption:
+        caption = caption.replace(f"@{bot_username}", "").strip()
+
+    if reply_message:
+        quoted_text = reply_message.text or reply_message.caption or ""
+        if quoted_text:
+            sender = reply_message.from_user
+            sender_name = sender.first_name if sender else "Unknown"
+            prefix = f"[Quoted message from {sender_name}]:\n{quoted_text}"
+            caption = f"{prefix}\n\n{caption}" if caption else prefix
+
+    return caption
+
+
+async def preflight_media_request(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> tuple[list[Message] | None, str]:
+    """Validate and normalize media batch request before specific media processing."""
+    if not await should_respond_in_group(update, context):
+        return None, ""
+
+    grouped_messages = await collect_media_group_messages(update.message)
+    if grouped_messages is None:
+        return None, ""
+
+    if any(message.forward_origin for message in grouped_messages):
+        return None, ""
+
+    user_id = update.effective_user.id
+    if not has_api_key(user_id):
+        await update.message.reply_text(build_api_key_required_message("/"))
+        return None, ""
+
+    persona_name = get_current_persona_name(user_id)
+    remaining = get_remaining_tokens(user_id, persona_name)
+    if remaining is not None and remaining <= 0:
+        await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
+        return None, ""
+
+    caption = build_media_caption(
+        grouped_messages,
+        bot_username=context.bot.username,
+        reply_message=update.message.reply_to_message,
+    )
+    return grouped_messages, caption

@@ -5,22 +5,10 @@ from pydantic import BaseModel, field_validator
 
 from services import get_user_settings, update_user_setting, normalize_tts_endpoint
 from services.log_service import record_web_action
+from utils.tooling import AVAILABLE_TOOLS, normalize_tools_csv
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-AVAILABLE_TOOLS = (
-    "memory",
-    "search",
-    "fetch",
-    "wikipedia",
-    "tts",
-    "shell",
-    "cron",
-    "playwright",
-    "crawl4ai",
-    "browser_agent",
-)
 
 ALLOWED_FIELDS = {
     "api_key",
@@ -39,19 +27,6 @@ ALLOWED_FIELDS = {
 }
 ALLOWED_STREAM_MODES = {"", "default", "time", "chars"}
 CLEARABLE_VALUES = {"off", "clear", "none"}
-
-
-def _normalize_tools_csv(raw: str) -> str:
-    """Normalize comma-separated tool names using declared order."""
-    seen = set()
-    normalized = []
-    for item in (raw or "").split(","):
-        name = item.strip().lower()
-        if not name or name not in AVAILABLE_TOOLS or name in seen:
-            continue
-        seen.add(name)
-        normalized.append(name)
-    return ",".join(normalized)
 
 
 def _mask_key(key: str) -> str:
@@ -103,7 +78,7 @@ class SettingsUpdate(BaseModel):
     def validate_tools_csv(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        return _normalize_tools_csv(value)
+        return normalize_tools_csv(value)
 
     @field_validator("tts_style")
     @classmethod

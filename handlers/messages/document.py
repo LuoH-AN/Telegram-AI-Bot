@@ -12,11 +12,6 @@ from config import (
     MAX_FILE_SIZE,
     MAX_TEXT_CONTENT_LENGTH,
 )
-from services import (
-    has_api_key,
-    get_current_persona_name,
-    get_remaining_tokens,
-)
 from utils import (
     edit_message_safe,
     get_file_extension,
@@ -26,15 +21,12 @@ from utils import (
     decode_file_content,
 )
 from handlers.common import (
-    should_respond_in_group,
     get_log_context,
-    collect_media_group_messages,
+    preflight_media_request,
 )
 from utils.platform_parity import (
     build_analyze_uploaded_files_message,
-    build_api_key_required_message,
     build_retry_message,
-    build_token_limit_reached_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,17 +34,10 @@ logger = logging.getLogger(__name__)
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle document/file uploads."""
-    if not await should_respond_in_group(update, context):
+    grouped_messages, caption = await preflight_media_request(update, context)
+    if not grouped_messages:
         return
 
-    grouped_messages = await collect_media_group_messages(update.message)
-    if grouped_messages is None:
-        return
-
-    if any(msg.forward_origin for msg in grouped_messages):
-        return
-
-    user_id = update.effective_user.id
     ctx = get_log_context(update)
 
     documents = [msg.document for msg in grouped_messages if msg.document]
@@ -64,31 +49,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ctx,
         len(documents),
     )
-
-    if not has_api_key(user_id):
-        await update.message.reply_text(build_api_key_required_message("/"))
-        return
-
-    persona_name = get_current_persona_name(user_id)
-    remaining = get_remaining_tokens(user_id, persona_name)
-    if remaining is not None and remaining <= 0:
-        await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
-        return
-
-    caption = next((m.caption for m in grouped_messages if m.caption), "") or ""
-
-    bot_username = context.bot.username
-    if bot_username and f"@{bot_username}" in caption:
-        caption = caption.replace(f"@{bot_username}", "").strip()
-
-    reply_msg = update.message.reply_to_message
-    if reply_msg:
-        quoted_text = reply_msg.text or reply_msg.caption or ""
-        if quoted_text:
-            sender = reply_msg.from_user
-            sender_name = sender.first_name if sender else "Unknown"
-            prefix = f"[Quoted message from {sender_name}]:\n{quoted_text}"
-            caption = f"{prefix}\n\n{caption}" if caption else prefix
 
     await update.message.chat.send_action(ChatAction.TYPING)
     bot_message = await update.message.reply_text("…")

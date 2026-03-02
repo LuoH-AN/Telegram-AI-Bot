@@ -45,6 +45,12 @@ from tools import (
 )
 from ai import get_ai_client, ToolCall
 from utils import filter_thinking_content, parse_raw_tool_calls, send_message_safe, edit_message_safe, get_datetime_prompt
+from utils.ai_helpers import (
+    effective_tool_timeout,
+    estimate_tokens as _estimate_tokens,
+    estimate_tokens_str as _estimate_tokens_str,
+    tool_dedup_key as _tool_dedup_key,
+)
 from handlers.common import should_respond_in_group, get_log_context
 from utils.platform_parity import (
     SHARED_TOOL_STATUS_MAP,
@@ -95,105 +101,11 @@ def _effective_tool_timeout(tool_calls) -> int:
     Playwright tools get an extended timeout for page load + CF challenge wait.
     Otherwise fall back to the default TOOL_TIMEOUT.
     """
-    _SLOW_WEB_TOOLS = {
-        "page_screenshot",
-        "page_content",
-        "crawl4ai_fetch",
-        "browser_start_session",
-        "browser_list_sessions",
-        "browser_close_session",
-        "browser_goto",
-        "browser_click",
-        "browser_type",
-        "browser_press",
-        "browser_wait_for",
-        "browser_get_state",
-    }
-    timeout = TOOL_TIMEOUT
-    for tc in tool_calls:
-        if tc.name == "shell_exec":
-            try:
-                args = json.loads(tc.arguments)
-                requested = int(args.get("timeout", 0))
-                if requested > timeout:
-                    timeout = min(requested + 5, 125)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        elif tc.name == "crawl4ai_fetch":
-            timeout = max(timeout, 60)
-            try:
-                args = json.loads(tc.arguments)
-                requested_ms = int(args.get("timeout_ms", 60000))
-                requested_sec = max(5, min(requested_ms, 180000)) // 1000
-                # Keep outer wait_for slightly larger than crawl4ai page timeout.
-                timeout = max(timeout, min(requested_sec + 15, 210))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        elif tc.name.startswith("browser_"):
-            timeout = max(timeout, 90)
-            try:
-                args = json.loads(tc.arguments)
-                requested_ms = 0
-                if tc.name == "browser_wait_for":
-                    requested_ms = int(args.get("timeout_ms", 10000)) + int(args.get("wait_ms", 0))
-                else:
-                    requested_ms = int(args.get("timeout_ms", 10000))
-                requested_wait = float(args.get("wait", 0))
-                requested_sec = int(max(0, min(requested_ms, 180000)) / 1000 + max(0.0, min(requested_wait, 30.0)))
-                timeout = max(timeout, min(requested_sec + 15, 210))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        elif tc.name in _SLOW_WEB_TOOLS:
-            timeout = max(timeout, 60)
-    return timeout
+    return effective_tool_timeout(tool_calls, default_timeout=TOOL_TIMEOUT)
 
 TOOL_STATUS_MAP = SHARED_TOOL_STATUS_MAP
 
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
-
-
-def _estimate_tokens_str(text: str) -> int:
-    """Rough token estimate: ~4 chars per token for English, ~2 for CJK."""
-    if not text:
-        return 0
-    cjk = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u30ff')
-    other = len(text) - cjk
-    return max(1, int(cjk / 1.5 + other / 4))
-
-
-def _estimate_tokens(messages: list[dict]) -> int:
-    """Estimate total prompt tokens from a list of messages."""
-    total = 0
-    for msg in messages:
-        content = msg.get("content") or ""
-        if isinstance(content, list):
-            content = " ".join(
-                p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
-            )
-        total += _estimate_tokens_str(str(content)) + 4  # overhead per message
-    return total
-
-
-def _tool_dedup_key(tc):
-    """Extract dedup key from a tool call (name + primary argument).
-
-    For url_fetch the key is the URL (ignoring method/max_length variants).
-    For web_search the key is the query.  Other tools use full arguments.
-    """
-    try:
-        args = json.loads(tc.arguments)
-    except Exception:
-        return f"{tc.name}:{tc.arguments}"
-    if tc.name.startswith("browser_"):
-        # Stateful browser actions may legitimately repeat with same args.
-        return f"{tc.name}:{tc.id}"
-    if tc.name == "url_fetch":
-        return f"url_fetch:{args.get('url', '')}"
-    if tc.name == "crawl4ai_fetch":
-        return f"crawl4ai_fetch:{args.get('url', '')}"
-    if tc.name == "web_search":
-        return f"web_search:{args.get('query', '')}"
-    return f"{tc.name}:{tc.arguments}"
 
 
 def _is_tool_error_text(text: str) -> bool:

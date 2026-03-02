@@ -7,61 +7,17 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from cache.manager import cache
+from utils.tooling import resolve_cron_tools_csv
 
 logger = logging.getLogger(__name__)
 
 _CST = timezone(timedelta(hours=8))
 _POLL_INTERVAL = 30  # seconds
 _MAX_TOOL_ROUNDS = 5
-_ALL_TOOL_NAMES = {
-    "memory",
-    "search",
-    "fetch",
-    "wikipedia",
-    "tts",
-    "shell",
-    "cron",
-    "playwright",
-    "crawl4ai",
-    "browser_agent",
-}
 
 # Track currently running tasks to prevent duplicate execution
 _running_tasks: set[tuple[int, str]] = set()  # (user_id, task_name)
 _running_tasks_lock = threading.Lock()
-
-
-def _normalize_tools_csv(raw: str) -> str:
-    """Normalize a comma-separated tool list, keeping known names only."""
-    seen = set()
-    ordered = []
-    for item in (raw or "").split(","):
-        name = item.strip().lower()
-        if not name or name not in _ALL_TOOL_NAMES or name in seen:
-            continue
-        seen.add(name)
-        ordered.append(name)
-    return ",".join(ordered)
-
-
-def _resolve_cron_tools(settings: dict) -> str:
-    """Resolve which tools scheduled tasks may use.
-
-    Priority:
-    1) settings.cron_enabled_tools (explicit user override)
-    2) settings.enabled_tools with memory removed
-    3) safe default tools
-    """
-    explicit = _normalize_tools_csv(settings.get("cron_enabled_tools", ""))
-    if explicit:
-        return explicit
-
-    derived = _normalize_tools_csv(settings.get("enabled_tools", ""))
-    derived_list = [name for name in derived.split(",") if name and name != "memory"]
-    if derived_list:
-        return ",".join(derived_list)
-
-    return ""
 
 
 def _cron_matches(expr: str, dt: datetime) -> bool:
@@ -133,8 +89,6 @@ def _field_matches(field: str, value: int, lo: int, hi: int) -> bool:
     return False
 
 
-
-
 def _execute_cron_task(bot, task: dict) -> None:
     """Execute a single cron task: call AI with the task prompt, send result to user."""
     user_id = task["user_id"]
@@ -198,7 +152,7 @@ def _execute_cron_task(bot, task: dict) -> None:
         else:
             client = get_ai_client(user_id)
 
-        enabled_tools = _resolve_cron_tools(settings)
+        enabled_tools = resolve_cron_tools_csv(settings)
         logger.info("[user=%d] cron task tools: %s", user_id, enabled_tools or "(none)")
 
         # Build system prompt

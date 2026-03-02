@@ -3,12 +3,6 @@
 import re
 import uuid
 
-# All supported thinking tag patterns (opening tags for detection)
-_THINK_OPEN_TAGS = re.compile(
-    r"<think>|<thinking>|<reasoning>|<reflection>|\[thinking\]|<\|think\|>",
-    re.IGNORECASE,
-)
-
 # Raw tool call markup patterns (e.g., Qwen-style models)
 _RAW_TOOL_SECTION_RE = re.compile(
     r'<\|tool_calls_section_begin\|>(.*?)<\|tool_calls_section_end\|>',
@@ -74,11 +68,6 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
         filtered = filtered.strip()
 
     return filtered
-
-
-def has_thinking_tags(text: str) -> bool:
-    """Check if text contains any known thinking opening tag."""
-    return bool(_THINK_OPEN_TAGS.search(text))
 
 
 def parse_raw_tool_calls(text: str) -> tuple[list[dict], str]:

@@ -49,9 +49,3 @@ def export_to_markdown(user_id: int, persona_name: str = None) -> io.BytesIO | N
     file_buffer.name = f"chat_{persona_name}_{date_str}.md"
 
     return file_buffer
-
-
-def get_export_filename(persona_name: str = "chat") -> str:
-    """Get a timestamped export filename."""
-    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"chat_{persona_name}_{date_str}.md"

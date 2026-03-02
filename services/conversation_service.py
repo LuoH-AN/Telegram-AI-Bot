@@ -36,19 +36,3 @@ def clear_conversation(session_id: int) -> None:
 def get_message_count(session_id: int) -> int:
     """Get number of messages in a session."""
     return len(cache.get_conversation_by_session(session_id))
-
-
-def pop_last_exchange(session_id: int) -> bool:
-    """Remove the last user+assistant message pair from conversation.
-
-    Returns True if messages were removed, False if conversation was empty.
-    """
-    conversation = cache.get_conversation_by_session(session_id)
-    if not conversation:
-        return False
-    # Remove trailing assistant message(s), then the last user message
-    while conversation and conversation[-1]["role"] == "assistant":
-        conversation.pop()
-    if conversation and conversation[-1]["role"] == "user":
-        conversation.pop()
-    return True

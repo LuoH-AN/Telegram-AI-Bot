@@ -110,6 +110,18 @@ from utils import (
     is_likely_text,
     decode_file_content,
 )
+from utils.tooling import (
+    AVAILABLE_TOOLS,
+    normalize_tools_csv,
+    resolve_cron_tools_csv,
+    resolve_enabled_tools_csv,
+)
+from utils.ai_helpers import (
+    effective_tool_timeout,
+    estimate_tokens as _estimate_tokens,
+    estimate_tokens_str as _estimate_tokens_str,
+    tool_dedup_key as _tool_dedup_key,
+)
 from utils.platform_parity import (
     SHARED_TOOL_STATUS_MAP,
     build_analyze_uploaded_files_message,
@@ -173,19 +185,6 @@ TOOL_TIMEOUT = 30
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 STREAM_PREVIEW_PREFIX = "[...]\n"
 CRON_SCHEDULER_STARTED = False
-
-AVAILABLE_TOOLS = [
-    "memory",
-    "search",
-    "fetch",
-    "wikipedia",
-    "tts",
-    "shell",
-    "cron",
-    "playwright",
-    "crawl4ai",
-    "browser_agent",
-]
 TOOL_STATUS_MAP = SHARED_TOOL_STATUS_MAP
 
 
@@ -354,55 +353,6 @@ def _mask_key(api_key: str) -> str:
     return f"{api_key[:8]}...{api_key[-4:]}"
 
 
-def _normalize_tools_csv(raw: str) -> str:
-    seen = set()
-    ordered: list[str] = []
-    for item in (raw or "").split(","):
-        name = item.strip().lower()
-        if not name or name not in AVAILABLE_TOOLS or name in seen:
-            continue
-        seen.add(name)
-        ordered.append(name)
-    return ",".join(ordered)
-
-
-def _resolve_enabled_tools_for_discord(settings: dict) -> str:
-    if "enabled_tools" not in settings:
-        return _normalize_tools_csv("memory,search,fetch,wikipedia,tts")
-    return _normalize_tools_csv(settings.get("enabled_tools", ""))
-
-
-def _resolve_cron_tools_for_display(settings: dict) -> str:
-    explicit = _normalize_tools_csv(settings.get("cron_enabled_tools", ""))
-    if explicit:
-        return explicit
-    derived = _normalize_tools_csv(settings.get("enabled_tools", ""))
-    derived_list = [t for t in derived.split(",") if t and t != "memory"]
-    return ",".join(derived_list)
-
-
-def _estimate_tokens_str(text: str) -> int:
-    if not text:
-        return 0
-    cjk = sum(1 for c in text if "\u4e00" <= c <= "\u9fff" or "\u3000" <= c <= "\u30ff")
-    other = len(text) - cjk
-    return max(1, int(cjk / 1.5 + other / 4))
-
-
-def _estimate_tokens(messages: Sequence[dict]) -> int:
-    total = 0
-    for msg in messages:
-        content = msg.get("content") or ""
-        if isinstance(content, list):
-            content = " ".join(
-                p.get("text", "")
-                for p in content
-                if isinstance(p, dict) and p.get("type") == "text"
-            )
-        total += _estimate_tokens_str(str(content)) + 4
-    return total
-
-
 def _normalize_stream_mode(mode: str | None) -> str:
     current = (mode or "").strip().lower()
     if current in {"default", "time", "chars"}:
@@ -422,76 +372,8 @@ def _build_stream_preview(display_text: str, *, thinking_prefix: str = "", curso
     return STREAM_PREVIEW_PREFIX + text[-keep:]
 
 
-def _tool_dedup_key(tc: ToolCall) -> str:
-    try:
-        args = json.loads(tc.arguments)
-    except Exception:
-        return f"{tc.name}:{tc.arguments}"
-
-    if tc.name.startswith("browser_"):
-        # Stateful browser actions may legitimately repeat with same args.
-        return f"{tc.name}:{tc.id}"
-    if tc.name == "url_fetch":
-        return f"url_fetch:{args.get('url', '')}"
-    if tc.name == "crawl4ai_fetch":
-        return f"crawl4ai_fetch:{args.get('url', '')}"
-    if tc.name == "web_search":
-        return f"web_search:{args.get('query', '')}"
-    return f"{tc.name}:{tc.arguments}"
-
-
 def _effective_tool_timeout(tool_calls: Sequence[ToolCall]) -> int:
-    slow_web_tools = {
-        "page_screenshot",
-        "page_content",
-        "crawl4ai_fetch",
-        "browser_start_session",
-        "browser_list_sessions",
-        "browser_close_session",
-        "browser_goto",
-        "browser_click",
-        "browser_type",
-        "browser_press",
-        "browser_wait_for",
-        "browser_get_state",
-    }
-    timeout = TOOL_TIMEOUT
-    for tc in tool_calls:
-        if tc.name == "shell_exec":
-            try:
-                args = json.loads(tc.arguments)
-                requested = int(args.get("timeout", 0))
-                if requested > timeout:
-                    timeout = min(requested + 5, 125)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        elif tc.name == "crawl4ai_fetch":
-            timeout = max(timeout, 60)
-            try:
-                args = json.loads(tc.arguments)
-                requested_ms = int(args.get("timeout_ms", 60000))
-                requested_sec = max(5, min(requested_ms, 180000)) // 1000
-                # Keep outer wait_for slightly larger than crawl4ai page timeout.
-                timeout = max(timeout, min(requested_sec + 15, 210))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        elif tc.name.startswith("browser_"):
-            timeout = max(timeout, 90)
-            try:
-                args = json.loads(tc.arguments)
-                requested_ms = 0
-                if tc.name == "browser_wait_for":
-                    requested_ms = int(args.get("timeout_ms", 10000)) + int(args.get("wait_ms", 0))
-                else:
-                    requested_ms = int(args.get("timeout_ms", 10000))
-                requested_wait = float(args.get("wait", 0))
-                requested_sec = int(max(0, min(requested_ms, 180000)) / 1000 + max(0.0, min(requested_wait, 30.0)))
-                timeout = max(timeout, min(requested_sec + 15, 210))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        elif tc.name in slow_web_tools:
-            timeout = max(timeout, 60)
-    return timeout
+    return effective_tool_timeout(tool_calls, default_timeout=TOOL_TIMEOUT)
 
 
 async def _safe_edit_message(message: discord.Message, text: str) -> bool:
@@ -889,7 +771,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         return
 
     settings = get_user_settings(user_id)
-    enabled_tools = _resolve_enabled_tools_for_discord(settings)
+    enabled_tools = resolve_enabled_tools_csv(settings)
     user_stream_mode = _normalize_stream_mode(settings.get("stream_mode", "") or STREAM_UPDATE_MODE)
     session_id = ensure_session(user_id, persona_name)
     conversation = list(get_conversation(session_id))
@@ -1324,8 +1206,8 @@ async def settings_command(ctx: commands.Context) -> None:
     prompt = persona["system_prompt"]
     prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
 
-    enabled_tools = _resolve_enabled_tools_for_discord(settings) or "(none)"
-    cron_tools = _resolve_cron_tools_for_display(settings) or "(none)"
+    enabled_tools = resolve_enabled_tools_csv(settings) or "(none)"
+    cron_tools = resolve_cron_tools_csv(settings) or "(none)"
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
@@ -1396,7 +1278,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
     if len(args) < 2:
         if key == "tool":
-            enabled_tools = _resolve_enabled_tools_for_discord(settings)
+            enabled_tools = resolve_enabled_tools_csv(settings)
             enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
             status = []
             for tool in AVAILABLE_TOOLS:
@@ -1411,7 +1293,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             return
 
         if key == "cron_tool":
-            cron_tools = _resolve_cron_tools_for_display(settings)
+            cron_tools = resolve_cron_tools_csv(settings)
             enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
             status = []
             for tool in AVAILABLE_TOOLS:
@@ -1592,7 +1474,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
             return
 
-        enabled_tools = _resolve_enabled_tools_for_discord(settings)
+        enabled_tools = resolve_enabled_tools_csv(settings)
         enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
 
         if action == "on":
@@ -1605,7 +1487,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             await _send_ctx_reply(ctx, "Action must be 'on' or 'off'")
             return
 
-        update_user_setting(user_id, "enabled_tools", _normalize_tools_csv(",".join(enabled_list)))
+        update_user_setting(user_id, "enabled_tools", normalize_tools_csv(",".join(enabled_list)))
         logger.info("%s set tool %s = %s", ctx_log, tool_name, action)
         await _send_ctx_reply(ctx, f"Tool {tool_name} set to {action}")
         return
@@ -1625,7 +1507,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
             return
 
-        cron_tools = _resolve_cron_tools_for_display(settings)
+        cron_tools = resolve_cron_tools_csv(settings)
         enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
 
         if action == "on":
@@ -1638,7 +1520,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             await _send_ctx_reply(ctx, "Action must be 'on' or 'off'")
             return
 
-        new_enabled = _normalize_tools_csv(",".join(enabled_list))
+        new_enabled = normalize_tools_csv(",".join(enabled_list))
         update_user_setting(user_id, "cron_enabled_tools", new_enabled)
         logger.info("%s set cron_tool %s = %s", ctx_log, tool_name, action)
         await _send_ctx_reply(ctx, f"Cron tool {tool_name} set to {action}")
@@ -1656,7 +1538,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
             return
 
-        normalized = _normalize_tools_csv(val)
+        normalized = normalize_tools_csv(val)
         if not normalized:
             await _send_ctx_reply(
                 ctx,

@@ -112,11 +112,6 @@ def clear_memories(user_id: int) -> int:
     return count
 
 
-def get_memory_count(user_id: int) -> int:
-    """Get number of memories for a user."""
-    return len(cache.get_memories(user_id))
-
-
 def format_memories_for_prompt(user_id: int, query: str | None = None) -> str | None:
     """Format memories as a string to include in system prompt.
 

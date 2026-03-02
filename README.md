@@ -1,239 +1,177 @@
----
-title: Gemen
-emoji: 💻
-colorFrom: red
-colorTo: indigo
-sdk: docker
-pinned: false
----
+# Telegram-AI-Bot (Gemen)
 
-# Gemen AI Bot (Telegram + Discord)
+一个支持 **Telegram / Discord 双平台** 的 AI Bot 项目，带有 Web Dashboard、可扩展工具系统、Persona（角色）与 Session（会话）管理、记忆系统、TTS、定时任务与 MCP 接口。
 
-一个支持 OpenAI API 的多平台聊天机器人，当前支持 Telegram 与 Discord，包含上下文对话、图片/文件分析、自定义配置与工具调用。
+## 功能概览
 
-## 功能特点
+- 文本对话（流式输出）
+- 图片理解（Vision）
+- 文件分析（文本/代码/图片）
+- Persona 多角色管理
+- Session 多会话管理
+- 记忆系统（手动记忆 + AI 工具记忆）
+- Token 用量统计与限额
+- 工具调用（search / fetch / wikipedia / tts / shell / cron / playwright / crawl4ai / browser_agent）
+- Web Dashboard（设置、日志、会话、记忆、模型、备份等）
+- MCP Server（可挂载到同端口，供外部 MCP 客户端调用）
 
-- **流式输出**：实时显示 AI 回复，带打字光标效果
-- **上下文对话**：保持对话历史，支持多轮对话
-- **智能记忆**：用户可手动添加记忆，AI 也能自动学习记忆
-- **图片分析**：发送图片使用视觉模型分析
-- **文件处理**：支持代码、文本、图片文件的上传分析
-- **自定义配置**：支持修改 API 地址、模型、温度等参数
-- **模型浏览**：交互式模型列表，分页选择
-- **Token 统计**：跟踪使用量，支持设置限额
-- **聊天导出**：导出对话历史为 Markdown 文件
-- **群聊支持**：通过 @提及 或回复触发响应
-- **Discord 兼容**：支持 DM / @提及 / 回复触发聊天，复用同一套记忆、会话、persona、工具逻辑
-- **过滤 thinking**：自动过滤模型的思考过程内容
-- **长消息分段**：超过 4096 字符自动分多条发送
-- **Markdown 支持**：默认 Markdown 格式，失败自动降级为纯文本
-- **语音输出**：AI 可通过 TTS tool 发送语音消息，支持音色/风格
-- **多用户隔离**：每个用户独立的设置和对话历史
-- **数据持久化**：PostgreSQL 存储，内存缓存加速
+## 技术栈
 
-## 命令列表
-
-| 命令 | 说明 |
-|------|------|
-| `/start` | 开始使用，显示帮助信息 |
-| `/help` | 显示帮助信息 |
-| `/clear` | 清除对话历史 |
-| `/settings` | 查看当前配置 |
-| `/set <key> <value>` | 修改配置 |
-| `/set model` | 浏览可用模型列表 |
-| `/set voice <name>` | 设置默认 TTS 音色 |
-| `/set style <style>` | 设置默认 TTS 风格 |
-| `/set endpoint <region\|host>` | 设置 TTS 区域/主机 |
-| `/set tool tts <on\|off>` | 开关 TTS 工具 |
-| `/set cron_tool <name> <on\|off>` | 开关定时任务可用工具 |
-| `/set cron_tools <a,b,c>` | 批量设置定时任务可用工具 |
-| `/remember <text>` | 添加一条记忆 |
-| `/memories` | 查看所有记忆 |
-| `/forget <num\|all>` | 删除记忆 |
-| `/usage` | 查看 Token 使用统计 |
-| `/usage reset` | 重置 Token 统计 |
-| `/export` | 导出聊天记录 |
-
-### Discord 命令（默认前缀 `!`）
-
-- `!start`
-- `!help`
-- `!clear`
-- `!settings`
-- `!set <key> <value>`
-- `!export`
-- `!usage`
-- `!remember <text>`
-- `!memories`
-- `!forget <num|all>`
-- `!persona ...`
-- `!chat ...`
-- `!web`
-
-## 记忆系统
-
-记忆功能让 AI 能够记住关于你的重要信息，实现跨会话的个性化体验。
-
-### 手动添加记忆
-```
-/remember 我喜欢简洁的回答
-/remember 我是一名 Python 开发者
-/remember 我的项目使用 FastAPI 框架
-```
-
-### 查看和管理记忆
-```
-/memories          # 列出所有记忆
-/forget 1          # 删除第 1 条记忆
-/forget all        # 清空所有记忆
-```
-
-### AI 自动记忆
-AI 在对话过程中会自动识别重要信息并保存为记忆，例如：
-- 你的偏好设置（语言、风格）
-- 你的技术栈和项目背景
-- 重要的上下文信息
-
-记忆列表中会标记来源：👤 用户添加，🤖 AI 自动添加
-
-## 配置项
-
-通过 `/set` 命令可以修改以下配置：
-
-| 配置项 | 说明 | 示例 |
-|--------|------|------|
-| `base_url` | API 地址 | `/set base_url https://api.openai.com/v1` |
-| `api_key` | API 密钥 | `/set api_key sk-xxx` |
-| `model` | 模型名称（或不带值浏览列表） | `/set model gpt-4o` |
-| `prompt` | 系统提示词 | `/set prompt 你是一个有帮助的助手` |
-| `temperature` | 温度 (0-2) | `/set temperature 0.7` |
-| `token_limit` | Token 用量限额 | `/set token_limit 100000` |
-| `cron_tools` | 定时任务可用工具列表（逗号分隔） | `/set cron_tools search,fetch,wikipedia,tts` |
-| `voice` | 默认 TTS 音色 | `/set voice zh-CN-XiaoxiaoMultilingualNeural` |
-| `style` | 默认 TTS 风格 | `/set style cheerful` |
-| `endpoint` | TTS 区域或主机（auto=自动） | `/set endpoint southeastasia` |
+- Python 3.11+
+- `python-telegram-bot` / `discord.py`
+- FastAPI + Uvicorn
+- PostgreSQL + `psycopg2-binary`
+- OpenAI Compatible API
+- Playwright + Camoufox
+- Crawl4AI
 
 ## 项目结构
 
-```
-gemen/
-├── bot.py                  # 入口文件
-├── discord_bot.py          # Discord 入口文件
-├── config/                 # 配置模块
-│   ├── settings.py         # 环境变量、默认设置
-│   └── constants.py        # 常量定义
-├── database/               # 数据库层
-│   ├── connection.py       # 连接管理
-│   └── schema.py           # 表结构定义
-├── cache/                  # 缓存层
-│   ├── manager.py          # 内存缓存管理
-│   └── sync.py             # 后台同步逻辑
-├── services/               # 业务逻辑层
-│   ├── user_service.py     # 用户设置管理
-│   ├── conversation_service.py  # 对话管理
-│   ├── token_service.py    # Token 使用跟踪
-│   ├── memory_service.py   # 记忆系统
-│   └── export_service.py   # 聊天导出
-├── ai/                     # AI 客户端抽象层
-│   ├── base.py             # 抽象基类
-│   ├── openai_client.py    # OpenAI 实现
-│   └── gemini_client.py    # Gemini 预留
-├── handlers/               # Telegram 处理器
-│   ├── commands/           # 命令处理
-│   │   ├── basic.py        # /start, /help, /clear
-│   │   ├── settings.py     # /settings, /set
-│   │   ├── usage.py        # /usage, /export
-│   │   └── memory.py       # /remember, /memories, /forget
-│   ├── messages/           # 消息处理
-│   │   ├── text.py         # 文本消息
-│   │   ├── photo.py        # 图片处理
-│   │   └── document.py     # 文件处理
-│   └── callbacks.py        # 回调处理
-└── utils/                  # 工具函数
-    ├── telegram.py         # Telegram 工具
-    ├── filters.py          # 内容过滤
-    └── files.py            # 文件类型检测
+```text
+.
+├── bot.py                    # Telegram 入口
+├── discord_bot.py            # Discord 入口
+├── web/                      # FastAPI Web Dashboard
+├── handlers/                 # Telegram handlers（命令、消息、回调）
+├── services/                 # 业务逻辑层
+├── tools/                    # 可扩展工具系统（Tool Registry）
+├── ai/                       # AI 客户端封装
+├── cache/                    # 进程内缓存与同步
+├── database/                 # 数据库连接与 schema
+├── config/                   # 常量与环境配置
+├── utils/                    # 通用工具函数
+├── scripts/                  # 脚本
+└── docs/                     # 设计与评审文档
 ```
 
-## 环境变量
+## 快速开始
 
-| 变量 | 必需 | 说明 |
-|------|------|------|
-| `ENV_CONTENT` | 否 | 多行 `KEY=VALUE` 批量注入环境变量（仅补全未显式设置的变量） |
-| `TELEGRAM_BOT_TOKEN` | 是 | Telegram Bot Token |
-| `DISCORD_BOT_TOKEN` | Discord 模式需要 | Discord Bot Token |
-| `DISCORD_COMMAND_PREFIX` | 否 | Discord 命令前缀（默认 `!`） |
-| `DISCORD_API_BASE` | 否 | Discord API 反代基址（示例 `https://your-proxy.example.com`） |
-| `DISCORD_GATEWAY_BASE` | 否 | Discord Gateway 反代地址（示例 `wss://your-proxy.example.com/gateway`） |
-| `DISCORD_CDN_BASE` | 否 | Discord CDN 反代地址（文件/媒体下载，示例 `https://your-proxy.example.com/cdn`） |
-| `DISCORD_INVITE_BASE` | 否 | 邀请链接域名（仅影响生成的链接显示） |
-| `DATABASE_URL` | 是 | PostgreSQL 连接字符串 |
-| `OPENAI_API_KEY` | 否 | 默认 API 密钥 |
-| `OPENAI_BASE_URL` | 否 | 默认 API 地址 |
-| `OPENAI_MODEL` | 否 | 默认模型 |
-| `OPENAI_TEMPERATURE` | 否 | 默认温度 |
-| `OPENAI_SYSTEM_PROMPT` | 否 | 默认系统提示词 |
-| `CRON_ENABLED_TOOLS` | 否 | 定时任务默认可用工具（默认 `search,fetch,wikipedia,tts`） |
-| `TELEGRAM_API_BASE` | 否 | 自定义 Telegram API 地址 |
-| `TELEGRAM_SEND_GLOBAL_RATE` | 否 | 全局发送速率（默认 25 req/s） |
-| `TELEGRAM_SEND_PER_CHAT_RATE` | 否 | 单 chat 发送速率（默认 1 req/s） |
-| `TELEGRAM_SEND_MAX_RETRIES` | 否 | `RetryAfter` 最大重试次数（默认 8） |
-| `PORT` | 否 | 健康检查端口 (默认 8080) |
-
-Discord 反代注意事项：
-- `DISCORD_GATEWAY_BASE` 必须是 `ws://` 或 `wss://`，并且反代必须支持 WebSocket Upgrade。
-- `DISCORD_API_BASE` 和 `DISCORD_CDN_BASE` 需要透传原始路径与查询参数。
-
-`ENV_CONTENT` 示例（支持空行、注释行和 `export KEY=VALUE`）：
-
-```dotenv
-TELEGRAM_BOT_TOKEN=<your_telegram_bot_token>
-
-TELEGRAM_API_BASE=https://your-telegram-proxy.example.com
-DISCORD_API_BASE=https://your-discord-proxy.example.com
-DISCORD_GATEWAY_BASE=wss://your-discord-proxy.example.com/gateway
-DISCORD_CDN_BASE=https://your-discord-proxy.example.com/cdn
-```
-
-## 部署
-
-### 本地启动
+### 1. 安装依赖
 
 ```bash
-# Telegram
-python bot.py
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-# Discord
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+至少需要配置：
+
+- `DATABASE_URL`
+- `TELEGRAM_BOT_TOKEN`（启 Telegram 时）
+- `DISCORD_BOT_TOKEN`（启 Discord 时）
+- `OPENAI_API_KEY`（也支持每个用户在 Bot 内单独配置）
+
+### 3. 准备数据库
+
+首次启动会自动建表与迁移。只要 `DATABASE_URL` 可连接即可。
+
+### 4. 启动服务
+
+#### 启动 Telegram Bot
+
+```bash
+python bot.py
+```
+
+#### 启动 Discord Bot
+
+```bash
 python discord_bot.py
 ```
 
-### Docker
+说明：两个入口都会启动 Web 服务（默认 `PORT=8080`）。如果要同时运行两者，请为不同进程设置不同端口。
+
+## 常用命令
+
+Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
+
+- `start`
+- `help`
+- `clear`
+- `settings`
+- `set`
+- `persona`
+- `chat`
+- `usage`
+- `export`
+- `remember`
+- `memories`
+- `forget`
+- `web`（发送 Dashboard 登录链接）
+
+## 工具系统
+
+当前支持工具：
+
+- `memory`
+- `search`
+- `fetch`
+- `wikipedia`
+- `tts`
+- `shell`
+- `cron`
+- `playwright`
+- `crawl4ai`
+- `browser_agent`
+
+可在用户设置中通过 `enabled_tools` 与 `cron_enabled_tools` 控制启用范围。
+
+## Web Dashboard
+
+入口：`http://<host>:<PORT>/`
+
+核心 API 路由位于 `web/routes/`：
+
+- `settings`
+- `personas`
+- `providers`
+- `sessions`
+- `usage`
+- `memories`
+- `models`
+- `logs`
+- `cron`
+- `backup`
+- `browser_view`
+
+鉴权通过短时 token 与 JWT（`/web` 命令下发链接）。
+
+## MCP 支持
+
+项目内置 MCP 适配，可独立运行：
 
 ```bash
-docker build -t gemen .
-docker run -d \
-  -e TELEGRAM_BOT_TOKEN=your_token \
-  -e DISCORD_BOT_TOKEN=your_discord_token \
-  -e DISCORD_API_BASE=https://your-proxy.example.com \
-  -e DISCORD_GATEWAY_BASE=wss://your-proxy.example.com/gateway \
-  -e DISCORD_CDN_BASE=https://your-proxy.example.com/cdn \
-  -e DATABASE_URL=postgresql://... \
-  -e OPENAI_API_KEY=sk-xxx \
-  gemen
-
-# Discord only (override default CMD)
-docker run -d \
-  -e DISCORD_BOT_TOKEN=your_discord_token \
-  -e DISCORD_API_BASE=https://your-proxy.example.com \
-  -e DISCORD_GATEWAY_BASE=wss://your-proxy.example.com/gateway \
-  -e DISCORD_CDN_BASE=https://your-proxy.example.com/cdn \
-  -e DATABASE_URL=postgresql://... \
-  -e OPENAI_API_KEY=sk-xxx \
-  gemen python discord_bot.py
+python mcp_server.py
 ```
 
-### HuggingFace Spaces
+或在 Web 应用内挂载（默认会尝试挂载到同端口）。
 
-1. 创建 Docker 类型的 Space
-2. 在 Settings > Variables 中添加环境变量
-3. 推送代码到 Space 仓库
+## 关键环境变量
+
+- 基础：`PORT`, `DATABASE_URL`
+- Telegram：`TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_BASE`
+- Discord：`DISCORD_BOT_TOKEN`, `DISCORD_COMMAND_PREFIX`
+- 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`
+- 工具默认值：`ENABLED_TOOLS`, `CRON_ENABLED_TOOLS`
+- TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
+- 浏览器：`BROWSER_HEADLESS`, `CAMOUFOX_HUMANIZE`, `CAMOUFOX_DISABLE_COOP`
+
+详细示例请参考 `.env.example`。
+
+## 开发建议
+
+- 新增业务逻辑优先放到 `services/`
+- 新增模型能力优先走 `ai/` 抽象层
+- 新增工具按 `tools/registry.py` 约定注册
+- Bot 文案优先复用 `utils/platform_parity.py`，保持 Telegram/Discord 一致
+- 修改缓存结构时同步检查 `cache/` 与 `services/state_sync_service.py`
+
+## 许可证
+
+当前仓库未附带 LICENSE 文件。若用于公开分发，请先补充许可证声明。

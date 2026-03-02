@@ -3,7 +3,6 @@
 from services import get_user_settings
 from .base import AIClient, StreamChunk, ToolCall
 from .openai_client import OpenAIClient, create_openai_client
-from .gemini_client import GeminiClient, create_gemini_client
 
 
 def get_ai_client(user_id: int) -> AIClient:
@@ -36,9 +35,6 @@ __all__ = [
     # OpenAI
     "OpenAIClient",
     "create_openai_client",
-    # Gemini
-    "GeminiClient",
-    "create_gemini_client",
     # Factory
     "get_ai_client",
     "get_openai_client",

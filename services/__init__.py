@@ -3,10 +3,6 @@
 from .user_service import (
     get_user_settings,
     update_user_setting,
-    get_api_key,
-    get_base_url,
-    get_model,
-    get_temperature,
     has_api_key,
 )
 from .persona_service import (
@@ -15,14 +11,12 @@ from .persona_service import (
     get_current_persona,
     get_current_persona_name,
     get_system_prompt,
-    get_global_prompt,
     switch_persona,
     create_persona,
     delete_persona,
     update_persona_prompt,
     update_current_prompt,
     persona_exists,
-    get_persona_count,
 )
 from .conversation_service import (
     ensure_session,
@@ -32,7 +26,6 @@ from .conversation_service import (
     add_assistant_message,
     clear_conversation,
     get_message_count,
-    pop_last_exchange,
 )
 from .token_service import (
     get_token_usage,
@@ -44,17 +37,13 @@ from .token_service import (
     get_remaining_tokens,
     get_usage_percentage,
 )
-from .export_service import (
-    export_to_markdown,
-    get_export_filename,
-)
+from .export_service import export_to_markdown
 from .memory_service import (
     get_memories,
     add_memory,
     update_memory,
     delete_memory,
     clear_memories,
-    get_memory_count,
     format_memories_for_prompt,
 )
 from .tts_service import (
@@ -81,10 +70,6 @@ __all__ = [
     # User service
     "get_user_settings",
     "update_user_setting",
-    "get_api_key",
-    "get_base_url",
-    "get_model",
-    "get_temperature",
     "has_api_key",
     # Persona service
     "get_personas",
@@ -92,14 +77,12 @@ __all__ = [
     "get_current_persona",
     "get_current_persona_name",
     "get_system_prompt",
-    "get_global_prompt",
     "switch_persona",
     "create_persona",
     "delete_persona",
     "update_persona_prompt",
     "update_current_prompt",
     "persona_exists",
-    "get_persona_count",
     # Conversation service
     "ensure_session",
     "get_conversation",
@@ -108,7 +91,6 @@ __all__ = [
     "add_assistant_message",
     "clear_conversation",
     "get_message_count",
-    "pop_last_exchange",
     # Token service
     "get_token_usage",
     "add_token_usage",
@@ -120,14 +102,12 @@ __all__ = [
     "get_usage_percentage",
     # Export service
     "export_to_markdown",
-    "get_export_filename",
     # Memory service
     "get_memories",
     "add_memory",
     "update_memory",
     "delete_memory",
     "clear_memories",
-    "get_memory_count",
     "format_memories_for_prompt",
     # TTS service
     "get_voice",

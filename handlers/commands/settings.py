@@ -19,6 +19,12 @@ from services import (
 )
 from ai import get_openai_client
 from handlers.common import get_log_context
+from utils.tooling import (
+    AVAILABLE_TOOLS,
+    normalize_tools_csv,
+    resolve_cron_tools_csv,
+    resolve_enabled_tools_csv,
+)
 from utils.platform_parity import (
     build_api_key_required_message,
     build_api_key_verify_failed_message,
@@ -35,42 +41,6 @@ from utils.platform_parity import (
 )
 
 logger = logging.getLogger(__name__)
-
-AVAILABLE_TOOLS = [
-    "memory",
-    "search",
-    "fetch",
-    "wikipedia",
-    "tts",
-    "shell",
-    "cron",
-    "playwright",
-    "crawl4ai",
-    "browser_agent",
-]
-
-
-def _normalize_tools_csv(raw: str) -> str:
-    """Normalize comma-separated tool names in declared order."""
-    seen = set()
-    ordered = []
-    for item in (raw or "").split(","):
-        name = item.strip().lower()
-        if not name or name not in AVAILABLE_TOOLS or name in seen:
-            continue
-        seen.add(name)
-        ordered.append(name)
-    return ",".join(ordered)
-
-
-def _resolve_cron_tools_for_display(settings: dict) -> str:
-    """Resolve cron tools with fallback when per-cron setting is unset."""
-    explicit = _normalize_tools_csv(settings.get("cron_enabled_tools", ""))
-    if explicit:
-        return explicit
-    derived = _normalize_tools_csv(settings.get("enabled_tools", ""))
-    derived_list = [t for t in derived.split(",") if t and t != "memory"]
-    return ",".join(derived_list)
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -96,8 +66,8 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     global_prompt = settings.get("global_prompt", "") or ""
     global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
 
-    enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia,tts")
-    cron_tools = _resolve_cron_tools_for_display(settings) or "(none)"
+    enabled_tools = resolve_enabled_tools_csv(settings)
+    cron_tools = resolve_cron_tools_csv(settings) or "(none)"
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
@@ -158,7 +128,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         # Check if it's "/set tool" without value
         if context.args and context.args[0].lower() == "tool":
-            enabled_tools = settings.get("enabled_tools", "")
+            enabled_tools = resolve_enabled_tools_csv(settings)
             enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
             status = []
             for t in AVAILABLE_TOOLS:
@@ -171,7 +141,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         # Check if it's "/set cron_tool" without enough args
         if context.args and context.args[0].lower() == "cron_tool":
-            cron_tools = _resolve_cron_tools_for_display(settings)
+            cron_tools = resolve_cron_tools_csv(settings)
             enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
             status = []
             for t in AVAILABLE_TOOLS:
@@ -356,7 +326,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
 
-        enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia,tts")
+        enabled_tools = resolve_enabled_tools_csv(settings)
         enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
 
         if action == "on":
@@ -369,7 +339,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text("Action must be 'on' or 'off'")
             return
 
-        new_enabled = ",".join(enabled_list)
+        new_enabled = normalize_tools_csv(",".join(enabled_list))
         update_user_setting(user_id, "enabled_tools", new_enabled)
         logger.info("%s set tool %s = %s", ctx, tool_name, action)
         await update.message.reply_text(f"Tool {tool_name} set to {action}")
@@ -387,7 +357,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
 
-        cron_tools = _resolve_cron_tools_for_display(settings)
+        cron_tools = resolve_cron_tools_csv(settings)
         enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
 
         if action == "on":
@@ -400,7 +370,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text("Action must be 'on' or 'off'")
             return
 
-        new_enabled = _normalize_tools_csv(",".join(enabled_list))
+        new_enabled = normalize_tools_csv(",".join(enabled_list))
         update_user_setting(user_id, "cron_enabled_tools", new_enabled)
         logger.info("%s set cron_tool %s = %s", ctx, tool_name, action)
         await update.message.reply_text(f"Cron tool {tool_name} set to {action}")
@@ -415,7 +385,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
 
-        normalized = _normalize_tools_csv(val)
+        normalized = normalize_tools_csv(val)
         if not normalized:
             await update.message.reply_text(
                 "No valid tools provided.\n"

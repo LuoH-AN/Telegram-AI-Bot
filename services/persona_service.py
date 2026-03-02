@@ -42,13 +42,6 @@ def get_system_prompt(user_id: int) -> str:
     return persona_prompt
 
 
-def get_global_prompt(user_id: int) -> str:
-    """Get the global prompt for a user."""
-    refresh_user_state_from_db(user_id)
-    settings = cache.get_settings(user_id)
-    return settings.get("global_prompt", "") or ""
-
-
 def switch_persona(user_id: int, name: str) -> bool:
     """Switch to a persona by name. Creates it if doesn't exist.
 
@@ -90,8 +83,3 @@ def update_current_prompt(user_id: int, prompt: str) -> bool:
 def persona_exists(user_id: int, name: str) -> bool:
     """Check if a persona exists."""
     return name in cache.get_personas(user_id)
-
-
-def get_persona_count(user_id: int) -> int:
-    """Get the number of personas for a user."""
-    return len(cache.get_personas(user_id))

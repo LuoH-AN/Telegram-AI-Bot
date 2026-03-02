@@ -61,32 +61,6 @@ def get_embedding(text: str) -> list[float] | None:
         return None
 
 
-def get_embeddings_batch(texts: list[str]) -> list[list[float] | None]:
-    """Get embeddings for multiple texts in one API call.
-
-    Returns:
-        List of embedding vectors (or None for failed items), same length as input.
-    """
-    client = _get_client()
-    if not client or not texts:
-        return [None] * len(texts)
-    try:
-        response = client.embeddings.create(
-            input=texts,
-            model=EMBEDDING_MODEL,
-            encoding_format="float",
-            extra_body={"truncate": "NONE"},
-        )
-        result: list[list[float] | None] = [None] * len(texts)
-        for item in response.data:
-            result[item.index] = item.embedding
-        logger.info("Batch embedded %d texts", len(texts))
-        return result
-    except Exception as e:
-        logger.warning("Batch embedding API call failed: %s", e)
-        return [None] * len(texts)
-
-
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
     dot = sum(x * y for x, y in zip(a, b))

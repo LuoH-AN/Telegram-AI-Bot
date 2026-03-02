@@ -17,6 +17,7 @@ from config import (
     DEFAULT_ENABLED_TOOLS,
 )
 from database.connection import get_connection, get_dict_cursor
+from utils.tooling import normalize_tools_csv, resolve_cron_tools_csv
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +25,6 @@ STATE_REFRESH_INTERVAL = max(0.5, float(os.getenv("STATE_REFRESH_INTERVAL", "2.0
 
 _refresh_lock = threading.Lock()
 _last_refresh_ts: dict[int, float] = {}
-
-
-def _normalize_tools_csv(raw: str) -> str:
-    seen = set()
-    ordered = []
-    for item in (raw or "").split(","):
-        name = item.strip().lower()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        ordered.append(name)
-    return ",".join(ordered)
 
 
 def _has_local_dirty_state(user_id: int) -> bool:
@@ -89,10 +78,9 @@ def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
                         except (json.JSONDecodeError, TypeError):
                             api_presets = {}
 
-                    enabled_tools = row.get("enabled_tools") or DEFAULT_ENABLED_TOOLS
-                    derived_cron_tools = ",".join(
-                        t for t in (x.strip().lower() for x in enabled_tools.split(","))
-                        if t and t != "memory"
+                    enabled_tools = normalize_tools_csv(row.get("enabled_tools") or DEFAULT_ENABLED_TOOLS)
+                    cron_tools = normalize_tools_csv(
+                        row.get("cron_enabled_tools") or resolve_cron_tools_csv({"enabled_tools": enabled_tools})
                     )
                     settings = {
                         "api_key": row.get("api_key") or "",
@@ -102,8 +90,8 @@ def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
                         "stream_mode": row.get("stream_mode") or "",
                         "token_limit": row.get("token_limit") or 0,
                         "current_persona": row.get("current_persona") or "default",
-                        "enabled_tools": _normalize_tools_csv(enabled_tools),
-                        "cron_enabled_tools": _normalize_tools_csv(row.get("cron_enabled_tools") or derived_cron_tools),
+                        "enabled_tools": enabled_tools,
+                        "cron_enabled_tools": cron_tools,
                         "tts_voice": row.get("tts_voice") or DEFAULT_TTS_VOICE,
                         "tts_style": row.get("tts_style") or DEFAULT_TTS_STYLE,
                         "tts_endpoint": row.get("tts_endpoint") or DEFAULT_TTS_ENDPOINT,
