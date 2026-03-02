@@ -670,99 +670,6 @@ def _is_cf_challenge(page) -> bool:
     return False
 
 
-def _get_turnstile_box(page) -> dict | None:
-    """Get Cloudflare Turnstile iframe bounding box from the outer frame element."""
-
-    def find_cf_frame():
-        for frame in page.frames:
-            frame_url = (getattr(frame, "url", "") or "").lower()
-            if "challenges.cloudflare" in frame_url or "turnstile" in frame_url:
-                return frame
-        return None
-
-    cf_frame = find_cf_frame()
-    if not cf_frame:
-        logger.info("[auto_cf] CF frame not found (frames=%d)", len(page.frames))
-        return None
-
-    try:
-        frame_el = cf_frame.frame_element()
-        box = frame_el.bounding_box()
-        if box and float(box.get("width") or 0) > 0 and float(box.get("height") or 0) > 0:
-            return box
-        logger.info("[auto_cf] iframe bounding_box empty or invalid")
-        return None
-    except Exception as e:
-        logger.info("[auto_cf] failed to get iframe bounding_box: %s", e)
-        return None
-
-
-def _attempt_auto_cf_turnstile(
-    page,
-    session: dict,
-    *,
-    timeout_ms: int,
-) -> dict:
-    """Best-effort Cloudflare Turnstile auto-click using iframe bounding-box coordinates."""
-    result = {
-        "auto_cf_attempted": False,
-        "auto_cf_passed": False,
-        "auto_cf_clicks": 0,
-        "auto_cf_message": None,
-        "auto_cf_strategy": None,
-    }
-
-    if not _is_cf_challenge(page):
-        result["auto_cf_message"] = "Challenge not active."
-        return result
-
-    safe_timeout_ms = max(1_000, min(int(timeout_ms or 10_000), 20_000))
-    deadline = time.time() + (safe_timeout_ms / 1000.0)
-    max_attempts = 3
-
-    for _ in range(max_attempts):
-        if time.time() >= deadline:
-            break
-        box = _get_turnstile_box(page)
-        if not box:
-            time.sleep(0.35)
-            continue
-
-        viewport = page.viewport_size or {"width": 1366, "height": 768}
-        viewport_width = int(viewport.get("width") or 1366)
-        viewport_height = int(viewport.get("height") or 768)
-
-        width = float(box.get("width") or 0.0)
-        height = float(box.get("height") or 0.0)
-        # Turnstile checkbox is usually near left edge; use adaptive offset + jitter.
-        click_x = float(box["x"]) + min(28.0, max(12.0, width * 0.22)) + random.uniform(-2.0, 4.0)
-        click_y = float(box["y"]) + (height / 2.0) + random.uniform(-3.0, 3.0)
-        _humanized_mouse_click(
-            page,
-            session,
-            click_x,
-            click_y,
-            viewport_width,
-            viewport_height,
-            button="left",
-            click_count=1,
-        )
-        result["auto_cf_attempted"] = True
-        result["auto_cf_clicks"] = int(result["auto_cf_clicks"]) + 1
-        result["auto_cf_strategy"] = "turnstile-frame-box"
-        time.sleep(random.uniform(0.9, 1.4))
-        if not _is_cf_challenge(page):
-            result["auto_cf_passed"] = True
-            result["auto_cf_message"] = "Turnstile challenge appears resolved."
-            return result
-
-    if result["auto_cf_attempted"]:
-        result["auto_cf_message"] = "Turnstile auto-click attempted, challenge still active."
-    else:
-        result["auto_cf_message"] = "Challenge detected but Turnstile iframe was not located."
-    return result
-
-
 def _browser_worker() -> None:
     sync_playwright = _load_playwright_sync_api()
     pw = sync_playwright().start()
@@ -1022,7 +929,6 @@ def _op_click(
     click_count: int,
     human_like: bool,
     focus_after_click: bool,
-    auto_cf: bool,
 ) -> str:
     _ = browser
     session = _get_session_for_user(session_id, user_id)
@@ -1187,15 +1093,6 @@ def _op_click(
 
     if wait_seconds > 0:
         time.sleep(wait_seconds)
-    auto_cf_result = {
-        "auto_cf_attempted": False,
-        "auto_cf_passed": False,
-        "auto_cf_clicks": 0,
-        "auto_cf_message": None,
-        "auto_cf_strategy": None,
-    }
-    if auto_cf and _is_cf_challenge(page):
-        auto_cf_result = _attempt_auto_cf_turnstile(page, session, timeout_ms=timeout_ms)
     cf_active = _is_cf_challenge(page)
     cf_message = (
         "Cloudflare challenge detected. Manual click/wait may be required."
@@ -1216,8 +1113,6 @@ def _op_click(
             "click_count": safe_click_count,
             "human_like": use_human_like,
             "focused_editable": focused_editable,
-            "auto_cf_enabled": bool(auto_cf),
-            **auto_cf_result,
             "url": page.url,
             "title": page.title(),
             "challenge_active": cf_active,
@@ -1240,7 +1135,6 @@ def _op_type(
     click_first: bool,
     human_like: bool,
     wait_seconds: float,
-    auto_cf: bool,
 ) -> str:
     _ = browser
     session = _get_session_for_user(session_id, user_id)
@@ -1284,20 +1178,6 @@ def _op_type(
         page.keyboard.press("Enter")
     if wait_seconds > 0:
         time.sleep(wait_seconds)
-    auto_cf_result = {
-        "auto_cf_attempted": False,
-        "auto_cf_passed": False,
-        "auto_cf_clicks": 0,
-        "auto_cf_message": None,
-        "auto_cf_strategy": None,
-    }
-    if auto_cf and _is_cf_challenge(page):
-        auto_cf_result = _attempt_auto_cf_turnstile(page, session, timeout_ms=timeout_ms)
-    cf_active = _is_cf_challenge(page)
-    cf_message = (
-        "Cloudflare challenge detected. Manual click/wait may be required."
-        if cf_active else None
-    )
 
     return _format_json(
         {
@@ -1311,12 +1191,8 @@ def _op_type(
             "human_like": bool(human_like),
             "type_mode": type_mode,
             "delay_ms": effective_delay,
-            "auto_cf_enabled": bool(auto_cf),
-            **auto_cf_result,
             "url": page.url,
             "title": page.title(),
-            "challenge_active": cf_active,
-            "challenge_message": cf_message,
             **viewer,
         }
     )
@@ -1328,40 +1204,22 @@ def _op_press(
     session_id: str,
     key: str,
     timeout_ms: int,
-    auto_cf: bool,
 ) -> str:
     _ = browser
+    _ = timeout_ms
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
     viewer = _viewer_payload(session_id, user_id)
     normalized_key = _normalize_playwright_key(key)
     page.keyboard.press(normalized_key)
-    auto_cf_result = {
-        "auto_cf_attempted": False,
-        "auto_cf_passed": False,
-        "auto_cf_clicks": 0,
-        "auto_cf_message": None,
-        "auto_cf_strategy": None,
-    }
-    if auto_cf and _is_cf_challenge(page):
-        auto_cf_result = _attempt_auto_cf_turnstile(page, session, timeout_ms=timeout_ms)
-    cf_active = _is_cf_challenge(page)
-    cf_message = (
-        "Cloudflare challenge detected. Manual click/wait may be required."
-        if cf_active else None
-    )
     return _format_json(
         {
             "ok": True,
             "action": "browser_press",
             "session_id": session_id,
             "key": normalized_key,
-            "auto_cf_enabled": bool(auto_cf),
-            **auto_cf_result,
             "url": page.url,
             "title": page.title(),
-            "challenge_active": cf_active,
-            "challenge_message": cf_message,
             **viewer,
         }
     )
@@ -1917,11 +1775,6 @@ BROWSER_CLICK_TOOL = {
                     "default": True,
                     "description": "After click, focus editable target when possible.",
                 },
-                "auto_cf": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "If true, auto-attempt Cloudflare Turnstile verification when challenge is detected.",
-                },
                 "wait": {
                     "type": "number",
                     "default": DEFAULT_WAIT_SECONDS,
@@ -1967,11 +1820,6 @@ BROWSER_TYPE_TOOL = {
                     "type": "boolean",
                     "default": True,
                     "description": "Prefer keyboard typing (with delay) instead of direct fill.",
-                },
-                "auto_cf": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "If true, auto-attempt Cloudflare Turnstile verification when challenge is detected.",
                 },
                 "press_enter": {
                     "type": "boolean",
@@ -2019,11 +1867,6 @@ BROWSER_PRESS_TOOL = {
                     "type": "integer",
                     "default": DEFAULT_ACTION_TIMEOUT_MS,
                     "description": "Action timeout in milliseconds.",
-                },
-                "auto_cf": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "If true, auto-attempt Cloudflare Turnstile verification when challenge is detected.",
                 },
             },
             "required": ["key"],
@@ -2291,7 +2134,6 @@ class BrowserAgentTool(BaseTool):
         click_count = self._int_arg(arguments.get("click_count"), 1, 1, 3)
         human_like = self._bool_arg(arguments.get("human_like"), True)
         focus_after_click = self._bool_arg(arguments.get("focus_after_click"), True)
-        auto_cf = self._bool_arg(arguments.get("auto_cf"), False)
         wait_seconds = self._float_arg(arguments.get("wait"), DEFAULT_WAIT_SECONDS, 0, MAX_WAIT_SECONDS)
         try:
             return _run_on_worker(
@@ -2308,7 +2150,6 @@ class BrowserAgentTool(BaseTool):
                 click_count,
                 human_like,
                 focus_after_click,
-                auto_cf,
             )
         except Exception as e:
             logger.exception("browser_click failed for user=%d session=%s", user_id, session_id)
@@ -2328,7 +2169,6 @@ class BrowserAgentTool(BaseTool):
         clear = self._bool_arg(arguments.get("clear"), True)
         click_first = self._bool_arg(arguments.get("click_first"), True)
         human_like = self._bool_arg(arguments.get("human_like"), True)
-        auto_cf = self._bool_arg(arguments.get("auto_cf"), False)
         press_enter = self._bool_arg(arguments.get("press_enter"), False)
         timeout_ms = self._int_arg(
             arguments.get("timeout_ms"),
@@ -2352,7 +2192,6 @@ class BrowserAgentTool(BaseTool):
                 click_first,
                 human_like,
                 wait_seconds,
-                auto_cf,
             )
         except Exception as e:
             logger.exception("browser_type failed for user=%d session=%s", user_id, session_id)
@@ -2374,9 +2213,8 @@ class BrowserAgentTool(BaseTool):
             1000,
             MAX_ACTION_TIMEOUT_MS,
         )
-        auto_cf = self._bool_arg(arguments.get("auto_cf"), False)
         try:
-            return _run_on_worker(_op_press, user_id, session_id, key, timeout_ms, auto_cf)
+            return _run_on_worker(_op_press, user_id, session_id, key, timeout_ms)
         except Exception as e:
             logger.exception("browser_press failed for user=%d session=%s", user_id, session_id)
             return f"browser_press failed: {e}"
@@ -2452,8 +2290,7 @@ class BrowserAgentTool(BaseTool):
             "- For forms, prefer browser_click on input then browser_type with click_first=true and human_like=true.\n"
             "- Call browser_get_state after important actions to inspect current page state.\n"
             "- Runtime uses Playwright Chromium (prefers local executable path when available).\n"
-            "- Cloudflare challenge can be auto-attempted by setting auto_cf=true in browser_click/browser_type/browser_press.\n"
-            "- If auto_cf=false (default), use viewer control click or manual waits for challenges.\n"
+            "- Cloudflare challenge is only detected, not auto-passed; use viewer control click or manual waits.\n"
             "- Prefer selector-based actions; use text-based click only when selector is unavailable.\n"
             "- Close sessions with browser_close_session when task is done.\n"
         )
