@@ -209,6 +209,25 @@ class Crawl4AITool(BaseTool):
                             },
                             "cookies": {
                                 "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "description": "Single cookie object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "value": {"type": "string"},
+                                        "domain": {"type": "string"},
+                                        "path": {"type": "string"},
+                                        "url": {"type": "string"},
+                                        "expires": {"type": "number"},
+                                        "httpOnly": {"type": "boolean"},
+                                        "secure": {"type": "boolean"},
+                                        "sameSite": {
+                                            "type": "string",
+                                            "enum": ["Strict", "Lax", "None"],
+                                        },
+                                    },
+                                    "required": ["name", "value"],
+                                },
                                 "description": "Optional cookies array (name/value/domain/path/url...).",
                             },
                             "proxy_config": {

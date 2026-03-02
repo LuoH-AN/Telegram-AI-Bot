@@ -40,8 +40,16 @@ class OpenAIClient(AIClient):
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:
-            # If tools not supported, retry without tools
-            if tools and ("tool" in str(e).lower() or "function" in str(e).lower()):
+            # If tools not supported by provider/model, retry without tools.
+            # But never silently swallow invalid tool schema errors.
+            err = str(e).lower()
+            has_tool_error = "tool" in err or "function" in err
+            invalid_schema = (
+                "invalid_function_parameters" in err
+                or "invalid schema for function" in err
+                or "array schema missing items" in err
+            )
+            if tools and has_tool_error and not invalid_schema:
                 logger.warning(f"Tools not supported, retrying without: {e}")
                 del kwargs["tools"]
                 response = self.client.chat.completions.create(**kwargs)

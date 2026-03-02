@@ -1,4 +1,4 @@
-"""Camoufox-backed browser tool — take webpage screenshots and extract page content.
+"""Playwright Chromium-backed browser tool — screenshot and content extraction.
 
 All Playwright operations run on a dedicated worker thread to avoid
 greenlet "Cannot switch to a different thread" errors when called from
@@ -10,6 +10,7 @@ import logging
 import os
 import queue
 import re
+import shutil
 import socket
 import threading
 import time
@@ -60,7 +61,7 @@ _work_queue: queue.Queue = queue.Queue()
 _worker_thread: threading.Thread | None = None
 _worker_lock = threading.Lock()
 _worker_runtime: dict[str, object] = {
-    "engine": "camoufox",
+    "engine": "chromium",
     "headless": None,
 }
 
@@ -119,68 +120,68 @@ def _is_display_launch_error(exc: Exception) -> bool:
     return any(marker in message for marker in markers)
 
 
-def _resolve_camoufox_humanize() -> bool | float:
-    raw = (os.getenv("CAMOUFOX_HUMANIZE") or "1.8").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    try:
-        return max(0.1, min(float(raw), 10.0))
-    except (TypeError, ValueError):
-        return True
+def _resolve_chromium_executable() -> str | None:
+    candidates = [
+        (os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or "").strip(),
+        (os.getenv("CHROMIUM_PATH") or "").strip(),
+        shutil.which("chromium") or "",
+        shutil.which("chromium-browser") or "",
+        shutil.which("google-chrome") or "",
+        shutil.which("google-chrome-stable") or "",
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return None
 
 
-def _resolve_camoufox_disable_coop() -> bool:
-    raw = (os.getenv("CAMOUFOX_DISABLE_COOP") or "1").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return True
+def _build_chromium_launch_kwargs(headless: bool) -> dict[str, object]:
+    launch_kwargs: dict[str, object] = {
+        "headless": headless,
+        "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+    }
+    executable = _resolve_chromium_executable()
+    if executable:
+        launch_kwargs["executable_path"] = executable
+    return launch_kwargs
 
 
 def _launch_browser_with_fallback(pw):
     global _worker_runtime
 
-    from camoufox.sync_api import NewBrowser
-
     headless = _resolve_playwright_headless()
-    launch_kwargs = {
-        "headless": headless,
-        "humanize": _resolve_camoufox_humanize(),
-        "disable_coop": _resolve_camoufox_disable_coop(),
-        "i_know_what_im_doing": True,
-        "locale": ["zh-CN", "zh", "en-US", "en"],
-    }
+    launch_kwargs = _build_chromium_launch_kwargs(headless)
     try:
-        browser = NewBrowser(pw, **launch_kwargs)
+        browser = pw.chromium.launch(**launch_kwargs)
         _worker_runtime = {
-            "engine": "camoufox",
+            "engine": "chromium",
             "headless": headless,
+            "executable": launch_kwargs.get("executable_path") or "bundled",
         }
         logger.info(
-            "Playwright worker thread started with Camoufox (headless=%s)",
+            "Playwright worker thread started with Chromium (headless=%s, executable=%s)",
             headless,
+            _worker_runtime.get("executable"),
         )
         return browser
     except Exception as e:
         if not headless and _is_display_launch_error(e):
             logger.warning(
-                "Headed Camoufox launch failed due display environment, retrying headless fallback."
+                "Headed Chromium launch failed due display environment, retrying headless fallback."
             )
-            launch_kwargs["headless"] = True
-            browser = NewBrowser(pw, **launch_kwargs)
+            launch_kwargs = _build_chromium_launch_kwargs(True)
+            browser = pw.chromium.launch(**launch_kwargs)
             _worker_runtime = {
-                "engine": "camoufox",
+                "engine": "chromium",
                 "headless": True,
+                "executable": launch_kwargs.get("executable_path") or "bundled",
             }
             logger.info(
-                "Playwright worker thread started with Camoufox (headless=%s, fallback=true)",
+                "Playwright worker thread started with Chromium (headless=%s, executable=%s, fallback=true)",
                 True,
+                _worker_runtime.get("executable"),
             )
             return browser
-        msg = str(e or "").lower()
-        if "camoufox is not installed" in msg or "camoufox fetch" in msg:
-            raise RuntimeError("Camoufox binary missing. Run `camoufox fetch`.") from e
         raise
 
 
@@ -232,12 +233,12 @@ def _run_on_worker(func, *args):
         except queue.Empty:
             if _worker_thread is None or not _worker_thread.is_alive():
                 raise RuntimeError(
-                    "Playwright/Camoufox worker crashed or exited. "
+                    "Playwright browser worker crashed or exited. "
                     "Check browser dependencies in the container."
                 )
 
 
-def _open_camoufox_page(browser):
+def _open_browser_page(browser):
     """Open an isolated context/page for one tool call."""
     context = browser.new_context(viewport={"width": 1280, "height": 720})
     page = context.new_page()
@@ -462,7 +463,7 @@ class PlaywrightTool(BaseTool):
         wait = min(max(float(arguments.get("wait", DEFAULT_WAIT)), 0), MAX_WAIT)
 
         def _do(browser, _url, _full_page, _wait):
-            context, page = _open_camoufox_page(browser)
+            context, page = _open_browser_page(browser)
             try:
                 used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
                 if _wait > 0:
@@ -501,7 +502,7 @@ class PlaywrightTool(BaseTool):
             "caption": f"📸 {caption}",
         })
 
-        engine = str(_worker_runtime.get("engine") or "camoufox")
+        engine = str(_worker_runtime.get("engine") or "chromium")
         headless = _worker_runtime.get("headless")
         return (
             f"Screenshot captured and queued for delivery. "
@@ -526,7 +527,7 @@ class PlaywrightTool(BaseTool):
         max_length = max(200, min(max_length, MAX_CONTENT_LENGTH))
 
         def _do(browser, _url, _wait):
-            context, page = _open_camoufox_page(browser)
+            context, page = _open_browser_page(browser)
             try:
                 used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
                 if _wait > 0:
@@ -588,9 +589,9 @@ class PlaywrightTool(BaseTool):
 
     def get_instruction(self) -> str:
         return (
-            "\n\nYou have browser tools (page_screenshot, page_content) powered by Camoufox.\n"
+            "\n\nYou have browser tools (page_screenshot, page_content) powered by Playwright Chromium.\n"
             "- Use page_screenshot to capture a webpage screenshot and send it as an image.\n"
             "- Use page_content to extract text from JS-heavy pages that need browser rendering.\n"
             "- These tools launch a real browser, so they handle JavaScript-rendered content.\n"
-            "- Camoufox is used with humanized cursor behavior and anti-bot focused defaults.\n"
+            "- Runtime prefers a local Chromium executable when available.\n"
         )

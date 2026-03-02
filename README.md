@@ -22,7 +22,7 @@
 - FastAPI + Uvicorn
 - PostgreSQL + `psycopg2-binary`
 - OpenAI Compatible API
-- Playwright + Camoufox
+- Playwright (Chromium)
 - Crawl4AI
 
 ## 项目结构
@@ -160,7 +160,7 @@ python mcp_server.py
 - 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`
 - 工具默认值：`ENABLED_TOOLS`, `CRON_ENABLED_TOOLS`
 - TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
-- 浏览器：`BROWSER_HEADLESS`, `CAMOUFOX_HUMANIZE`, `CAMOUFOX_DISABLE_COOP`
+- 浏览器：`BROWSER_HEADLESS`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
 
 详细示例请参考 `.env.example`。
 

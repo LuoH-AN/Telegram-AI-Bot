@@ -8,6 +8,7 @@ import queue
 import random
 import re
 import secrets
+import shutil
 import socket
 import threading
 import time
@@ -43,7 +44,7 @@ _worker_lock = threading.Lock()
 _sessions: dict[str, dict] = {}
 _viewer_lock = threading.Lock()
 _viewer_links: dict[str, dict] = {}
-_browser_runtime: dict[str, str] = {"engine": "camoufox"}
+_browser_runtime: dict[str, object] = {"engine": "chromium"}
 
 
 def _clamp_point(x: float, y: float, width: int, height: int) -> tuple[float, float]:
@@ -178,7 +179,7 @@ def _is_display_launch_error(exc: Exception) -> bool:
 
 
 def _load_playwright_sync_api():
-    """Load Playwright sync API for Camoufox NewBrowser."""
+    """Load Playwright sync API."""
     try:
         from playwright.sync_api import sync_playwright
 
@@ -189,39 +190,49 @@ def _load_playwright_sync_api():
         ) from e
 
 
-def _resolve_camoufox_humanize() -> bool | float:
-    raw = (os.getenv("CAMOUFOX_HUMANIZE") or "2.2").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    try:
-        return max(0.1, min(float(raw), 12.0))
-    except (TypeError, ValueError):
-        return True
+def _resolve_chromium_executable() -> str | None:
+    candidates = [
+        (os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or "").strip(),
+        (os.getenv("CHROMIUM_PATH") or "").strip(),
+        shutil.which("chromium") or "",
+        shutil.which("chromium-browser") or "",
+        shutil.which("google-chrome") or "",
+        shutil.which("google-chrome-stable") or "",
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return None
 
 
-def _resolve_camoufox_disable_coop() -> bool:
-    raw = (os.getenv("CAMOUFOX_DISABLE_COOP") or "1").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return True
+def _build_chromium_launch_kwargs(headless: bool) -> dict[str, object]:
+    launch_kwargs: dict[str, object] = {
+        "headless": headless,
+        "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+    }
+    executable = _resolve_chromium_executable()
+    if executable:
+        launch_kwargs["executable_path"] = executable
+    return launch_kwargs
 
 
 def _launch_browser_with_fallback(pw):
-    from camoufox.sync_api import NewBrowser
+    global _browser_runtime
 
     headless = _resolve_playwright_headless()
-    launch_kwargs = {
-        "headless": headless,
-        "humanize": _resolve_camoufox_humanize(),
-        "disable_coop": _resolve_camoufox_disable_coop(),
-        "i_know_what_im_doing": True,
-        "locale": ["zh-CN", "zh", "en-US", "en"],
-    }
+    launch_kwargs = _build_chromium_launch_kwargs(headless)
     try:
-        browser = NewBrowser(pw, **launch_kwargs)
-        logger.info("BrowserAgent worker started (headless=%s)", headless)
+        browser = pw.chromium.launch(**launch_kwargs)
+        _browser_runtime = {
+            "engine": "chromium",
+            "headless": headless,
+            "executable": launch_kwargs.get("executable_path") or "bundled",
+        }
+        logger.info(
+            "BrowserAgent worker started with Chromium (headless=%s, executable=%s)",
+            headless,
+            _browser_runtime.get("executable"),
+        )
         return browser
     except Exception as e:
         # Guard against stale/broken DISPLAY in container envs.
@@ -229,13 +240,19 @@ def _launch_browser_with_fallback(pw):
             logger.warning(
                 "Headed launch failed due display environment, retrying headless fallback."
             )
-            launch_kwargs["headless"] = True
-            browser = NewBrowser(pw, **launch_kwargs)
-            logger.info("BrowserAgent worker started (headless=%s, fallback=true)", True)
+            launch_kwargs = _build_chromium_launch_kwargs(True)
+            browser = pw.chromium.launch(**launch_kwargs)
+            _browser_runtime = {
+                "engine": "chromium",
+                "headless": True,
+                "executable": launch_kwargs.get("executable_path") or "bundled",
+            }
+            logger.info(
+                "BrowserAgent worker started with Chromium (headless=%s, executable=%s, fallback=true)",
+                True,
+                _browser_runtime.get("executable"),
+            )
             return browser
-        msg = str(e or "").lower()
-        if "camoufox is not installed" in msg or "camoufox fetch" in msg:
-            raise RuntimeError("Camoufox binary missing. Run `camoufox fetch`.") from e
         raise
 
 
@@ -596,12 +613,9 @@ def _is_cf_challenge(page) -> bool:
 
 
 def _browser_worker() -> None:
-    global _browser_runtime
-
     sync_playwright = _load_playwright_sync_api()
     pw = sync_playwright().start()
     browser = _launch_browser_with_fallback(pw)
-    _browser_runtime = {"engine": "camoufox"}
 
     while True:
         item = _work_queue.get()
@@ -1777,7 +1791,7 @@ class BrowserAgentTool(BaseTool):
             "- browser_start_session returns viewer_url so users can watch live browser actions.\n"
             "- Use browser_goto / browser_click / browser_type / browser_press / browser_wait_for in sequence.\n"
             "- Call browser_get_state after important actions to inspect current page state.\n"
-            "- Runtime uses Camoufox with anti-bot launch defaults and no CDP mode.\n"
+            "- Runtime uses Playwright Chromium (prefers local executable path when available).\n"
             "- Cloudflare challenge is only detected, not auto-passed; use viewer control click or manual waits.\n"
             "- Prefer selector-based actions; use text-based click only when selector is unavailable.\n"
             "- Close sessions with browser_close_session when task is done.\n"

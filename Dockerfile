@@ -14,11 +14,9 @@ RUN mkdir -p /tmp/shell
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN camoufox fetch
 
 # Install Playwright full Chromium browser + system dependencies + Chinese fonts
 RUN playwright install --with-deps chromium
-RUN playwright install --with-deps firefox
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
