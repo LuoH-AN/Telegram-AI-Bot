@@ -50,7 +50,11 @@ async def list_models(
     try:
         models = await loop.run_in_executor(
             None,
-            lambda: create_openai_client(api_key=api_key, base_url=base_url).list_models(),
+            lambda: create_openai_client(
+                api_key=api_key,
+                base_url=base_url,
+                log_context=f"[user={user_id}]",
+            ).list_models(),
         )
     except HTTPException:
         raise

@@ -1033,6 +1033,13 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             final_text = filter_thinking_content(last_text_response).strip()
         final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools)
         if not final_text:
+            logger.warning(
+                "%s model returned empty visible response (tool_calls=%d last_text_len=%d truncated_len=%d)",
+                ctx,
+                len(seen_tool_keys),
+                len(last_text_response),
+                len(truncated_prefix),
+            )
             final_text = "(Empty response)"
 
         chunks = split_message(final_text, max_length=DISCORD_MAX_MESSAGE_LENGTH)

@@ -143,7 +143,11 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
             ai_response=ai_response[:500],
         )
 
-        client = create_openai_client(api_key=api_key, base_url=base_url)
+        client = create_openai_client(
+            api_key=api_key,
+            base_url=base_url,
+            log_context=f"[user={user_id}]",
+        )
 
         # Non-streaming call with low temperature
         import asyncio

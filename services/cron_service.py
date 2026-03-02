@@ -148,7 +148,11 @@ def _execute_cron_task(bot, task: dict) -> None:
                 cron_model = cron_model_raw
 
         if cron_model_raw:
-            client = create_openai_client(api_key=api_key, base_url=base_url)
+            client = create_openai_client(
+                api_key=api_key,
+                base_url=base_url,
+                log_context=f"[user={user_id}]",
+            )
         else:
             client = get_ai_client(user_id)
 

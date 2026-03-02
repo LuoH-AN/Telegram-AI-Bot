@@ -14,6 +14,7 @@ def get_ai_client(user_id: int) -> AIClient:
     return create_openai_client(
         api_key=settings["api_key"],
         base_url=settings["base_url"],
+        log_context=f"[user={user_id}]",
     )
 
 
@@ -24,6 +25,7 @@ def get_openai_client(user_id: int) -> OpenAIClient:
     return create_openai_client(
         api_key=settings["api_key"],
         base_url=settings["base_url"],
+        log_context=f"[user={user_id}]",
     )
 
 

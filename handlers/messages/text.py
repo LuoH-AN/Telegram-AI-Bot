@@ -685,6 +685,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools)
 
         if not final_text:
+            logger.warning(
+                "%s model returned empty visible response (tool_calls=%d tool_errors=%d last_text_len=%d truncated_len=%d)",
+                ctx,
+                len(seen_tool_keys),
+                len(tool_error_snippets),
+                len(last_text_response),
+                len(truncated_prefix),
+            )
             final_text = _build_empty_response_fallback(tool_error_snippets)
 
         # Build display text with thinking duration prefix (italic)
