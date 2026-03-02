@@ -321,6 +321,14 @@ def _get_or_create_viewer_link(session_id: str, user_id: int) -> tuple[str, str]
     return _create_viewer_link(session_id, user_id)
 
 
+def _viewer_payload(session_id: str, user_id: int) -> dict:
+    viewer_token, viewer_url = _get_or_create_viewer_link(session_id, user_id)
+    return {
+        "viewer_token": viewer_token,
+        "viewer_url": viewer_url,
+    }
+
+
 def _remove_viewer_token(token: str) -> None:
     normalized = _normalize_viewer_token(token)
     if not normalized:
@@ -714,7 +722,7 @@ def _op_start_session(
                     "browser_engine": _browser_runtime.get("engine"),
                     "challenge_active": cf_active,
                     "challenge_message": cf_message,
-                    "note": "Reused existing active browser session for this user.",
+                    "note": "Reused existing active browser session for this user. Return viewer_url to user immediately.",
                 }
             )
 
@@ -758,7 +766,7 @@ def _op_start_session(
             "browser_engine": _browser_runtime.get("engine"),
             "challenge_active": cf_active,
             "challenge_message": cf_message,
-            "note": "Use browser_get_state to inspect page and next actions.",
+            "note": "Always return viewer_url to user. Use browser_get_state to inspect page and next actions.",
         }
         return _format_json(payload)
     except Exception:
@@ -781,6 +789,7 @@ def _op_list_sessions(browser, user_id: int) -> str:
         if int(session.get("user_id", -1)) != user_id:
             continue
         page = session.get("page")
+        viewer = _viewer_payload(sid, user_id)
         items.append(
             {
                 "session_id": sid,
@@ -789,6 +798,7 @@ def _op_list_sessions(browser, user_id: int) -> str:
                 "engine": str(session.get("engine") or _browser_runtime.get("engine") or ""),
                 "idle_seconds": int(now - float(session.get("last_active", now))),
                 "age_seconds": int(now - float(session.get("created_at", now))),
+                **viewer,
             }
         )
     payload = {
@@ -798,6 +808,23 @@ def _op_list_sessions(browser, user_id: int) -> str:
         "sessions": sorted(items, key=lambda x: x["age_seconds"], reverse=True),
     }
     return _format_json(payload)
+
+
+def _op_get_view_url(browser, user_id: int, session_id: str) -> str:
+    _ = browser
+    session = _get_session_for_user(session_id, user_id)
+    page = session.get("page")
+    viewer = _viewer_payload(session_id, user_id)
+    return _format_json(
+        {
+            "ok": True,
+            "action": "browser_get_view_url",
+            "session_id": session_id,
+            "url": page.url if page else "",
+            "title": page.title() if page else "",
+            **viewer,
+        }
+    )
 
 
 def _op_close_session(browser, user_id: int, session_id: str) -> str:
@@ -825,6 +852,7 @@ def _op_goto(
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    viewer = _viewer_payload(session_id, user_id)
     page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
     if wait_seconds > 0:
         time.sleep(wait_seconds)
@@ -842,6 +870,7 @@ def _op_goto(
             "title": page.title(),
             "challenge_active": cf_active,
             "challenge_message": cf_message,
+            **viewer,
         }
     )
 
@@ -860,6 +889,7 @@ def _op_click(
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    viewer = _viewer_payload(session_id, user_id)
     click_strategy = "direct"
 
     target_index = max(index, 0)
@@ -959,6 +989,7 @@ def _op_click(
             "title": page.title(),
             "challenge_active": cf_active,
             "challenge_message": cf_message,
+            **viewer,
         }
     )
 
@@ -977,6 +1008,7 @@ def _op_type(
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    viewer = _viewer_payload(session_id, user_id)
 
     locator = page.locator(selector).first
     locator.wait_for(state="visible", timeout=timeout_ms)
@@ -1001,6 +1033,7 @@ def _op_type(
             "pressed_enter": press_enter,
             "url": page.url,
             "title": page.title(),
+            **viewer,
         }
     )
 
@@ -1016,6 +1049,7 @@ def _op_press(
     _ = timeout_ms
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    viewer = _viewer_payload(session_id, user_id)
     page.keyboard.press(key)
     return _format_json(
         {
@@ -1025,6 +1059,7 @@ def _op_press(
             "key": key,
             "url": page.url,
             "title": page.title(),
+            **viewer,
         }
     )
 
@@ -1041,6 +1076,7 @@ def _op_wait_for(
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    viewer = _viewer_payload(session_id, user_id)
 
     if selector:
         page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
@@ -1057,6 +1093,7 @@ def _op_wait_for(
             "wait_ms": wait_ms,
             "url": page.url,
             "title": page.title(),
+            **viewer,
         }
     )
 
@@ -1071,6 +1108,7 @@ def _op_get_state(
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
+    viewer = _viewer_payload(session_id, user_id)
     snapshot = _snapshot_page(page, max_elements=max_elements, max_text_length=max_text_length)
     cf_active = _is_cf_challenge(page)
     payload = {
@@ -1085,6 +1123,7 @@ def _op_get_state(
         "challenge_active": cf_active,
         "challenge_hint": "Cloudflare/Turnstile verification may require waiting or iframe center-click."
         if cf_active else None,
+        **viewer,
     }
     return _format_json(payload)
 
@@ -1316,6 +1355,27 @@ BROWSER_LIST_SESSIONS_TOOL = {
         "parameters": {
             "type": "object",
             "properties": {},
+        },
+    },
+}
+
+BROWSER_GET_VIEW_URL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "browser_get_view_url",
+        "description": (
+            "Get viewer_url for an existing browser session. "
+            "If session_id is omitted, uses latest active session for current user."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional session ID. If omitted, uses the latest active session for current user.",
+                }
+            },
+            "required": [],
         },
     },
 }
@@ -1575,6 +1635,7 @@ class BrowserAgentTool(BaseTool):
         return [
             BROWSER_START_SESSION_TOOL,
             BROWSER_LIST_SESSIONS_TOOL,
+            BROWSER_GET_VIEW_URL_TOOL,
             BROWSER_CLOSE_SESSION_TOOL,
             BROWSER_GOTO_TOOL,
             BROWSER_CLICK_TOOL,
@@ -1589,6 +1650,8 @@ class BrowserAgentTool(BaseTool):
             return self._start_session(user_id, arguments)
         if tool_name == "browser_list_sessions":
             return self._list_sessions(user_id)
+        if tool_name == "browser_get_view_url":
+            return self._get_view_url(user_id, arguments)
         if tool_name == "browser_close_session":
             return self._close_session(user_id, arguments)
         if tool_name == "browser_goto":
@@ -1661,6 +1724,18 @@ class BrowserAgentTool(BaseTool):
         except Exception as e:
             logger.exception("browser_list_sessions failed for user=%d", user_id)
             return f"browser_list_sessions failed: {e}"
+
+    def _get_view_url(self, user_id: int, arguments: dict) -> str:
+        requested_session_id = (arguments.get("session_id") or "").strip()
+        try:
+            session_id = _resolve_session_id_for_user(user_id, requested_session_id)
+        except ValueError as e:
+            return str(e)
+        try:
+            return _run_on_worker(_op_get_view_url, user_id, session_id)
+        except Exception as e:
+            logger.exception("browser_get_view_url failed for user=%d session=%s", user_id, session_id)
+            return f"browser_get_view_url failed: {e}"
 
     def _close_session(self, user_id: int, arguments: dict) -> str:
         session_id = (arguments.get("session_id") or "").strip()
@@ -1860,6 +1935,8 @@ class BrowserAgentTool(BaseTool):
             "\n\nYou have stateful browser_agent tools for step-by-step web automation.\n"
             "- Start with browser_start_session; it reuses an active session by default.\n"
             "- After a session starts, prefer continuing directly; session_id can be omitted and latest active session is auto-used.\n"
+            "- Always return viewer_url to the user whenever browser_start_session/browser_get_view_url returns it.\n"
+            "- If user asks to watch current browser, call browser_get_view_url (do not start a new session unless user asked for force_new).\n"
             "- Set force_new=true only when you explicitly need a new isolated session.\n"
             "- browser_start_session returns viewer_url so users can watch live browser actions.\n"
             "- Use browser_goto / browser_click / browser_type / browser_press / browser_wait_for in sequence.\n"
