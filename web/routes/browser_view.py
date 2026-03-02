@@ -21,92 +21,180 @@ def _build_view_page_html(token: str, state: dict) -> str:
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Browser Live View</title>
+  <link rel="stylesheet" href="/static/custom.css" />
   <style>
     :root {{
-      --bg-1: #07111f;
-      --bg-2: #11233c;
-      --card: rgba(11, 18, 34, 0.78);
-      --line: rgba(255, 255, 255, 0.12);
-      --text: #e9eef8;
-      --muted: #9fb0ce;
-      --accent: #4dd4ff;
-      --ok: #63f2b5;
-      --err: #ff8f8f;
-      --radius: 16px;
+      --status-err: rgba(92, 28, 28, 0.84);
+      --viewer-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.46));
+      --viewer-bg-dark: linear-gradient(165deg, rgba(17, 26, 37, 0.82), rgba(12, 18, 28, 0.58));
+      --tap-accent: #2563eb;
+      --tap-glow: rgba(37, 99, 235, 0.24);
     }}
-    * {{ box-sizing: border-box; }}
-    html, body {{ height: 100%; }}
+    html,
+    body {{
+      min-height: 100%;
+    }}
     body {{
       margin: 0;
-      font-family: "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(1200px 900px at 85% -10%, #1f3b67 0%, transparent 58%),
-        radial-gradient(1200px 900px at -20% 115%, #17355d 0%, transparent 58%),
-        linear-gradient(160deg, var(--bg-1), var(--bg-2));
+      min-height: 100dvh;
       padding: clamp(10px, 2vw, 20px);
+      color: var(--text-1);
+      background: var(--bg-0);
     }}
     .shell {{
+      position: relative;
+      z-index: 2;
       margin: 0 auto;
-      max-width: 1400px;
+      max-width: 1320px;
       display: grid;
       gap: 12px;
     }}
     .panel {{
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      backdrop-filter: blur(8px);
-      box-shadow: 0 18px 46px rgba(0, 0, 0, 0.35);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line-soft);
+      background: var(--panel-bg);
+      backdrop-filter: blur(14px) saturate(130%);
+      -webkit-backdrop-filter: blur(14px) saturate(130%);
     }}
     .head {{
-      padding: 12px 14px;
+      padding: 14px 16px;
       display: grid;
-      gap: 8px;
+      gap: 10px;
+    }}
+    .eyebrow {{
+      margin: 0;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-3);
+      font-weight: 600;
     }}
     .title {{
-      font-size: clamp(15px, 2vw, 19px);
+      margin: 0;
+      font-size: clamp(1rem, 1.9vw, 1.22rem);
       font-weight: 700;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.01em;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }}
     .meta {{
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }}
+    .meta-item {{
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }}
+    .meta-label {{
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      font-weight: 600;
+    }}
+    .meta-compact {{
+      display: inline-flex;
       gap: 8px;
       align-items: center;
-      font-size: 13px;
-      color: var(--muted);
+      flex-wrap: wrap;
     }}
     .url {{
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.83rem;
+      color: var(--text-2);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }}
     .chip {{
-      border: 1px solid var(--line);
+      border: 1px solid var(--line-soft);
       border-radius: 999px;
-      padding: 4px 9px;
+      padding: 4px 10px;
+      background: var(--soft-fill);
       font-weight: 600;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-2);
+      font-family: "IBM Plex Mono", monospace;
     }}
-    .chip.ok {{ color: var(--ok); border-color: rgba(99, 242, 181, 0.45); }}
-    .chip.err {{ color: var(--err); border-color: rgba(255, 143, 143, 0.45); }}
+    .chip.ok {{
+      border-color: var(--pill-active-border);
+      background: linear-gradient(140deg, var(--pill-active-start), var(--pill-active-end));
+      color: var(--pill-active-text);
+    }}
+    .chip.err {{
+      border-color: rgba(92, 28, 28, 0.44);
+      background: var(--status-err);
+      color: #ffffff;
+    }}
+    .toolbar {{
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 12px 14px;
+      min-height: 52px;
+    }}
+    .btn {{
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-sm);
+      background: var(--soft-fill);
+      color: var(--text-1);
+      padding: 8px 13px;
+      white-space: nowrap;
+      font-size: 0.88rem;
+      font-weight: 600;
+      transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+      cursor: pointer;
+    }}
+    .btn:hover {{
+      border-color: var(--line);
+      background: var(--hover-fill);
+    }}
+    .btn:focus-visible {{
+      outline: 2px solid var(--pill-focus);
+      outline-offset: 2px;
+    }}
+    .btn.on {{
+      border-color: var(--pill-active-border);
+      background: linear-gradient(145deg, var(--pill-active-start), var(--pill-active-end));
+      color: var(--pill-active-text);
+    }}
+    .action {{
+      color: var(--text-2);
+      font-size: 0.8rem;
+      min-height: 16px;
+      line-height: 1.42;
+    }}
+    .viewer-panel {{
+      padding: 8px;
+    }}
     .viewer {{
       position: relative;
       overflow: hidden;
-      border-radius: var(--radius);
-      border: 1px solid var(--line);
-      background: #060a14;
+      border-radius: calc(var(--radius-lg) - 4px);
+      border: 1px solid var(--line-soft);
+      background: var(--viewer-bg);
       min-height: min(68vh, 760px);
       display: flex;
       align-items: center;
       justify-content: center;
     }}
     .viewer.control-on {{
-      border-color: rgba(77, 212, 255, 0.65);
-      box-shadow: 0 0 0 2px rgba(77, 212, 255, 0.2) inset;
+      border-color: var(--pill-active-border);
+      background: linear-gradient(
+          165deg,
+          rgba(255, 255, 255, 0.76),
+          rgba(255, 255, 255, 0.52)
+        );
+    }}
+    .viewer.control-on img {{
+      cursor: crosshair;
     }}
     img {{
       max-width: 100%;
@@ -119,40 +207,13 @@ def _build_view_page_html(token: str, state: dict) -> str:
       -webkit-user-drag: none;
       touch-action: manipulation;
     }}
-    .toolbar {{
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      padding: 10px 12px;
-    }}
-    .btn {{
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 7px 12px;
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--text);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-    }}
-    .btn.on {{
-      border-color: rgba(77, 212, 255, 0.65);
-      background: rgba(77, 212, 255, 0.15);
-      color: #dff6ff;
-    }}
-    .action {{
-      color: var(--muted);
-      font-size: 12px;
-      min-height: 16px;
-    }}
     .tap {{
       position: absolute;
-      width: 16px;
-      height: 16px;
-      border: 2px solid #4dd4ff;
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--tap-accent);
       border-radius: 50%;
-      box-shadow: 0 0 0 3px rgba(77, 212, 255, 0.15);
+      box-shadow: 0 0 0 3px var(--tap-glow);
       pointer-events: none;
       transform: translate(-50%, -50%);
       opacity: 0;
@@ -165,46 +226,85 @@ def _build_view_page_html(token: str, state: dict) -> str:
       100% {{ opacity: 0; transform: translate(-50%, -50%) scale(1.55); }}
     }}
     .hint {{
-      padding: 10px 12px 14px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
+      padding: 11px 14px 14px;
+      color: var(--text-2);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      border-style: dashed;
     }}
-    @media (max-width: 760px) {{
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --status-err: rgba(97, 35, 35, 0.92);
+        --tap-accent: #8dbdff;
+        --tap-glow: rgba(141, 189, 255, 0.28);
+      }}
+      .viewer {{
+        background: var(--viewer-bg-dark);
+      }}
+      .viewer.control-on {{
+        background: linear-gradient(
+            165deg,
+            rgba(25, 38, 55, 0.9),
+            rgba(16, 24, 35, 0.72)
+          );
+      }}
+      .chip.err {{
+        border-color: rgba(255, 164, 164, 0.42);
+      }}
+    }}
+    @media (max-width: 920px) {{
       .meta {{
         grid-template-columns: 1fr;
       }}
+      .meta-compact {{
+        justify-content: flex-start;
+      }}
+    }}
+    @media (max-width: 760px) {{
       .viewer {{
         min-height: 48vh;
       }}
       .toolbar {{
         align-items: stretch;
+        flex-direction: column;
       }}
       .btn {{
+        width: 100%;
+      }}
+      .action {{
         width: 100%;
       }}
     }}
   </style>
 </head>
 <body>
+  <div class="bg-layer" aria-hidden="true"></div>
   <main class="shell">
-    <section class="panel head">
+    <section class="panel glass head">
+      <p class="eyebrow">Browser Live View</p>
       <div id="pageTitle" class="title">{title}</div>
       <div class="meta">
-        <div id="pageUrl" class="url">{url}</div>
-        <div id="statusChip" class="chip ok">LIVE</div>
-        <div id="timeChip" class="chip">--:--:--</div>
+        <div class="meta-item">
+          <span class="meta-label">Current URL</span>
+          <div id="pageUrl" class="url">{url}</div>
+        </div>
+        <div class="meta-compact">
+          <div id="statusChip" class="chip ok">LIVE</div>
+          <div id="timeChip" class="chip">--:--:--</div>
+        </div>
       </div>
     </section>
-    <section class="panel toolbar">
+    <section class="panel glass toolbar">
       <button id="controlToggle" class="btn" type="button">接管模式：关闭</button>
       <div id="actionText" class="action">默认只读。开启接管后，点击画面会把点击转发到远端浏览器。</div>
     </section>
-    <section id="viewerBox" class="viewer">
-      <img id="liveFrame" alt="Live browser frame" draggable="false" />
-      <div id="tapMarker" class="tap" aria-hidden="true"></div>
+    <section class="panel glass viewer-panel">
+      <div id="viewerBox" class="viewer">
+        <img id="liveFrame" alt="Live browser frame" draggable="false" />
+        <div id="tapMarker" class="tap" aria-hidden="true"></div>
+      </div>
     </section>
-    <section class="hint panel">
+    <section class="hint panel glass">
       支持手机和桌面浏览器。开启“接管模式”可远程点击（仅左键单击）；会话结束后链接会失效。
     </section>
   </main>
