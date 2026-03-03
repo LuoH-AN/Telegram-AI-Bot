@@ -50,7 +50,6 @@ from utils import (
     parse_raw_tool_calls,
     send_message_safe,
     edit_message_safe,
-    send_message_draft_safe,
     get_datetime_prompt,
 )
 from utils.ai_helpers import (
@@ -460,19 +459,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         return
     conversation = list(get_conversation(session_id))
 
-    # Private chats prefer official sendMessageDraft (Bot API 9.5+).
-    # Groups keep legacy edit-message streaming.
-    use_official_draft = bool(
-        update.effective_chat
-        and update.effective_chat.type == "private"
-        and hasattr(context.bot, "send_message_draft")
-    )
-    draft_id = int(time.time() * 1000) % 2147483647
-    if draft_id <= 0:
-        draft_id = 1
-    draft_updates_sent = 0
-    status_message = None
-
     if not internal_call:
         # Check token limit (per-persona)
         remaining = get_remaining_tokens(user_id, persona_name)
@@ -483,66 +469,20 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         # Show typing indicator
         await update.message.chat.send_action(ChatAction.TYPING)
 
-        # Only create placeholder when not using official draft stream.
-        if not use_official_draft:
-            bot_message = await update.message.reply_text("…")
+        # Legacy streaming: create a single placeholder and edit in-place.
+        bot_message = await update.message.reply_text("…")
 
     async def _stream_update(text: str) -> bool:
-        nonlocal use_official_draft, bot_message, draft_updates_sent, status_message
+        nonlocal bot_message
         text = (text or "").rstrip()
         if not text:
             text = "…"
-        if use_official_draft:
-            ok = await send_message_draft_safe(
-                context.bot,
-                chat_id=update.effective_chat.id,
-                draft_id=draft_id,
-                text=text,
-                message_thread_id=getattr(update.message, "message_thread_id", None),
-            )
-            if ok:
-                draft_updates_sent += 1
-                return True
-            # If draft stream has already started, avoid creating a second message.
-            # Keep retrying official draft in later updates, but never duplicate output.
-            if draft_updates_sent > 0:
-                logger.warning(
-                    "%s send_message_draft failed after stream started; skip fallback to avoid duplicate message",
-                    ctx,
-                )
-                return False
-            logger.warning("%s send_message_draft failed; falling back to legacy message updates", ctx)
-            use_official_draft = False
-            if status_message is not None:
-                try:
-                    await status_message.delete()
-                except Exception:
-                    logger.debug("%s failed to delete status message during fallback", ctx, exc_info=True)
-                status_message = None
-            if update.message:
-                sent_messages = await send_message_safe(update.message, text)
-                if sent_messages:
-                    bot_message = sent_messages[0]
-                    return True
         if bot_message is None:
             return False
         return await edit_message_safe(bot_message, text)
 
     async def _status_update(text: str) -> bool:
-        """Emit Think/Thought status as a separate message in private draft mode."""
-        nonlocal status_message
-        if not use_official_draft:
-            return await _stream_update(text)
-        if update.message is None:
-            return False
-        if status_message is None:
-            try:
-                status_message = await update.message.reply_text(text)
-                return True
-            except Exception:
-                logger.exception("%s failed to send status message", ctx)
-                return False
-        return await edit_message_safe(status_message, text)
+        return await _stream_update(text)
 
     try:
         client = get_ai_client(user_id)
@@ -604,8 +544,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 tools, _stream_update, _status_update,
                 show_waiting=(round_num == 0),
                 stream_mode=user_stream_mode,
-                include_thought_prefix=not use_official_draft,
-                stream_cursor=not use_official_draft,
+                include_thought_prefix=True,
+                stream_cursor=True,
             )
             total_thinking_seconds += thinking_seconds
 
@@ -649,18 +589,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             status_lines = _build_tool_status_lines(tool_calls)
             status_text = "\n".join(status_lines)
             thinking_prefix = (
-                f"_Thought for {total_thinking_seconds}s_\n\n"
-                if total_thinking_seconds > 0 and not use_official_draft
-                else ""
+                f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
             )
-            # In draft mode, rewind a half sentence before showing tool status.
-            if use_official_draft and raw_display_text and display_text != raw_display_text:
-                await _stream_update(display_text or "…")
             if display_text:
-                if use_official_draft:
-                    await _status_update(status_text)
-                else:
-                    await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
+                await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
             else:
                 await _status_update(thinking_prefix + status_text if thinking_prefix else status_text)
 
@@ -693,9 +625,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                             animated_text = "\n".join(
                                 _build_tool_status_lines(tool_calls, elapsed_seconds=elapsed)
                             )
-                            if use_official_draft:
-                                await _status_update(animated_text)
-                            elif display_text:
+                            if display_text:
                                 await _stream_update(thinking_prefix + display_text + "\n\n" + animated_text)
                             else:
                                 await _stream_update(thinking_prefix + animated_text)
@@ -805,8 +735,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 None, _stream_update, _status_update,
                 show_waiting=False,
                 stream_mode=user_stream_mode,
-                include_thought_prefix=not use_official_draft,
-                stream_cursor=not use_official_draft,
+                include_thought_prefix=True,
+                stream_cursor=True,
             )
             total_thinking_seconds += thinking_seconds
             if usage_info:
@@ -875,21 +805,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
         # Build display text with thinking duration prefix (italic)
         thinking_prefix = (
-            f"_Thought for {total_thinking_seconds}s_\n\n"
-            if total_thinking_seconds > 0 and not use_official_draft
-            else ""
+            f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
         )
         display_final = thinking_prefix + final_text
 
-        # Final output:
-        # - Draft mode: finalize in-place; avoid duplicate normal messages.
-        # - Edit mode: keep existing placeholder edit/split fallback behavior.
-        if use_official_draft:
-            finalized = await _stream_update(display_final)
-            if not finalized and draft_updates_sent == 0:
-                # No draft output ever reached the client; send a normal fallback message.
-                await send_message_safe(update.message, display_final)
-        elif len(display_final) > MAX_MESSAGE_LENGTH:
+        if len(display_final) > MAX_MESSAGE_LENGTH:
             # Delete the placeholder and send multiple messages
             if bot_message is not None:
                 await bot_message.delete()
@@ -907,12 +827,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                     except Exception:
                         pass
                     await send_message_safe(update.message, display_final)
-
-        if status_message is not None:
-            try:
-                await status_message.delete()
-            except Exception:
-                logger.debug("%s failed to delete status message", ctx, exc_info=True)
 
         # Save conversation to database (clean text without thinking prefix)
         add_user_message(session_id, save_msg)
@@ -944,11 +858,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
     except Exception as e:
         logger.exception("%s AI API error", ctx)
-        if status_message is not None:
-            try:
-                await status_message.delete()
-            except Exception:
-                logger.debug("%s failed to delete status message on error", ctx, exc_info=True)
         await _stream_update(build_retry_message())
         from services.log_service import record_error
         record_error(user_id, str(e), "chat handler", settings.get("model"), persona_name)
