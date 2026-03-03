@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import logging
+import re
 import time
 
 from telegram import Update
@@ -114,6 +115,7 @@ def _effective_tool_timeout(tool_calls) -> int:
 TOOL_STATUS_MAP = SHARED_TOOL_STATUS_MAP
 
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
+SENTENCE_END_CHARS = set(".!?;:。！？；：…\n")
 
 
 def _is_tool_error_text(text: str) -> bool:
@@ -144,6 +146,55 @@ def _build_empty_response_fallback(tool_error_snippets: list[str]) -> str:
 def _normalize_reasoning_effort(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     return normalized if normalized in VALID_REASONING_EFFORTS else ""
+
+
+def _stable_text_before_tool_call(text: str) -> str:
+    """Return only stable/complete text before entering tool execution.
+
+    Some models emit a partial sentence and immediately switch to tool_calls.
+    This trims likely-incomplete tails so users don't see broken fragments.
+    """
+    candidate = (text or "").rstrip()
+    if not candidate:
+        return ""
+
+    if candidate[-1] in SENTENCE_END_CHARS:
+        return candidate
+
+    last_break = -1
+    for idx, ch in enumerate(candidate):
+        if ch in SENTENCE_END_CHARS:
+            last_break = idx
+
+    if last_break >= 0:
+        trimmed = candidate[: last_break + 1].rstrip()
+        if len(trimmed) >= max(8, len(candidate) // 3):
+            return trimmed
+
+    # Keep very short updates only if they look like a complete phrase.
+    if len(candidate) <= 12 and re.search(r"[。！？!?]$", candidate):
+        return candidate
+    return ""
+
+
+def _build_tool_status_lines(tool_calls: list[ToolCall], elapsed_seconds: int | None = None) -> list[str]:
+    """Build deduplicated user-facing tool status lines."""
+    order: list[str] = []
+    counts: dict[str, int] = {}
+    for tc in tool_calls:
+        name = (tc.name or "").strip() or "tool"
+        if name not in counts:
+            order.append(name)
+            counts[name] = 0
+        counts[name] += 1
+
+    lines: list[str] = []
+    for name in order:
+        base = TOOL_STATUS_MAP.get(name, f"Running {name}...")
+        count_suffix = f" ×{counts[name]}" if counts[name] > 1 else ""
+        elapsed_suffix = f" ({elapsed_seconds}s)" if elapsed_seconds is not None else ""
+        lines.append(f"{base}{count_suffix}{elapsed_suffix}")
+    return lines
 
 
 async def _stream_response(
@@ -593,18 +644,18 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 break
 
             # Show tool call status to user
-            display_text = filter_thinking_content(full_response, streaming=True)
-            tool_names = [tc.name for tc in tool_calls]
-            status_lines = [
-                TOOL_STATUS_MAP.get(name, f"Running {name}...")
-                for name in tool_names
-            ]
+            raw_display_text = filter_thinking_content(full_response, streaming=True)
+            display_text = _stable_text_before_tool_call(raw_display_text)
+            status_lines = _build_tool_status_lines(tool_calls)
             status_text = "\n".join(status_lines)
             thinking_prefix = (
                 f"_Thought for {total_thinking_seconds}s_\n\n"
                 if total_thinking_seconds > 0 and not use_official_draft
                 else ""
             )
+            # In draft mode, rewind a half sentence before showing tool status.
+            if use_official_draft and raw_display_text and display_text != raw_display_text:
+                await _stream_update(display_text or "…")
             if display_text:
                 if use_official_draft:
                     await _status_update(status_text)
@@ -639,11 +690,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                             if not _anim_active:
                                 break
                             elapsed += 2
-                            lines = []
-                            for name in tool_names:
-                                base = TOOL_STATUS_MAP.get(name, f"Running {name}...")
-                                lines.append(f"{base} ({elapsed}s)")
-                            animated_text = "\n".join(lines)
+                            animated_text = "\n".join(
+                                _build_tool_status_lines(tool_calls, elapsed_seconds=elapsed)
+                            )
                             if use_official_draft:
                                 await _status_update(animated_text)
                             elif display_text:
@@ -745,7 +794,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             logger.info("%s tool results pending, retrying without tools", ctx)
             messages.append({
                 "role": "user",
-                "content": "Please respond to the user based on the information you have gathered above. Do not attempt to call any more tools.",
+                "content": (
+                    "Please respond to the user based on the information you have gathered above. "
+                    "Do not attempt to call any more tools. "
+                    "Provide a complete final answer and do not end mid-sentence."
+                ),
             })
             full_response, usage_info, _, thinking_seconds, _ = await _stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
