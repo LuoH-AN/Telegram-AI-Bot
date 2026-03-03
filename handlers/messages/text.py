@@ -586,7 +586,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             )
             if display_text:
                 if use_official_draft:
-                    await _status_update(status_text)
+                    # Keep draft content alive during tool execution so it doesn't
+                    # appear frozen while waiting for tool results.
+                    await _stream_update(display_text + "\n\n" + status_text)
                 else:
                     await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
             else:
@@ -624,7 +626,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                                 lines.append(f"{base} ({elapsed}s)")
                             animated_text = "\n".join(lines)
                             if use_official_draft:
-                                await _status_update(animated_text)
+                                if display_text:
+                                    await _stream_update(display_text + "\n\n" + animated_text)
+                                else:
+                                    await _status_update(animated_text)
                             elif display_text:
                                 await _stream_update(thinking_prefix + display_text + "\n\n" + animated_text)
                             else:
