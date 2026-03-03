@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk 
 # Copy application code
 COPY bot.py .
 COPY discord_bot.py .
+COPY start_bots.sh .
 COPY hf_dataset_store.py .
 COPY config/ ./config/
 COPY database/ ./database/
@@ -38,6 +39,9 @@ COPY static/ ./static/
 # Health check ports (Telegram / Discord)
 EXPOSE 7860 7861
 
-# Run Telegram + Discord in one container with separate PORT values.
+# Auto-start platforms by configured tokens:
+# - TELEGRAM_BOT_TOKEN set => Telegram starts
+# - DISCORD_BOT_TOKEN set  => Discord starts
+# - both set => both start
 # Override defaults via TELEGRAM_PORT / DISCORD_PORT env vars.
-CMD ["/bin/bash", "-lc", "set -euo pipefail; TELEGRAM_PORT=\"${TELEGRAM_PORT:-7860}\"; DISCORD_PORT=\"${DISCORD_PORT:-7861}\"; PORT=\"$TELEGRAM_PORT\" xvfb-run -a python bot.py & tg_pid=$!; PORT=\"$DISCORD_PORT\" xvfb-run -a python discord_bot.py & dc_pid=$!; term(){ kill -TERM \"$tg_pid\" \"$dc_pid\" 2>/dev/null || true; wait \"$tg_pid\" \"$dc_pid\" 2>/dev/null || true; }; trap term INT TERM; wait -n \"$tg_pid\" \"$dc_pid\"; status=$?; term; exit $status"]
+CMD ["/bin/bash", "-lc", "bash /app/start_bots.sh"]

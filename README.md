@@ -87,6 +87,12 @@ python discord_bot.py
 
 说明：两个入口都会启动 Web 服务（默认 `PORT=8080`）。如果要同时运行两者，请为不同进程设置不同端口。
 
+Docker 默认行为：会按 token 自动启用平台（可单开或双开）：
+
+- 配置了 `TELEGRAM_BOT_TOKEN` → 启动 Telegram
+- 配置了 `DISCORD_BOT_TOKEN` → 启动 Discord
+- 两个都配置 → 两个平台都启动
+
 ## 常用命令
 
 Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
