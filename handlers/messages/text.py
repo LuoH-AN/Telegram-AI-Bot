@@ -163,7 +163,7 @@ async def _stream_response(
     so that waiting for each chunk does not block the async event loop.
 
     Args:
-        show_waiting: Show "Thinking for Xs" waiting indicator.  Set to False
+        show_waiting: Show "Thought for Xs" waiting indicator.  Set to False
                       on subsequent tool rounds to reduce Telegram message edits.
         stream_mode: Update mode for streaming:
                      - "default": original behavior (time + chars conditions)
@@ -208,7 +208,7 @@ async def _stream_response(
     thinking_seconds = 0
     thinking_locked = False
 
-    # Generic waiting indicator ("Thinking for Xs" before content/reasoning arrives)
+    # Generic waiting indicator ("Thought for Xs" before content/reasoning arrives)
     waiting_start_time = loop.time()
     waiting_active = show_waiting
 
@@ -219,7 +219,7 @@ async def _stream_response(
                 if not waiting_active:
                     break
                 elapsed = max(1, int(loop.time() - waiting_start_time))
-                await stream_update(f"Thinking for {elapsed}s")
+                await stream_update(f"Thought for {elapsed}s")
         except asyncio.CancelledError:
             pass
 
@@ -403,19 +403,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         return
     conversation = list(get_conversation(session_id))
 
-    if not internal_call:
-        # Check token limit (per-persona)
-        remaining = get_remaining_tokens(user_id, persona_name)
-        if remaining is not None and remaining <= 0:
-            await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
-            return
-
-        # Show typing indicator
-        await update.message.chat.send_action(ChatAction.TYPING)
-
-        # Send initial placeholder message
-        bot_message = await update.message.reply_text("…")
-
     # Stream updates: prefer official sendMessageDraft in private chats (Bot API 9.5+),
     # fallback to editMessage for compatibility.
     draft_enabled = bool(
@@ -427,8 +414,22 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
     if draft_id <= 0:
         draft_id = 1
 
+    if not internal_call:
+        # Check token limit (per-persona)
+        remaining = get_remaining_tokens(user_id, persona_name)
+        if remaining is not None and remaining <= 0:
+            await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
+            return
+
+        # Show typing indicator
+        await update.message.chat.send_action(ChatAction.TYPING)
+
+        # Only create placeholder when not using official draft stream.
+        if not draft_enabled:
+            bot_message = await update.message.reply_text("…")
+
     async def _stream_update(text: str) -> bool:
-        nonlocal draft_enabled
+        nonlocal draft_enabled, bot_message
         if draft_enabled:
             ok = await send_message_draft_safe(
                 context.bot,
@@ -441,6 +442,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 return True
             logger.warning("%s send_message_draft failed; falling back to edit_message", ctx)
             draft_enabled = False
+            if bot_message is None and update.message:
+                bot_message = await update.message.reply_text("…")
+        if bot_message is None:
+            return False
         return await edit_message_safe(bot_message, text)
 
     try:
@@ -751,21 +756,29 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         thinking_prefix = f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
         display_final = thinking_prefix + final_text
 
-        # Check if response exceeds single message limit
-        if len(display_final) > MAX_MESSAGE_LENGTH:
+        # Final output:
+        # - Draft mode: finalize the same draft stream to avoid duplicate messages.
+        # - Edit mode: keep existing placeholder edit/split fallback behavior.
+        if draft_enabled:
+            await _stream_update(display_final)
+        elif len(display_final) > MAX_MESSAGE_LENGTH:
             # Delete the placeholder and send multiple messages
-            await bot_message.delete()
+            if bot_message is not None:
+                await bot_message.delete()
             await send_message_safe(update.message, display_final)
         else:
-            success = await edit_message_safe(bot_message, display_final)
-            if not success:
-                # Edit failed (likely rate-limited after many tool rounds),
-                # fall back to a new message so the user always gets a response.
-                try:
-                    await bot_message.delete()
-                except Exception:
-                    pass
+            if bot_message is None:
                 await send_message_safe(update.message, display_final)
+            else:
+                success = await edit_message_safe(bot_message, display_final)
+                if not success:
+                    # Edit failed (likely rate-limited after many tool rounds),
+                    # fall back to a new message so the user always gets a response.
+                    try:
+                        await bot_message.delete()
+                    except Exception:
+                        pass
+                    await send_message_safe(update.message, display_final)
 
         # Save conversation to database (clean text without thinking prefix)
         add_user_message(session_id, save_msg)
