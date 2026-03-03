@@ -154,8 +154,10 @@ async def _stream_response(
     reasoning_effort,
     tools,
     stream_update,
+    status_update=None,
     show_waiting=True,
     stream_mode="default",
+    include_thought_prefix=True,
 ):
     """Stream an AI response, updating output in real-time.
 
@@ -174,6 +176,7 @@ async def _stream_response(
         (full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason)
     """
     loop = asyncio.get_event_loop()
+    status_cb = status_update or stream_update
 
     # Start the streaming request in a thread to avoid blocking
     try:
@@ -219,7 +222,7 @@ async def _stream_response(
                 if not waiting_active:
                     break
                 elapsed = max(1, int(loop.time() - waiting_start_time))
-                await stream_update(f"Think for {elapsed}s")
+                await status_cb(f"Think for {elapsed}s")
         except asyncio.CancelledError:
             pass
 
@@ -254,7 +257,7 @@ async def _stream_response(
                 waiting_active = False
                 thinking_start_time = current_time
                 thinking_seconds = 1
-                await stream_update("Thought for 1s")
+                await status_cb("Thought for 1s")
                 last_update_time = current_time
 
             # Update thinking counter while still in thinking phase
@@ -264,7 +267,7 @@ async def _stream_response(
                 if not display_text_now and new_seconds > thinking_seconds:
                     thinking_seconds = new_seconds
                     if current_time - last_update_time >= 1.0:
-                        await stream_update(f"Thought for {thinking_seconds}s")
+                        await status_cb(f"Thought for {thinking_seconds}s")
                         last_update_time = current_time
 
             if chunk.content:
@@ -277,12 +280,12 @@ async def _stream_response(
                     waiting_active = False
                     thinking_start_time = current_time
                     thinking_seconds = 1
-                    await stream_update("Thought for 1s")
+                    await status_cb("Thought for 1s")
                     last_update_time = current_time
 
                 # Build thinking prefix for display
                 thinking_prefix = ""
-                if thinking_start_time is not None and display_text:
+                if include_thought_prefix and thinking_start_time is not None and display_text:
                     # Lock thinking duration when visible content first appears.
                     # Do not keep extending it while normal content continues streaming.
                     if not thinking_locked:
@@ -403,9 +406,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         return
     conversation = list(get_conversation(session_id))
 
-    # Stream updates: prefer official sendMessageDraft in private chats (Bot API 9.5+),
-    # fallback to editMessage for compatibility.
-    draft_enabled = bool(
+    # Private chats prefer official sendMessageDraft (Bot API 9.5+).
+    # Groups keep legacy edit-message streaming.
+    use_official_draft = bool(
         update.effective_chat
         and update.effective_chat.type == "private"
         and hasattr(context.bot, "send_message_draft")
@@ -425,12 +428,12 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         await update.message.chat.send_action(ChatAction.TYPING)
 
         # Only create placeholder when not using official draft stream.
-        if not draft_enabled:
+        if not use_official_draft:
             bot_message = await update.message.reply_text("…")
 
     async def _stream_update(text: str) -> bool:
-        nonlocal draft_enabled, bot_message
-        if draft_enabled:
+        nonlocal use_official_draft, bot_message
+        if use_official_draft:
             ok = await send_message_draft_safe(
                 context.bot,
                 chat_id=update.effective_chat.id,
@@ -441,12 +444,30 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             if ok:
                 return True
             logger.warning("%s send_message_draft failed; falling back to edit_message", ctx)
-            draft_enabled = False
+            use_official_draft = False
             if bot_message is None and update.message:
                 bot_message = await update.message.reply_text("…")
         if bot_message is None:
             return False
         return await edit_message_safe(bot_message, text)
+
+    status_message = None
+
+    async def _status_update(text: str) -> bool:
+        """Emit Think/Thought status as a separate message in private draft mode."""
+        nonlocal status_message
+        if not use_official_draft:
+            return await _stream_update(text)
+        if update.message is None:
+            return False
+        if status_message is None:
+            try:
+                status_message = await update.message.reply_text(text)
+                return True
+            except Exception:
+                logger.exception("%s failed to send status message", ctx)
+                return False
+        return await edit_message_safe(status_message, text)
 
     try:
         client = get_ai_client(user_id)
@@ -505,8 +526,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
-                tools, _stream_update, show_waiting=(round_num == 0),
+                tools, _stream_update, _status_update,
+                show_waiting=(round_num == 0),
                 stream_mode=user_stream_mode,
+                include_thought_prefix=not use_official_draft,
             )
             total_thinking_seconds += thinking_seconds
 
@@ -552,11 +575,18 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 for name in tool_names
             ]
             status_text = "\n".join(status_lines)
-            thinking_prefix = f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
+            thinking_prefix = (
+                f"_Thought for {total_thinking_seconds}s_\n\n"
+                if total_thinking_seconds > 0 and not use_official_draft
+                else ""
+            )
             if display_text:
-                await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
+                if use_official_draft:
+                    await _status_update(status_text)
+                else:
+                    await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
             else:
-                await _stream_update(thinking_prefix + status_text)
+                await _status_update(thinking_prefix + status_text if thinking_prefix else status_text)
 
             # Deduplicate tool calls (same tool + same primary argument)
             new_tool_calls = []
@@ -568,6 +598,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 else:
                     seen_tool_keys.add(key)
                     new_tool_calls.append(tc)
+            no_new_tool_calls = not new_tool_calls and bool(tool_calls)
 
             # Execute only non-duplicate tool calls
             if new_tool_calls:
@@ -588,7 +619,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                                 base = TOOL_STATUS_MAP.get(name, f"Running {name}...")
                                 lines.append(f"{base} ({elapsed}s)")
                             animated_text = "\n".join(lines)
-                            if display_text:
+                            if use_official_draft:
+                                await _status_update(animated_text)
+                            elif display_text:
                                 await _stream_update(thinking_prefix + display_text + "\n\n" + animated_text)
                             else:
                                 await _stream_update(thinking_prefix + animated_text)
@@ -672,6 +705,13 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             messages.append(assistant_msg)
             messages.extend(tool_results)
             tool_results_pending = True
+            if no_new_tool_calls:
+                logger.info(
+                    "%s no new executable tool calls in round %d; forcing final response without tools",
+                    ctx,
+                    round_num + 1,
+                )
+                break
 
         # If loop exhausted while AI was still calling tools, tool results
         # are in messages but the AI never got to process them.
@@ -684,8 +724,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             })
             full_response, usage_info, _, thinking_seconds, _ = await _stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
-                None, _stream_update, show_waiting=False,
+                None, _stream_update, _status_update,
+                show_waiting=False,
                 stream_mode=user_stream_mode,
+                include_thought_prefix=not use_official_draft,
             )
             total_thinking_seconds += thinking_seconds
             if usage_info:
@@ -753,14 +795,20 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             final_text = _build_empty_response_fallback(tool_error_snippets)
 
         # Build display text with thinking duration prefix (italic)
-        thinking_prefix = f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
+        thinking_prefix = (
+            f"_Thought for {total_thinking_seconds}s_\n\n"
+            if total_thinking_seconds > 0 and not use_official_draft
+            else ""
+        )
         display_final = thinking_prefix + final_text
 
         # Final output:
         # - Draft mode: finalize the same draft stream to avoid duplicate messages.
         # - Edit mode: keep existing placeholder edit/split fallback behavior.
-        if draft_enabled:
+        if use_official_draft:
             await _stream_update(display_final)
+            if status_message is not None and total_thinking_seconds > 0:
+                await edit_message_safe(status_message, f"Thought for {total_thinking_seconds}s")
         elif len(display_final) > MAX_MESSAGE_LENGTH:
             # Delete the placeholder and send multiple messages
             if bot_message is not None:

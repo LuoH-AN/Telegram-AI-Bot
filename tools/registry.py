@@ -116,9 +116,28 @@ class ToolRegistry:
                 }
                 continue
             try:
-                args = json.loads(tc.arguments)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse tool call arguments: {e}")
+                raw_arguments = tc.arguments if isinstance(tc.arguments, str) else str(tc.arguments or "")
+                arguments_text = raw_arguments.strip()
+                if arguments_text.startswith("```"):
+                    lines = [
+                        line
+                        for line in arguments_text.splitlines()
+                        if not line.strip().startswith("```")
+                    ]
+                    arguments_text = "\n".join(lines).strip()
+                if not arguments_text or arguments_text.lower() == "null":
+                    args = {}
+                else:
+                    args = json.loads(arguments_text)
+                if not isinstance(args, dict):
+                    raise ValueError("arguments must be a JSON object")
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                logger.warning(
+                    "Failed to parse tool call arguments for %s: %s (raw=%r)",
+                    tc_name,
+                    e,
+                    (tc.arguments or "")[:200],
+                )
                 results[idx] = {
                     "role": "tool",
                     "tool_call_id": tc.id,
