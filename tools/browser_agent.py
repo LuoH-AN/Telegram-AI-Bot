@@ -16,6 +16,12 @@ from urllib.parse import urlparse
 
 from config import WEB_BASE_URL
 from hf_dataset_store import get_hf_dataset_store
+from utils.browser_realism import (
+    apply_context_realism,
+    build_context_kwargs,
+    humanize_page_presence,
+    pick_browser_profile,
+)
 
 from .registry import BaseTool
 
@@ -250,7 +256,14 @@ def _resolve_chromium_executable() -> str | None:
 def _build_chromium_launch_kwargs(headless: bool) -> dict[str, object]:
     launch_kwargs: dict[str, object] = {
         "headless": headless,
-        "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+        "args": [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--start-maximized",
+        ],
+        "ignore_default_args": ["--enable-automation"],
     }
     executable = _resolve_chromium_executable()
     if executable:
@@ -587,20 +600,12 @@ def _persist_storage_state_for_session(user_id: int, session_id: str, reason: st
         )
 
 
-def _new_context(browser, storage_state: dict | None = None):
-    kwargs: dict[str, object] = {
-        "viewport": {"width": 1366, "height": 768},
-        "device_scale_factor": 1,
-        "locale": "zh-CN",
-        "timezone_id": "Asia/Shanghai",
-    }
-    if storage_state:
-        kwargs["storage_state"] = storage_state
-
+def _new_context(browser, storage_state: dict | None = None, *, seed_hint: str | None = None):
+    profile = pick_browser_profile(seed_hint=seed_hint)
     context = browser.new_context(
-        **kwargs,
+        **build_context_kwargs(profile, storage_state=storage_state, viewport_override={"width": 1366, "height": 768}),
     )
-
+    apply_context_realism(context, profile)
     return context
 
 
@@ -804,6 +809,7 @@ def _op_start_session(
             page = session["page"]
             if start_url:
                 page.goto(start_url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
+                humanize_page_presence(page)
                 if wait_seconds > 0:
                     time.sleep(wait_seconds)
             cf_active = _is_cf_challenge(page)
@@ -834,13 +840,14 @@ def _op_start_session(
     _ensure_session_limits_for_user(user_id)
 
     storage_state, restored_from_hf = _load_storage_state_for_user(user_id)
-    context = _new_context(browser, storage_state=storage_state)
-    page = context.new_page()
     session_id = f"bs_{user_id}_{secrets.token_hex(4)}"
+    context = _new_context(browser, storage_state=storage_state, seed_hint=session_id)
+    page = context.new_page()
 
     try:
         if start_url:
             page.goto(start_url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
+            humanize_page_presence(page)
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
         cf_active = _is_cf_challenge(page)
@@ -965,6 +972,7 @@ def _op_goto(
     page = session["page"]
     viewer = _viewer_payload(session_id, user_id)
     page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
+    humanize_page_presence(page)
     if wait_seconds > 0:
         time.sleep(wait_seconds)
     cf_active = _is_cf_challenge(page)

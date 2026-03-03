@@ -8,37 +8,22 @@ import re
 import socket
 from urllib.parse import urlparse
 
-try:
-    from fake_useragent import UserAgent
-except Exception:
-    UserAgent = None
-
 from utils import html_to_markdown, strip_style_blocks
+from utils.browser_realism import build_extra_http_headers, pick_browser_profile
 
-from .registry import BaseTool
+from .registry import BaseTool, emit_tool_progress
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_LENGTH = 15000
 MAX_MAX_LENGTH = 120000
 DEFAULT_WAIT_UNTIL = "load"
-ALLOWED_WAIT_UNTIL = {"domcontentloaded", "load", "networkidle", "commit"}
 DEFAULT_TIMEOUT_MS = 75_000
-MAX_TIMEOUT_MS = 240_000
-DEFAULT_DELAY_SECONDS = 1.2
-MAX_DELAY_SECONDS = 8.0
+DEFAULT_DELAY_SECONDS = 1.4
 DEFAULT_WAIT_FOR_TIMEOUT_MS = 20_000
 DEFAULT_MAX_ATTEMPTS = 4
-MAX_MAX_ATTEMPTS = 6
-
-_CACHE_MODE_NAMES = {
-    "enabled": "ENABLED",
-    "disabled": "DISABLED",
-    "read_only": "READ_ONLY",
-    "write_only": "WRITE_ONLY",
-    "bypass": "BYPASS",
-}
-
+_DEFAULT_CACHE_MODE = "bypass"
+_CACHE_MODE_MEMBER = "BYPASS"
 
 def _has_usable_display() -> bool:
     """Best-effort check for an actually usable GUI display."""
@@ -112,187 +97,9 @@ class Crawl4AITool(BaseTool):
                                 "default": DEFAULT_MAX_LENGTH,
                                 "description": "Maximum characters to return.",
                             },
-                            "cache_mode": {
+                            "focus_selector": {
                                 "type": "string",
-                                "enum": ["enabled", "disabled", "read_only", "write_only", "bypass"],
-                                "default": "bypass",
-                                "description": "Cache strategy for Crawl4AI.",
-                            },
-                            "timeout_ms": {
-                                "type": "integer",
-                                "default": DEFAULT_TIMEOUT_MS,
-                                "description": "Page timeout in milliseconds.",
-                            },
-                            "delay_seconds": {
-                                "type": "number",
-                                "default": DEFAULT_DELAY_SECONDS,
-                                "description": "Delay before returning final HTML (seconds).",
-                            },
-                            "magic": {
-                                "type": "boolean",
-                                "default": True,
-                                "description": "Enable Crawl4AI magic behavior for difficult pages.",
-                            },
-                            "enable_stealth": {
-                                "type": "boolean",
-                                "default": True,
-                                "description": "Apply stealth evasions.",
-                            },
-                            "simulate_user": {
-                                "type": "boolean",
-                                "default": True,
-                                "description": "Simulate user-like interactions for anti-bot pages.",
-                            },
-                            "override_navigator": {
-                                "type": "boolean",
-                                "default": True,
-                                "description": "Override navigator fields for anti-bot pages.",
-                            },
-                            "use_undetected": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": "Use Crawl4AI undetected adapter for stronger anti-bot evasion.",
-                            },
-                            "retry_antibot": {
-                                "type": "boolean",
-                                "default": True,
-                                "description": "Automatically retry with stronger anti-bot profiles on failure.",
-                            },
-                            "max_attempts": {
-                                "type": "integer",
-                                "default": DEFAULT_MAX_ATTEMPTS,
-                                "description": "Maximum crawl attempts when retry_antibot=true.",
-                            },
-                            "session_id": {
-                                "type": "string",
-                                "description": "Optional session ID for stateful multi-step crawling.",
-                            },
-                            "wait_for": {
-                                "type": "string",
-                                "description": (
-                                    "Optional wait condition for dynamic content. "
-                                    "For example: 'css:.article' or a JS condition."
-                                ),
-                            },
-                            "wait_for_timeout_ms": {
-                                "type": "integer",
-                                "default": DEFAULT_WAIT_FOR_TIMEOUT_MS,
-                                "description": "Timeout for wait_for condition in milliseconds.",
-                            },
-                            "wait_until": {
-                                "type": "string",
-                                "enum": ["domcontentloaded", "load", "networkidle", "commit"],
-                                "default": DEFAULT_WAIT_UNTIL,
-                                "description": "Playwright wait state before extraction.",
-                            },
-                            "locale": {
-                                "type": "string",
-                                "default": "zh-CN",
-                                "description": "Browser locale, e.g. zh-CN or en-US.",
-                            },
-                            "timezone_id": {
-                                "type": "string",
-                                "default": "Asia/Shanghai",
-                                "description": "Browser timezone, e.g. Asia/Shanghai or America/New_York.",
-                            },
-                            "user_agent": {
-                                "type": "string",
-                                "description": "Optional explicit User-Agent string.",
-                            },
-                            "user_agent_mode": {
-                                "type": "string",
-                                "description": "Optional Crawl4AI user-agent generation mode.",
-                            },
-                            "headers": {
-                                "type": "object",
-                                "description": "Optional request headers object.",
-                            },
-                            "cookies": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "description": "Single cookie object",
-                                    "properties": {
-                                        "name": {"type": "string"},
-                                        "value": {"type": "string"},
-                                        "domain": {"type": "string"},
-                                        "path": {"type": "string"},
-                                        "url": {"type": "string"},
-                                        "expires": {"type": "number"},
-                                        "httpOnly": {"type": "boolean"},
-                                        "secure": {"type": "boolean"},
-                                        "sameSite": {
-                                            "type": "string",
-                                            "enum": ["Strict", "Lax", "None"],
-                                        },
-                                    },
-                                    "required": ["name", "value"],
-                                },
-                                "description": "Optional cookies array (name/value/domain/path/url...).",
-                            },
-                            "proxy_config": {
-                                "type": "object",
-                                "description": (
-                                    "Optional proxy configuration. "
-                                    "Example: {\"server\":\"http://host:port\",\"username\":\"u\",\"password\":\"p\"}."
-                                ),
-                            },
-                            "js_code": {
-                                "type": "string",
-                                "description": (
-                                    "Optional JavaScript executed before extraction. "
-                                    "For multiple snippets, concatenate them in one string."
-                                ),
-                            },
-                            "js_only": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": "Treat request as JS-only update (stateful session flows).",
-                            },
-                            "css_selector": {
-                                "type": "string",
-                                "description": "Optional CSS selector to focus extraction.",
-                            },
-                            "target_elements": {
-                                "type": "string",
-                                "description": "Optional comma-separated CSS selectors for targeted extraction.",
-                            },
-                            "excluded_selector": {
-                                "type": "string",
-                                "description": "Optional CSS selector to exclude from extraction.",
-                            },
-                            "excluded_tags": {
-                                "type": "string",
-                                "description": "Optional comma-separated HTML tags to exclude from extraction.",
-                            },
-                            "wait_for_images": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": "Wait for images before extraction.",
-                            },
-                            "only_text": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": "Extract text-focused content only.",
-                            },
-                            "remove_overlay_elements": {
-                                "type": "boolean",
-                                "default": True,
-                                "description": "Try to remove overlays/popups before extraction.",
-                            },
-                            "process_iframes": {
-                                "type": "boolean",
-                                "default": True,
-                                "description": "Process iframe content when possible.",
-                            },
-                            "scan_full_page": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": "Scroll full page to load more lazy content.",
-                            },
-                            "max_scroll_steps": {
-                                "type": "integer",
-                                "description": "Optional max scroll steps when scan_full_page=true.",
+                                "description": "Optional CSS selector for focusing extraction (e.g. article main body).",
                             },
                         },
                         "required": ["url"],
@@ -315,86 +122,61 @@ class Crawl4AITool(BaseTool):
             return f"URL rejected: {e}"
 
         max_length = self._int_arg(arguments.get("max_length"), DEFAULT_MAX_LENGTH, 200, MAX_MAX_LENGTH)
-        timeout_ms = self._int_arg(arguments.get("timeout_ms"), DEFAULT_TIMEOUT_MS, 1_000, MAX_TIMEOUT_MS)
-        delay_seconds = self._float_arg(
-            arguments.get("delay_seconds"),
-            DEFAULT_DELAY_SECONDS,
-            0.0,
-            MAX_DELAY_SECONDS,
+        css_selector = (
+            (arguments.get("focus_selector") or arguments.get("css_selector") or "")
+            .strip()
+            or None
         )
-        wait_for = (arguments.get("wait_for") or "").strip() or None
-        wait_for_timeout_ms = self._optional_int_arg(arguments.get("wait_for_timeout_ms"), 1_000, MAX_TIMEOUT_MS)
-        if wait_for and wait_for_timeout_ms is None:
-            wait_for_timeout_ms = DEFAULT_WAIT_FOR_TIMEOUT_MS
-        wait_until = str(arguments.get("wait_until") or DEFAULT_WAIT_UNTIL).strip().lower()
-        if wait_until not in ALLOWED_WAIT_UNTIL:
-            wait_until = DEFAULT_WAIT_UNTIL
-        cache_mode = str(arguments.get("cache_mode") or "bypass").strip().lower()
-        if cache_mode not in _CACHE_MODE_NAMES:
-            allowed = ", ".join(sorted(_CACHE_MODE_NAMES.keys()))
-            return f"Invalid cache_mode: {cache_mode}. Allowed: {allowed}."
+        ignored_keys = [k for k in arguments.keys() if k not in {"url", "max_length", "focus_selector", "css_selector"}]
+        if ignored_keys:
+            preview = ", ".join(sorted(ignored_keys)[:6])
+            if len(ignored_keys) > 6:
+                preview += ", ..."
+            logger.debug("crawl4ai_fetch ignored advanced args: %s", preview)
 
-        session_id = (arguments.get("session_id") or "").strip() or None
-        locale = (arguments.get("locale") or "zh-CN").strip() or None
-        timezone_id = (arguments.get("timezone_id") or "Asia/Shanghai").strip() or None
-        user_agent = (arguments.get("user_agent") or "").strip() or self._get_random_user_agent()
-        user_agent_mode = (arguments.get("user_agent_mode") or "").strip() or None
-        headers = self._headers_arg(arguments.get("headers"))
-        cookies = self._cookies_arg(arguments.get("cookies"))
-        proxy_config = self._proxy_config_arg(arguments.get("proxy_config"))
-        js_code = self._js_code_arg(arguments.get("js_code"))
-        js_only = self._bool_arg(arguments.get("js_only"), False)
-        css_selector = (arguments.get("css_selector") or "").strip() or None
-        target_elements = self._string_list_arg(arguments.get("target_elements"))
-        excluded_selector = (arguments.get("excluded_selector") or "").strip() or None
-        excluded_tags = self._string_list_arg(arguments.get("excluded_tags"))
-        wait_for_images = self._bool_arg(arguments.get("wait_for_images"), False)
-        only_text = self._bool_arg(arguments.get("only_text"), False)
-        magic = self._bool_arg(arguments.get("magic"), True)
-        enable_stealth = self._bool_arg(arguments.get("enable_stealth"), True)
-        simulate_user = self._bool_arg(arguments.get("simulate_user"), True)
-        override_navigator = self._bool_arg(arguments.get("override_navigator"), True)
-        remove_overlay_elements = self._bool_arg(arguments.get("remove_overlay_elements"), True)
-        process_iframes = self._bool_arg(arguments.get("process_iframes"), True)
-        scan_full_page = self._bool_arg(arguments.get("scan_full_page"), False)
-        max_scroll_steps = self._optional_int_arg(arguments.get("max_scroll_steps"), 1, 300)
-        use_undetected = self._bool_arg(arguments.get("use_undetected"), False)
-        retry_antibot = self._bool_arg(arguments.get("retry_antibot"), True)
-        max_attempts = self._int_arg(arguments.get("max_attempts"), DEFAULT_MAX_ATTEMPTS, 1, MAX_MAX_ATTEMPTS)
+        # Keep AI-facing parameters intentionally minimal.
+        # All advanced crawl strategy knobs are fixed here to stable defaults.
+        retry_antibot = True
+        max_attempts = DEFAULT_MAX_ATTEMPTS
+        browser_profile = pick_browser_profile(seed_hint=url)
+        profile_locale = str(browser_profile.get("locale") or "en-US")
+        profile_timezone = str(browser_profile.get("timezone_id") or "America/Los_Angeles")
+        profile_user_agent = str(browser_profile.get("user_agent") or "").strip() or None
+        profile_headers = build_extra_http_headers(browser_profile)
 
         base_crawl_kwargs = {
             "url": url,
-            "timeout_ms": timeout_ms,
-            "delay_seconds": delay_seconds,
-            "cache_mode": cache_mode,
+            "timeout_ms": DEFAULT_TIMEOUT_MS,
+            "delay_seconds": DEFAULT_DELAY_SECONDS,
+            "cache_mode": _DEFAULT_CACHE_MODE,
             "css_selector": css_selector,
-            "wait_for": wait_for,
-            "wait_for_timeout_ms": wait_for_timeout_ms,
-            "wait_until": wait_until,
-            "session_id": session_id,
-            "locale": locale,
-            "timezone_id": timezone_id,
-            "user_agent": user_agent,
-            "user_agent_mode": user_agent_mode,
-            "headers": headers,
-            "cookies": cookies,
-            "proxy_config": proxy_config,
-            "js_code": js_code,
-            "js_only": js_only,
-            "target_elements": target_elements,
-            "excluded_selector": excluded_selector,
-            "excluded_tags": excluded_tags,
-            "wait_for_images": wait_for_images,
-            "only_text": only_text,
-            "enable_stealth": enable_stealth,
-            "use_undetected": use_undetected,
-            "magic": magic,
-            "simulate_user": simulate_user,
-            "override_navigator": override_navigator,
-            "remove_overlay_elements": remove_overlay_elements,
-            "process_iframes": process_iframes,
-            "scan_full_page": scan_full_page,
-            "max_scroll_steps": max_scroll_steps,
+            "wait_for": None,
+            "wait_for_timeout_ms": None,
+            "wait_until": DEFAULT_WAIT_UNTIL,
+            "session_id": None,
+            "locale": profile_locale,
+            "timezone_id": profile_timezone,
+            "user_agent": profile_user_agent,
+            "user_agent_mode": None,
+            "headers": profile_headers,
+            "cookies": None,
+            "proxy_config": None,
+            "js_code": None,
+            "js_only": False,
+            "target_elements": None,
+            "excluded_selector": None,
+            "excluded_tags": None,
+            "wait_for_images": True,
+            "only_text": False,
+            "enable_stealth": True,
+            "use_undetected": False,
+            "magic": True,
+            "simulate_user": True,
+            "override_navigator": True,
+            "remove_overlay_elements": True,
+            "process_iframes": True,
+            "scan_full_page": False,
+            "max_scroll_steps": None,
         }
 
         attempt_chain = self._build_attempt_chain(
@@ -409,6 +191,14 @@ class Crawl4AITool(BaseTool):
             profile_name = attempt.get("name", f"attempt_{idx}")
             attempt_kwargs = attempt["kwargs"]
             try:
+                emit_tool_progress(
+                    f"Crawl attempt {idx}/{len(attempt_chain)} profile={profile_name}",
+                    tool_name="crawl4ai_fetch",
+                    stage="attempt",
+                    attempt=idx,
+                    total_attempts=len(attempt_chain),
+                    profile=profile_name,
+                )
                 logger.info(
                     "crawl4ai_fetch attempt %d/%d for '%s' using profile=%s",
                     idx,
@@ -492,7 +282,8 @@ class Crawl4AITool(BaseTool):
 
         browser_enable_stealth = bool(enable_stealth and not use_undetected)
         headless = _resolve_playwright_headless()
-        cache_mode_value = getattr(CacheMode, _CACHE_MODE_NAMES[cache_mode])
+        _ = cache_mode  # cache strategy is intentionally fixed by tool defaults
+        cache_mode_value = getattr(CacheMode, _CACHE_MODE_MEMBER)
         browser_config = BrowserConfig(
             browser_type="chromium",
             headless=headless,
@@ -597,133 +388,6 @@ class Crawl4AITool(BaseTool):
         except (TypeError, ValueError):
             parsed = default
         return max(minimum, min(parsed, maximum))
-
-    @staticmethod
-    def _get_random_user_agent() -> str | None:
-        """获取随机的真实浏览器User-Agent。"""
-        try:
-            if UserAgent is not None:
-                ua = UserAgent()
-                return ua.random
-        except Exception:
-            pass
-        # 备用：返回常见的Chrome User-Agent
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-    @staticmethod
-    def _float_arg(value, default: float, minimum: float, maximum: float) -> float:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            parsed = default
-        return max(minimum, min(parsed, maximum))
-
-    @staticmethod
-    def _optional_int_arg(value, minimum: int, maximum: int) -> int | None:
-        if value is None:
-            return None
-        try:
-            parsed = int(value)
-        except (TypeError, ValueError):
-            return None
-        return max(minimum, min(parsed, maximum))
-
-    @staticmethod
-    def _bool_arg(value, default: bool) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        text = str(value).strip().lower()
-        if text in {"1", "true", "yes", "y", "on"}:
-            return True
-        if text in {"0", "false", "no", "n", "off"}:
-            return False
-        return default
-
-    @staticmethod
-    def _string_list_arg(value) -> list[str] | None:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            items = [v.strip() for v in value.split(",")]
-        elif isinstance(value, list):
-            items = [str(v).strip() for v in value]
-        else:
-            return None
-        items = [v for v in items if v]
-        if not items:
-            return None
-        return items[:50]
-
-    @staticmethod
-    def _headers_arg(value) -> dict | None:
-        if not isinstance(value, dict):
-            return None
-        out = {}
-        for k, v in value.items():
-            key = str(k).strip()
-            val = str(v).strip()
-            if not key:
-                continue
-            out[key] = val
-            if len(out) >= 100:
-                break
-        return out or None
-
-    @staticmethod
-    def _cookies_arg(value) -> list[dict] | None:
-        if not isinstance(value, list):
-            return None
-        out: list[dict] = []
-        for item in value:
-            if not isinstance(item, dict):
-                continue
-            cookie = {}
-            for key in ("name", "value", "domain", "path", "url", "expires", "httpOnly", "secure", "sameSite"):
-                if key in item:
-                    cookie[key] = item[key]
-            if cookie:
-                out.append(cookie)
-            if len(out) >= 100:
-                break
-        return out or None
-
-    @staticmethod
-    def _proxy_config_arg(value) -> dict | None:
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            return None
-        server = str(value.get("server") or "").strip()
-        if not server:
-            return None
-        out = {"server": server}
-        username = str(value.get("username") or "").strip()
-        password = str(value.get("password") or "").strip()
-        if username:
-            out["username"] = username
-        if password:
-            out["password"] = password
-        return out
-
-    @staticmethod
-    def _js_code_arg(value) -> str | list[str] | None:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            text = value.strip()
-            return text or None
-        if isinstance(value, list):
-            out: list[str] = []
-            for item in value:
-                text = str(item).strip()
-                if text:
-                    out.append(text)
-                if len(out) >= 20:
-                    break
-            return out or None
-        return None
 
     @staticmethod
     def _build_attempt_chain(
@@ -835,10 +499,8 @@ class Crawl4AITool(BaseTool):
 
     def get_instruction(self) -> str:
         return (
-            "\n\nYou have the crawl4ai_fetch tool for rich browser-based crawling.\n"
-            "- Use it for JS-heavy pages or when url_fetch snippets are insufficient.\n"
-            "- Prefer cache_mode='bypass' for fresh content unless the user wants cached results.\n"
-            "- Default to wait_until='load' for higher success on protected pages.\n"
-            "- Use css_selector to focus extraction and reduce noise.\n"
-            "- First try defaults, then tune wait/session/proxy/js fields only when needed.\n"
+            "\n\nYou have the crawl4ai_fetch tool for browser-based crawling.\n"
+            "- Keep calls simple: only pass url (and optional max_length / focus_selector).\n"
+            "- Anti-bot retries, wait strategy, stealth, and browser settings are internally fixed.\n"
+            "- Use focus_selector only when the user asks for a specific page section.\n"
         )

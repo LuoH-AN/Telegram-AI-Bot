@@ -17,8 +17,14 @@ import time
 from urllib.parse import urlparse
 
 from utils import html_to_markdown, strip_style_blocks
+from utils.browser_realism import (
+    apply_context_realism,
+    build_context_kwargs,
+    humanize_page_presence,
+    pick_browser_profile,
+)
 
-from .registry import BaseTool
+from .registry import BaseTool, emit_tool_progress
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +144,14 @@ def _resolve_chromium_executable() -> str | None:
 def _build_chromium_launch_kwargs(headless: bool) -> dict[str, object]:
     launch_kwargs: dict[str, object] = {
         "headless": headless,
-        "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+        "args": [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--start-maximized",
+        ],
+        "ignore_default_args": ["--enable-automation"],
     }
     executable = _resolve_chromium_executable()
     if executable:
@@ -238,9 +251,13 @@ def _run_on_worker(func, *args):
                 )
 
 
-def _open_browser_page(browser):
+def _open_browser_page(browser, *, seed_hint: str | None = None):
     """Open an isolated context/page for one tool call."""
-    context = browser.new_context(viewport={"width": 1280, "height": 720})
+    profile = pick_browser_profile(seed_hint=seed_hint)
+    context = browser.new_context(
+        **build_context_kwargs(profile, viewport_override={"width": 1366, "height": 768}),
+    )
+    apply_context_realism(context, profile)
     page = context.new_page()
     return context, page
 
@@ -331,6 +348,20 @@ def _wait_for_cf_pass(page) -> str | None:
         f"{_CF_WAIT_ROUNDS * _CF_WAIT_INTERVAL}s. "
         "The page cannot be accessed by an automated browser."
     )
+
+
+def _prepare_page_after_navigation(page, wait_seconds: float) -> str | None:
+    """Run anti-bot wait and lightweight human-like warmup before extraction."""
+    cf_err = _wait_for_cf_pass(page)
+    if cf_err:
+        return cf_err
+
+    humanize_page_presence(page)
+    if wait_seconds > 0:
+        time.sleep(wait_seconds)
+
+    # Re-check after waiting in case challenge appears late.
+    return _wait_for_cf_pass(page)
 
 
 # ── URL safety (reuses fetch.py pattern) ──
@@ -461,14 +492,17 @@ class PlaywrightTool(BaseTool):
 
         full_page = bool(arguments.get("full_page", False))
         wait = min(max(float(arguments.get("wait", DEFAULT_WAIT)), 0), MAX_WAIT)
+        emit_tool_progress(
+            f"Opening browser for screenshot: {url}",
+            tool_name="page_screenshot",
+            stage="navigate",
+        )
 
         def _do(browser, _url, _full_page, _wait):
-            context, page = _open_browser_page(browser)
+            context, page = _open_browser_page(browser, seed_hint=_url)
             try:
                 used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
-                if _wait > 0:
-                    time.sleep(_wait)
-                cf_err = _wait_for_cf_pass(page)
+                cf_err = _prepare_page_after_navigation(page, _wait)
                 if cf_err:
                     return ("cf_blocked", cf_err)
                 return ("ok", page.screenshot(full_page=_full_page, type="png"), used_wait)
@@ -525,14 +559,17 @@ class PlaywrightTool(BaseTool):
         except (TypeError, ValueError):
             max_length = DEFAULT_CONTENT_LENGTH
         max_length = max(200, min(max_length, MAX_CONTENT_LENGTH))
+        emit_tool_progress(
+            f"Opening browser for content extraction: {url}",
+            tool_name="page_content",
+            stage="navigate",
+        )
 
         def _do(browser, _url, _wait):
-            context, page = _open_browser_page(browser)
+            context, page = _open_browser_page(browser, seed_hint=_url)
             try:
                 used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
-                if _wait > 0:
-                    time.sleep(_wait)
-                cf_err = _wait_for_cf_pass(page)
+                cf_err = _prepare_page_after_navigation(page, _wait)
                 if cf_err:
                     return ("cf_blocked", cf_err)
                 # Remove non-content nodes so CSS/JS text doesn't leak into markdown.
