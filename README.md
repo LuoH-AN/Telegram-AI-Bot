@@ -167,7 +167,7 @@ python mcp_server.py
 - 工具默认值：`ENABLED_TOOLS`, `CRON_ENABLED_TOOLS`
 - TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
 - 浏览器：`BROWSER_HEADLESS`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
-- 浏览器代理（Resin/HTTP）：`BROWSER_PROXY_URL`, `BROWSER_PROXY_USERNAME`, `BROWSER_PROXY_PASSWORD`, `RESIN_PROXY_URL`, `RESIN_PROXY_TOKEN`, `RESIN_PROXY_PLATFORM`, `RESIN_PROXY_ACCOUNT`
+- 浏览器代理（Resin/HTTP）：`BROWSER_PROXY_MODE`, `BROWSER_PROXY_URL`, `BROWSER_PROXY_USERNAME`, `BROWSER_PROXY_PASSWORD`, `RESIN_PROXY_URL`, `RESIN_PROXY_TOKEN`, `RESIN_PROXY_PLATFORM`, `RESIN_PROXY_ACCOUNT`
 - HF Dataset 持久化：`HF_DATASET_USERNAME`, `HF_DATASET_TOKEN`, `HF_DATASET_NAME`, `HF_DATASET_ENCRYPTION_KEY`
 
 详细示例请参考 `.env.example`。
@@ -176,18 +176,29 @@ python mcp_server.py
 
 `playwright` / `crawl4ai` / `browser_agent` 三个浏览器工具都会读取同一组代理配置。
 
-最简配置：
+推荐（Reverse，适合 `hf.space` / 网关入口）：
 
 ```env
+BROWSER_PROXY_MODE=reverse
+RESIN_PROXY_URL=https://your-resin-server
+RESIN_PROXY_TOKEN=my-token
+RESIN_PROXY_PLATFORM=Default
+RESIN_PROXY_ACCOUNT=user-{user_id}
+```
+
+Forward（需要服务端支持 CONNECT，例如 `:2260`）：
+
+```env
+BROWSER_PROXY_MODE=forward
 RESIN_PROXY_URL=http://your-resin-server:2260
 RESIN_PROXY_TOKEN=my-token
 RESIN_PROXY_PLATFORM=Default
 RESIN_PROXY_ACCOUNT=user-{user_id}
 ```
 
-- 运行时会自动拼出用户名格式：`PROXY_TOKEN:Platform:Account`
-- `RESIN_PROXY_ACCOUNT` 支持 `{user_id}` 占位符，可为不同用户保持独立粘性会话
-- 如果 `RESIN_PROXY_TOKEN` 为空，保留为空即可（会按 Resin 无密码模式连接）
+- `BROWSER_PROXY_MODE=auto`（默认）时：若设置了 `RESIN_PROXY_URL`，浏览器工具优先走 Reverse；否则走 Forward 直连配置。
+- `RESIN_PROXY_ACCOUNT` 支持 `{user_id}` 占位符，可为不同用户保持独立粘性会话。
+- `RESIN_PROXY_TOKEN` 为空时，Reverse 路径会自动省略 token 段。
 
 ## HF Dataset 持久化（可选）
 

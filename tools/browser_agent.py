@@ -16,7 +16,11 @@ from urllib.parse import urlparse
 
 from config import WEB_BASE_URL
 from hf_dataset_store import get_hf_dataset_store
-from utils.browser_proxy import proxy_label, resolve_browser_proxy
+from utils.browser_proxy import (
+    proxy_label,
+    resolve_browser_navigation_url,
+    resolve_browser_proxy,
+)
 from utils.browser_realism import (
     apply_context_realism,
     build_context_kwargs,
@@ -812,6 +816,7 @@ def _op_start_session(
     browser,
     user_id: int,
     start_url: str | None,
+    start_navigate_url: str | None,
     wait_seconds: float,
     wait_until: str,
     force_new: bool,
@@ -822,7 +827,7 @@ def _op_start_session(
             session = _get_session_for_user(existing_sid, user_id)
             page = session["page"]
             if start_url:
-                page.goto(start_url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
+                page.goto(start_navigate_url or start_url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
                 humanize_page_presence(page)
                 if wait_seconds > 0:
                     time.sleep(wait_seconds)
@@ -837,7 +842,8 @@ def _op_start_session(
                     "ok": True,
                     "action": "browser_start_session",
                     "session_id": existing_sid,
-                    "url": page.url,
+                    "url": start_url or page.url,
+                    "resolved_url": page.url,
                     "title": page.title(),
                     "started_with_url": bool(start_url),
                     "reused_existing": True,
@@ -865,7 +871,7 @@ def _op_start_session(
 
     try:
         if start_url:
-            page.goto(start_url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
+            page.goto(start_navigate_url or start_url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
             humanize_page_presence(page)
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
@@ -889,7 +895,8 @@ def _op_start_session(
             "ok": True,
             "action": "browser_start_session",
             "session_id": session_id,
-            "url": page.url,
+            "url": start_url or page.url,
+            "resolved_url": page.url,
             "title": page.title(),
             "started_with_url": bool(start_url),
             "reused_existing": False,
@@ -983,6 +990,7 @@ def _op_goto(
     user_id: int,
     session_id: str,
     url: str,
+    navigate_url: str,
     wait_seconds: float,
     wait_until: str,
 ) -> str:
@@ -990,7 +998,7 @@ def _op_goto(
     session = _get_session_for_user(session_id, user_id)
     page = session["page"]
     viewer = _viewer_payload(session_id, user_id)
-    page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
+    page.goto(navigate_url, timeout=PAGE_TIMEOUT_MS, wait_until=wait_until)
     humanize_page_presence(page)
     if wait_seconds > 0:
         time.sleep(wait_seconds)
@@ -1005,7 +1013,8 @@ def _op_goto(
             "ok": True,
             "action": "browser_goto",
             "session_id": session_id,
-            "url": page.url,
+            "url": url,
+            "resolved_url": page.url,
             "title": page.title(),
             "challenge_active": cf_active,
             "challenge_message": cf_message,
@@ -2138,14 +2147,23 @@ class BrowserAgentTool(BaseTool):
                 start_url = _validate_url(start_url)
             except ValueError as e:
                 return f"URL rejected: {e}"
+            start_navigate_url, route_mode = resolve_browser_navigation_url(start_url, user_id=user_id)
+            if route_mode == "reverse":
+                logger.info(
+                    "browser_start_session reverse-routed via Resin: target=%s route=%s",
+                    start_url,
+                    start_navigate_url,
+                )
         else:
             start_url = None
+            start_navigate_url = None
 
         try:
             return _run_on_worker(
                 _op_start_session,
                 user_id,
                 start_url,
+                start_navigate_url,
                 wait_seconds,
                 wait_until,
                 force_new,
@@ -2197,6 +2215,13 @@ class BrowserAgentTool(BaseTool):
             url = _validate_url(raw_url)
         except ValueError as e:
             return f"URL rejected: {e}"
+        navigate_url, route_mode = resolve_browser_navigation_url(url, user_id=user_id)
+        if route_mode == "reverse":
+            logger.info(
+                "browser_goto reverse-routed via Resin: target=%s route=%s",
+                url,
+                navigate_url,
+            )
 
         wait_seconds = self._float_arg(
             arguments.get("wait"),
@@ -2209,7 +2234,7 @@ class BrowserAgentTool(BaseTool):
             wait_until = DEFAULT_WAIT_UNTIL
 
         try:
-            return _run_on_worker(_op_goto, user_id, session_id, url, wait_seconds, wait_until)
+            return _run_on_worker(_op_goto, user_id, session_id, url, navigate_url, wait_seconds, wait_until)
         except Exception as e:
             logger.exception("browser_goto failed for user=%d session=%s url=%s", user_id, session_id, url)
             return f"browser_goto failed: {e}"
