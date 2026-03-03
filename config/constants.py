@@ -45,10 +45,10 @@ MAX_FILE_SIZE = 20 * 1024 * 1024
 MAX_TEXT_CONTENT_LENGTH = 100000
 
 # Prompt template for generating session titles
-TITLE_GENERATION_PROMPT = """生成一个简洁的、3-5个词的标题，总结以下聊天内容。
-- 标题使用与聊天内容相同的语言。
-- 不要使用引号或特殊格式。
-- 直接输出标题，不要输出任何其他内容。
+TITLE_GENERATION_PROMPT = """Generate a concise 3-5 word title summarizing the conversation below.
+- The title must be in English.
+- Do not use quotes or special formatting.
+- Output only the title text and nothing else.
 
 User: {user_message}
 Assistant: {ai_response}"""

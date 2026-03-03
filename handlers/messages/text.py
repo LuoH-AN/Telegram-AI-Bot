@@ -163,7 +163,7 @@ async def _stream_response(
     so that waiting for each chunk does not block the async event loop.
 
     Args:
-        show_waiting: Show "Thought for Xs" waiting indicator.  Set to False
+        show_waiting: Show "Think for Xs" waiting indicator.  Set to False
                       on subsequent tool rounds to reduce Telegram message edits.
         stream_mode: Update mode for streaming:
                      - "default": original behavior (time + chars conditions)
@@ -208,7 +208,7 @@ async def _stream_response(
     thinking_seconds = 0
     thinking_locked = False
 
-    # Generic waiting indicator ("Thought for Xs" before content/reasoning arrives)
+    # Generic waiting indicator ("Think for Xs" before content/reasoning arrives)
     waiting_start_time = loop.time()
     waiting_active = show_waiting
 
@@ -219,7 +219,7 @@ async def _stream_response(
                 if not waiting_active:
                     break
                 elapsed = max(1, int(loop.time() - waiting_start_time))
-                await stream_update(f"Thought for {elapsed}s")
+                await stream_update(f"Think for {elapsed}s")
         except asyncio.CancelledError:
             pass
 
