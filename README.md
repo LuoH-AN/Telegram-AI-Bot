@@ -161,8 +161,23 @@ python mcp_server.py
 - 工具默认值：`ENABLED_TOOLS`, `CRON_ENABLED_TOOLS`
 - TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
 - 浏览器：`BROWSER_HEADLESS`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
+- HF Dataset 持久化：`HF_DATASET_USERNAME`, `HF_DATASET_TOKEN`, `HF_DATASET_NAME`, `HF_DATASET_ENCRYPTION_KEY`
 
 详细示例请参考 `.env.example`。
+
+## HF Dataset 持久化（可选）
+
+如果部署在临时文件系统（如 Hugging Face Spaces 默认运行盘），可配置：
+
+- `HF_DATASET_USERNAME`
+- `HF_DATASET_TOKEN`
+- `HF_DATASET_NAME`
+- `HF_DATASET_ENCRYPTION_KEY`（必填；用于加密所有持久化数据）
+
+启用后：
+
+- `browser_agent` 会自动保存/恢复 Playwright `storage_state`（cookie + localStorage 等登录态）
+- `shell` 会自动恢复并回传工作目录快照（默认不限制大小，可通过环境变量限制）
 
 ## 开发建议
 

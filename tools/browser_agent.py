@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlparse
 
 from config import WEB_BASE_URL
+from hf_dataset_store import get_hf_dataset_store
 
 from .registry import BaseTool
 
@@ -45,6 +46,7 @@ _sessions: dict[str, dict] = {}
 _viewer_lock = threading.Lock()
 _viewer_links: dict[str, dict] = {}
 _browser_runtime: dict[str, object] = {"engine": "chromium"}
+_HF_STATE_PATH = "browser/{user_id}/storage_state.json"
 
 
 def _clamp_point(x: float, y: float, width: int, height: int) -> tuple[float, float]:
@@ -529,12 +531,74 @@ def _get_session_for_user(session_id: str, user_id: int) -> dict:
     return session
 
 
-def _new_context(browser):
+def _extract_storage_state(payload) -> dict | None:
+    if isinstance(payload, dict) and isinstance(payload.get("storage_state"), dict):
+        return payload["storage_state"]
+    if isinstance(payload, dict) and isinstance(payload.get("cookies"), list):
+        # Backward compatibility for raw Playwright storage_state payloads.
+        return payload
+    return None
+
+
+def _load_storage_state_for_user(user_id: int) -> tuple[dict | None, bool]:
+    store = get_hf_dataset_store()
+    if not store.enabled:
+        return None, False
+    payload = store.get_json(_HF_STATE_PATH.format(user_id=user_id))
+    state = _extract_storage_state(payload)
+    if not state:
+        return None, False
+    return state, True
+
+
+def _persist_storage_state_for_session(user_id: int, session_id: str, reason: str) -> None:
+    store = get_hf_dataset_store()
+    if not store.enabled:
+        return
+
+    try:
+        session = _get_session_for_user(session_id, user_id)
+        context = session.get("context")
+        page = session.get("page")
+        if context is None:
+            return
+
+        state = context.storage_state()
+        payload = {
+            "version": 1,
+            "updated_at": int(time.time()),
+            "reason": reason,
+            "session_id": session_id,
+            "url": page.url if page else "",
+            "storage_state": state,
+        }
+        store.put_json(
+            _HF_STATE_PATH.format(user_id=user_id),
+            payload,
+            commit_message=f"browser storage_state user={user_id}",
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to persist browser storage_state (user=%d session=%s reason=%s): %s",
+            user_id,
+            session_id,
+            reason,
+            e,
+        )
+
+
+def _new_context(browser, storage_state: dict | None = None):
+    kwargs: dict[str, object] = {
+        "viewport": {"width": 1366, "height": 768},
+        "device_scale_factor": 1,
+        "locale": "zh-CN",
+        "timezone_id": "Asia/Shanghai",
+    }
+    if storage_state:
+        kwargs["storage_state"] = storage_state
+
     context = browser.new_context(
-        viewport={"width": 1366, "height": 768},
-        device_scale_factor=1,
-        locale="zh-CN",
-        timezone_id="Asia/Shanghai",
+        **kwargs,
     )
 
     return context
@@ -769,7 +833,8 @@ def _op_start_session(
     _ensure_total_session_limit()
     _ensure_session_limits_for_user(user_id)
 
-    context = _new_context(browser)
+    storage_state, restored_from_hf = _load_storage_state_for_user(user_id)
+    context = _new_context(browser, storage_state=storage_state)
     page = context.new_page()
     session_id = f"bs_{user_id}_{secrets.token_hex(4)}"
 
@@ -792,6 +857,7 @@ def _op_start_session(
             "created_at": time.time(),
             "last_active": time.time(),
         }
+        _persist_storage_state_for_session(user_id, session_id, reason="start_session")
         viewer_token, viewer_url = _get_or_create_viewer_link(session_id, user_id)
         payload = {
             "ok": True,
@@ -804,6 +870,7 @@ def _op_start_session(
             "viewer_token": viewer_token,
             "viewer_url": viewer_url,
             "browser_engine": _browser_runtime.get("engine"),
+            "restored_storage_state": restored_from_hf,
             "challenge_active": cf_active,
             "challenge_message": cf_message,
             "note": "Always return viewer_url to user. Use browser_get_state to inspect page and next actions.",
@@ -871,6 +938,10 @@ def _op_close_session(browser, user_id: int, session_id: str) -> str:
     _ = browser
     session = _get_session_for_user(session_id, user_id)
     _ = session
+    try:
+        _persist_storage_state_for_session(user_id, session_id, reason="close_session")
+    except Exception as e:
+        logger.warning("Failed to persist browser state before close (user=%d session=%s): %s", user_id, session_id, e)
     _close_session_internal(session_id)
     return _format_json(
         {
@@ -901,6 +972,7 @@ def _op_goto(
         "Cloudflare challenge detected. Manual click/wait may be required."
         if cf_active else None
     )
+    _persist_storage_state_for_session(user_id, session_id, reason="goto")
     return _format_json(
         {
             "ok": True,
@@ -1098,6 +1170,7 @@ def _op_click(
         "Cloudflare challenge detected. Manual click/wait may be required."
         if cf_active else None
     )
+    _persist_storage_state_for_session(user_id, session_id, reason="click")
 
     return _format_json(
         {
@@ -1178,6 +1251,7 @@ def _op_type(
         page.keyboard.press("Enter")
     if wait_seconds > 0:
         time.sleep(wait_seconds)
+    _persist_storage_state_for_session(user_id, session_id, reason="type")
 
     return _format_json(
         {
@@ -1212,6 +1286,7 @@ def _op_press(
     viewer = _viewer_payload(session_id, user_id)
     normalized_key = _normalize_playwright_key(key)
     page.keyboard.press(normalized_key)
+    _persist_storage_state_for_session(user_id, session_id, reason="press")
     return _format_json(
         {
             "ok": True,
@@ -1243,6 +1318,7 @@ def _op_wait_for(
         page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
     if wait_ms > 0:
         time.sleep(min(wait_ms, 120_000) / 1000.0)
+    _persist_storage_state_for_session(user_id, session_id, reason="wait_for")
 
     return _format_json(
         {
@@ -1385,6 +1461,7 @@ def _op_live_view_click(
         "Cloudflare challenge detected. Manual click/wait may be required."
         if cf_active else None
     )
+    _persist_storage_state_for_session(user_id, session_id, reason="viewer_click")
     return {
         "ok": True,
         "action": "browser_view_click",
@@ -1459,6 +1536,7 @@ def _op_live_view_input(
         "Cloudflare challenge detected. Manual click/wait may be required."
         if cf_active else None
     )
+    _persist_storage_state_for_session(user_id, session_id, reason="viewer_input")
     return {
         "ok": True,
         "action": "browser_view_input",
@@ -2282,6 +2360,7 @@ class BrowserAgentTool(BaseTool):
             "\n\nYou have stateful browser_agent tools for step-by-step web automation.\n"
             "- Start with browser_start_session; it reuses an active session by default.\n"
             "- After a session starts, prefer continuing directly; session_id can be omitted and latest active session is auto-used.\n"
+            "- With HF_DATASET_USERNAME/HF_DATASET_TOKEN/HF_DATASET_NAME set, login state is restored via storage_state.\n"
             "- Always return viewer_url to the user whenever browser_start_session/browser_get_view_url returns it.\n"
             "- If user asks to watch current browser, call browser_get_view_url (do not start a new session unless user asked for force_new).\n"
             "- Set force_new=true only when you explicitly need a new isolated session.\n"
