@@ -419,6 +419,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
     draft_id = int(time.time() * 1000) % 2147483647
     if draft_id <= 0:
         draft_id = 1
+    draft_updates_sent = 0
+    status_message = None
 
     if not internal_call:
         # Check token limit (per-persona)
@@ -435,7 +437,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             bot_message = await update.message.reply_text("…")
 
     async def _stream_update(text: str) -> bool:
-        nonlocal use_official_draft, bot_message
+        nonlocal use_official_draft, bot_message, draft_updates_sent, status_message
+        text = (text or "").rstrip()
+        if not text:
+            text = "…"
         if use_official_draft:
             ok = await send_message_draft_safe(
                 context.bot,
@@ -445,16 +450,32 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 message_thread_id=getattr(update.message, "message_thread_id", None),
             )
             if ok:
+                draft_updates_sent += 1
                 return True
-            logger.warning("%s send_message_draft failed; falling back to edit_message", ctx)
+            # If draft stream has already started, avoid creating a second message.
+            # Keep retrying official draft in later updates, but never duplicate output.
+            if draft_updates_sent > 0:
+                logger.warning(
+                    "%s send_message_draft failed after stream started; skip fallback to avoid duplicate message",
+                    ctx,
+                )
+                return False
+            logger.warning("%s send_message_draft failed; falling back to legacy message updates", ctx)
             use_official_draft = False
-            if bot_message is None and update.message:
-                bot_message = await update.message.reply_text("…")
+            if status_message is not None:
+                try:
+                    await status_message.delete()
+                except Exception:
+                    logger.debug("%s failed to delete status message during fallback", ctx, exc_info=True)
+                status_message = None
+            if update.message:
+                sent_messages = await send_message_safe(update.message, text)
+                if sent_messages:
+                    bot_message = sent_messages[0]
+                    return True
         if bot_message is None:
             return False
         return await edit_message_safe(bot_message, text)
-
-    status_message = None
 
     async def _status_update(text: str) -> bool:
         """Emit Think/Thought status as a separate message in private draft mode."""
@@ -786,7 +807,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             final_text = filter_thinking_content(last_text_response)
 
         # Post-process response (e.g. regex fallback for memory extraction)
-        final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools)
+        final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools).strip()
 
         if not final_text:
             logger.warning(
@@ -808,11 +829,13 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         display_final = thinking_prefix + final_text
 
         # Final output:
-        # - Draft mode: finalize stream, then send a normal message for persistence.
+        # - Draft mode: finalize in-place; avoid duplicate normal messages.
         # - Edit mode: keep existing placeholder edit/split fallback behavior.
         if use_official_draft:
-            await _stream_update(display_final)
-            await send_message_safe(update.message, display_final)
+            finalized = await _stream_update(display_final)
+            if not finalized and draft_updates_sent == 0:
+                # No draft output ever reached the client; send a normal fallback message.
+                await send_message_safe(update.message, display_final)
         elif len(display_final) > MAX_MESSAGE_LENGTH:
             # Delete the placeholder and send multiple messages
             if bot_message is not None:
