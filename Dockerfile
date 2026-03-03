@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk 
 # Copy application code
 COPY bot.py .
 COPY discord_bot.py .
+COPY hf_dataset_store.py .
 COPY config/ ./config/
 COPY database/ ./database/
 COPY cache/ ./cache/
