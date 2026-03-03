@@ -44,7 +44,14 @@ from tools import (
     drain_pending_screenshot_jobs,
 )
 from ai import get_ai_client, ToolCall
-from utils import filter_thinking_content, parse_raw_tool_calls, send_message_safe, edit_message_safe, get_datetime_prompt
+from utils import (
+    filter_thinking_content,
+    parse_raw_tool_calls,
+    send_message_safe,
+    edit_message_safe,
+    send_message_draft_safe,
+    get_datetime_prompt,
+)
 from utils.ai_helpers import (
     effective_tool_timeout,
     estimate_tokens as _estimate_tokens,
@@ -146,11 +153,11 @@ async def _stream_response(
     temperature,
     reasoning_effort,
     tools,
-    bot_message,
+    stream_update,
     show_waiting=True,
     stream_mode="default",
 ):
-    """Stream an AI response, updating bot_message in real-time.
+    """Stream an AI response, updating output in real-time.
 
     The synchronous OpenAI streaming iterator is wrapped with run_in_executor
     so that waiting for each chunk does not block the async event loop.
@@ -212,7 +219,7 @@ async def _stream_response(
                 if not waiting_active:
                     break
                 elapsed = max(1, int(loop.time() - waiting_start_time))
-                await edit_message_safe(bot_message, f"Thinking for {elapsed}s")
+                await stream_update(f"Thinking for {elapsed}s")
         except asyncio.CancelledError:
             pass
 
@@ -247,7 +254,7 @@ async def _stream_response(
                 waiting_active = False
                 thinking_start_time = current_time
                 thinking_seconds = 1
-                await edit_message_safe(bot_message, "Thought for 1s")
+                await stream_update("Thought for 1s")
                 last_update_time = current_time
 
             # Update thinking counter while still in thinking phase
@@ -257,7 +264,7 @@ async def _stream_response(
                 if not display_text_now and new_seconds > thinking_seconds:
                     thinking_seconds = new_seconds
                     if current_time - last_update_time >= 1.0:
-                        await edit_message_safe(bot_message, f"Thought for {thinking_seconds}s")
+                        await stream_update(f"Thought for {thinking_seconds}s")
                         last_update_time = current_time
 
             if chunk.content:
@@ -270,7 +277,7 @@ async def _stream_response(
                     waiting_active = False
                     thinking_start_time = current_time
                     thinking_seconds = 1
-                    await edit_message_safe(bot_message, "Thought for 1s")
+                    await stream_update("Thought for 1s")
                     last_update_time = current_time
 
                 # Build thinking prefix for display
@@ -286,7 +293,7 @@ async def _stream_response(
                 # First visible chunk: update immediately, skip throttle interval
                 if first_chunk and display_text:
                     waiting_active = False
-                    await edit_message_safe(bot_message, thinking_prefix + display_text + " ▌")
+                    await stream_update(thinking_prefix + display_text + " ▌")
                     last_update_time = current_time
                     last_update_length = len(display_text)
                     first_chunk = False
@@ -311,7 +318,7 @@ async def _stream_response(
                         )
 
                     if should_update:
-                        await edit_message_safe(bot_message, thinking_prefix + display_text + " ▌")
+                        await stream_update(thinking_prefix + display_text + " ▌")
                         last_update_time = current_time
                         last_update_length = len(display_text)
 
@@ -409,6 +416,33 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         # Send initial placeholder message
         bot_message = await update.message.reply_text("…")
 
+    # Stream updates: prefer official sendMessageDraft in private chats (Bot API 9.5+),
+    # fallback to editMessage for compatibility.
+    draft_enabled = bool(
+        update.effective_chat
+        and update.effective_chat.type == "private"
+        and hasattr(context.bot, "send_message_draft")
+    )
+    draft_id = int(time.time() * 1000) % 2147483647
+    if draft_id <= 0:
+        draft_id = 1
+
+    async def _stream_update(text: str) -> bool:
+        nonlocal draft_enabled
+        if draft_enabled:
+            ok = await send_message_draft_safe(
+                context.bot,
+                chat_id=update.effective_chat.id,
+                draft_id=draft_id,
+                text=text,
+                message_thread_id=getattr(update.message, "message_thread_id", None),
+            )
+            if ok:
+                return True
+            logger.warning("%s send_message_draft failed; falling back to edit_message", ctx)
+            draft_enabled = False
+        return await edit_message_safe(bot_message, text)
+
     try:
         client = get_ai_client(user_id)
         request_start = time.monotonic()
@@ -466,7 +500,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
-                tools, bot_message, show_waiting=(round_num == 0),
+                tools, _stream_update, show_waiting=(round_num == 0),
                 stream_mode=user_stream_mode,
             )
             total_thinking_seconds += thinking_seconds
@@ -515,9 +549,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             status_text = "\n".join(status_lines)
             thinking_prefix = f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
             if display_text:
-                await edit_message_safe(bot_message, thinking_prefix + display_text + "\n\n" + status_text)
+                await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
             else:
-                await edit_message_safe(bot_message, thinking_prefix + status_text)
+                await _stream_update(thinking_prefix + status_text)
 
             # Deduplicate tool calls (same tool + same primary argument)
             new_tool_calls = []
@@ -550,9 +584,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                                 lines.append(f"{base} ({elapsed}s)")
                             animated_text = "\n".join(lines)
                             if display_text:
-                                await edit_message_safe(bot_message, thinking_prefix + display_text + "\n\n" + animated_text)
+                                await _stream_update(thinking_prefix + display_text + "\n\n" + animated_text)
                             else:
-                                await edit_message_safe(bot_message, thinking_prefix + animated_text)
+                                await _stream_update(thinking_prefix + animated_text)
                     except asyncio.CancelledError:
                         pass
 
@@ -645,7 +679,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             })
             full_response, usage_info, _, thinking_seconds, _ = await _stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
-                None, bot_message, show_waiting=False,
+                None, _stream_update, show_waiting=False,
                 stream_mode=user_stream_mode,
             )
             total_thinking_seconds += thinking_seconds
@@ -763,7 +797,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
     except Exception as e:
         logger.exception("%s AI API error", ctx)
-        await edit_message_safe(bot_message, build_retry_message())
+        await _stream_update(build_retry_message())
         from services.log_service import record_error
         record_error(user_id, str(e), "chat handler", settings.get("model"), persona_name)
 

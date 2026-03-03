@@ -8,7 +8,7 @@ from .formatters import (
     html_to_markdown,
     strip_style_blocks,
 )
-from .telegram import send_message_safe, edit_message_safe
+from .telegram import send_message_safe, edit_message_safe, send_message_draft_safe
 from .template import get_datetime_prompt
 from .files import (
     get_file_extension,
@@ -31,6 +31,7 @@ __all__ = [
     # Telegram
     "send_message_safe",
     "edit_message_safe",
+    "send_message_draft_safe",
     # Template
     "get_datetime_prompt",
     # Files
