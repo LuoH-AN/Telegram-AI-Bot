@@ -46,7 +46,7 @@ MAX_TEXT_CONTENT_LENGTH = 100000
 
 # Prompt template for generating session titles
 TITLE_GENERATION_PROMPT = """Generate a concise 3-5 word title summarizing the conversation below.
-- The title must be in English.
+- Use the same language as the conversation content.
 - Do not use quotes or special formatting.
 - Output only the title text and nothing else.
 
