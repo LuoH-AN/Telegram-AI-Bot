@@ -40,6 +40,7 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
     filtered = re.sub(r"<thinking>.*?</thinking>", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<reasoning>.*?</reasoning>", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<reflection>.*?</reflection>", "", filtered, flags=re.DOTALL)
+    filtered = re.sub(r"<internal>.*?</internal>", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"\[thinking\].*?\[/thinking\]", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<\|think\|>.*?<\|/think\|>", "", filtered, flags=re.DOTALL)
 
@@ -48,6 +49,7 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
     filtered = re.sub(r"<thinking>.*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<reasoning>.*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<reflection>.*$", "", filtered, flags=re.DOTALL)
+    filtered = re.sub(r"<internal>.*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"\[thinking\].*$", "", filtered, flags=re.DOTALL)
     filtered = re.sub(r"<\|think\|>.*$", "", filtered, flags=re.DOTALL)
 
@@ -61,7 +63,7 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
     # Skip this during streaming — empty means "still thinking".
     if not streaming and not filtered and text.strip():
         filtered = re.sub(
-            r"</?(?:think|thinking|reasoning|reflection)>|\[/?thinking\]|<\|/?think\|>",
+            r"</?(?:think|thinking|reasoning|reflection|internal)>|\[/?thinking\]|<\|/?think\|>",
             "",
             text,
         )

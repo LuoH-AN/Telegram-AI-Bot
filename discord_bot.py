@@ -87,6 +87,7 @@ from services import (
     normalize_tts_endpoint,
     clear_conversation,
     generate_session_title,
+    conversation_slot,
 )
 from services.log_service import record_ai_interaction, record_error
 from services.cron_service import start_cron_scheduler, set_main_loop
@@ -110,6 +111,8 @@ from utils import (
     is_image_file,
     is_likely_text,
     decode_file_content,
+    ChatEventPump,
+    StreamOutboundAdapter,
 )
 from utils.tooling import (
     AVAILABLE_TOOLS,
@@ -183,6 +186,8 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 DISCORD_MAX_MESSAGE_LENGTH = 2000
 MAX_TOOL_ROUNDS = 3
 TOOL_TIMEOUT = 30
+AI_STREAM_NO_OUTPUT_TIMEOUT = 45
+AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 STREAM_PREVIEW_PREFIX = "[...]\n"
 CRON_SCHEDULER_STARTED = False
@@ -421,13 +426,15 @@ async def _run_stream_completion_round(
     temperature: float,
     reasoning_effort: str | None,
     tools: list[dict] | None,
-    placeholder: discord.Message,
+    stream_update,
+    status_update=None,
     *,
     show_waiting: bool = True,
     stream_mode: str = "default",
 ) -> tuple[str, dict | None, list[ToolCall], int, str | None]:
     client = get_ai_client(user_id)
     loop = asyncio.get_running_loop()
+    status_cb = status_update or stream_update
     mode = _normalize_stream_mode(stream_mode)
 
     stream = await loop.run_in_executor(
@@ -446,6 +453,8 @@ async def _run_stream_completion_round(
     usage_info = None
     all_tool_calls: list[ToolCall] = []
     finish_reason = None
+    stream_start_time = loop.time()
+    last_output_activity: float | None = None
 
     last_update_time = 0.0
     last_update_length = 0
@@ -465,7 +474,7 @@ async def _run_stream_completion_round(
                 if not waiting_active:
                     break
                 elapsed = max(1, int(loop.time() - waiting_start_time))
-                await _safe_edit_message(placeholder, f"Thinking for {elapsed}s")
+                await status_cb(f"Thinking for {elapsed}s")
         except asyncio.CancelledError:
             pass
 
@@ -476,7 +485,30 @@ async def _run_stream_completion_round(
 
     try:
         while True:
-            chunk = await loop.run_in_executor(None, next, it, end_marker)
+            idle_limit = AI_STREAM_NO_OUTPUT_TIMEOUT if last_output_activity is None else AI_STREAM_OUTPUT_IDLE_TIMEOUT
+            idle_since = stream_start_time if last_output_activity is None else last_output_activity
+            timeout_left = idle_limit - (loop.time() - idle_since)
+            if timeout_left <= 0:
+                logger.warning(
+                    "Discord stream idle timeout (%ss, has_output=%s)",
+                    idle_limit,
+                    last_output_activity is not None,
+                )
+                finish_reason = finish_reason or "timeout"
+                break
+            try:
+                chunk = await asyncio.wait_for(
+                    loop.run_in_executor(None, next, it, end_marker),
+                    timeout=max(1.0, timeout_left),
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Discord stream stalled: no activity for %ss (has_output=%s)",
+                    idle_limit,
+                    last_output_activity is not None,
+                )
+                finish_reason = finish_reason or "timeout"
+                break
             if chunk is end_marker:
                 break
 
@@ -484,12 +516,15 @@ async def _run_stream_completion_round(
                 usage_info = chunk.usage
 
             current_time = loop.time()
+            has_output_activity = bool(chunk.content or chunk.reasoning or chunk.tool_calls)
+            if has_output_activity:
+                last_output_activity = current_time
 
             if chunk.reasoning and thinking_start_time is None:
                 waiting_active = False
                 thinking_start_time = current_time
                 thinking_seconds = 1
-                await _safe_edit_message(placeholder, "Thought for 1s")
+                await status_cb("Thought for 1s")
                 last_update_time = current_time
 
             if thinking_start_time is not None:
@@ -497,7 +532,7 @@ async def _run_stream_completion_round(
                 display_text_now = filter_thinking_content(full_response, streaming=True) if full_response else ""
                 if not display_text_now and new_seconds > thinking_seconds and current_time - last_update_time >= 1.0:
                     thinking_seconds = new_seconds
-                    await _safe_edit_message(placeholder, f"Thought for {thinking_seconds}s")
+                    await status_cb(f"Thought for {thinking_seconds}s")
                     last_update_time = current_time
 
             if chunk.content:
@@ -508,7 +543,7 @@ async def _run_stream_completion_round(
                     waiting_active = False
                     thinking_start_time = current_time
                     thinking_seconds = 1
-                    await _safe_edit_message(placeholder, "Thought for 1s")
+                    await status_cb("Thought for 1s")
                     last_update_time = current_time
 
                 thinking_prefix = ""
@@ -520,10 +555,7 @@ async def _run_stream_completion_round(
 
                 if first_visible_chunk and display_text:
                     waiting_active = False
-                    await _safe_edit_message(
-                        placeholder,
-                        _build_stream_preview(display_text, thinking_prefix=thinking_prefix, cursor=True),
-                    )
+                    await stream_update(_build_stream_preview(display_text, thinking_prefix=thinking_prefix, cursor=True))
                     last_update_time = current_time
                     last_update_length = len(display_text)
                     first_visible_chunk = False
@@ -544,10 +576,7 @@ async def _run_stream_completion_round(
                         )
 
                     if should_update:
-                        await _safe_edit_message(
-                            placeholder,
-                            _build_stream_preview(display_text, thinking_prefix=thinking_prefix, cursor=True),
-                        )
+                        await stream_update(_build_stream_preview(display_text, thinking_prefix=thinking_prefix, cursor=True))
                         last_update_time = current_time
                         last_update_length = len(display_text)
 
@@ -744,12 +773,28 @@ def _strip_bot_mentions(text: str, bot_user_id: int | None) -> str:
     return stripped.strip()
 
 
-def _status_text(tool_calls: Sequence[ToolCall]) -> str:
+def _status_text(
+    tool_calls: Sequence[ToolCall],
+    *,
+    elapsed_seconds: int | None = None,
+    overrides: dict[str, str] | None = None,
+) -> str:
     if not tool_calls:
         return ""
-    lines = []
+    counts: dict[str, int] = {}
+    order: list[str] = []
     for tc in tool_calls:
-        lines.append(TOOL_STATUS_MAP.get(tc.name, f"Running {tc.name}..."))
+        name = (tc.name or "").strip() or "tool"
+        if name not in counts:
+            order.append(name)
+            counts[name] = 0
+        counts[name] += 1
+    lines = []
+    for name in order:
+        base = (overrides or {}).get(name) or TOOL_STATUS_MAP.get(name, f"Running {name}...")
+        count_suffix = f" ×{counts[name]}" if counts[name] > 1 else ""
+        elapsed_suffix = f" ({elapsed_seconds}s)" if elapsed_seconds is not None else ""
+        lines.append(f"{base}{count_suffix}{elapsed_suffix}")
     return "\n".join(lines)
 
 
@@ -789,9 +834,68 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     conversation = list(get_conversation(session_id))
 
     placeholder = await message.reply("Thinking...", mention_author=False)
+
+    placeholder_alive = True
+
+    async def _edit_placeholder(text: str) -> bool:
+        if not placeholder_alive:
+            return False
+        return await _safe_edit_message(placeholder, text)
+
+    async def _send_text(text: str) -> bool:
+        chunks = split_message(text or "(Empty response)", max_length=DISCORD_MAX_MESSAGE_LENGTH)
+        if not chunks:
+            chunks = ["(Empty response)"]
+        try:
+            await message.channel.send(chunks[0])
+            for chunk in chunks[1:]:
+                await message.channel.send(chunk)
+            return True
+        except Exception:
+            logger.exception("%s failed to send discord text chunk", ctx)
+            return False
+
+    async def _delete_placeholder() -> None:
+        nonlocal placeholder_alive
+        if not placeholder_alive:
+            return
+        try:
+            await placeholder.delete()
+        except Exception:
+            pass
+        placeholder_alive = False
+
+    outbound = StreamOutboundAdapter(
+        max_message_length=DISCORD_MAX_MESSAGE_LENGTH,
+        has_placeholder=lambda: placeholder_alive,
+        edit_placeholder=_edit_placeholder,
+        send_text=_send_text,
+        delete_placeholder=_delete_placeholder,
+        empty_placeholder_text="Thinking...",
+    )
+
+    async def _render_event(event) -> None:
+        await outbound.stream_update(event.text)
+
+    render_pump = ChatEventPump(_render_event)
+    render_pump.start()
+
+    async def _stream_update(text: str) -> bool:
+        return await render_pump.emit("stream", text)
+
+    async def _status_update(text: str) -> bool:
+        return await render_pump.emit("status", text)
+
+    slot_key = f"discord:{message.channel.id}:{user_id}:{session_id}"
+    slot_cm = conversation_slot(slot_key)
+    was_queued = await slot_cm.__aenter__()
     request_start = time.monotonic()
+    final_delivery_confirmed = False
 
     try:
+        if was_queued:
+            await _status_update("Previous request is still running. Queued and starting soon...")
+
         system_prompt = get_system_prompt(user_id)
         system_prompt += "\n\n" + get_datetime_prompt()
 
@@ -839,7 +943,8 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 settings["temperature"],
                 user_reasoning_effort,
                 tools,
-                placeholder,
+                _stream_update,
+                _status_update,
                 show_waiting=(round_num == 0),
                 stream_mode=user_stream_mode,
             )
@@ -891,8 +996,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 )
             else:
                 status_text = _build_stream_preview(status, thinking_prefix=thinking_prefix, cursor=False)
-            await _safe_edit_message(placeholder, status_text)
-            tool_names = [tc.name for tc in tool_calls]
+            await _status_update(status_text)
 
             new_tool_calls: list[ToolCall] = []
             dup_indices: set[int] = set()
@@ -906,21 +1010,56 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
             if new_tool_calls:
                 effective_timeout = _effective_tool_timeout(new_tool_calls)
+                status_overrides: dict[str, str] = {}
+                status_dirty = asyncio.Event()
+                tool_started_at = time.monotonic()
+                activity_lock = threading.Lock()
+                last_activity = time.monotonic()
+                loop = asyncio.get_running_loop()
                 anim_active = True
 
+                def _touch_activity() -> None:
+                    nonlocal last_activity
+                    with activity_lock:
+                        last_activity = time.monotonic()
+
+                def _activity_age() -> float:
+                    with activity_lock:
+                        return time.monotonic() - last_activity
+
+                def _on_tool_event(event: dict) -> None:
+                    event_type = str(event.get("type") or "").strip().lower()
+                    name = str(event.get("tool_name") or "tool").strip() or "tool"
+                    _touch_activity()
+                    if event_type == "tool_start":
+                        status_overrides[name] = TOOL_STATUS_MAP.get(name, f"Running {name}...")
+                    elif event_type == "tool_progress":
+                        message_text = str(event.get("message") or "").strip()
+                        if message_text:
+                            status_overrides[name] = message_text
+                    elif event_type == "tool_end" and not bool(event.get("ok", True)):
+                        status_overrides[name] = f"{name} failed"
+                    try:
+                        loop.call_soon_threadsafe(status_dirty.set)
+                    except RuntimeError:
+                        pass
+
                 async def _animate_tool_status() -> None:
-                    elapsed = 0
                     try:
                         while anim_active:
-                            await asyncio.sleep(2)
+                            try:
+                                await asyncio.wait_for(status_dirty.wait(), timeout=2.0)
+                                status_dirty.clear()
+                            except asyncio.TimeoutError:
+                                pass
                             if not anim_active:
                                 break
-                            elapsed += 2
-                            lines = []
-                            for name in tool_names:
-                                base = TOOL_STATUS_MAP.get(name, f"Running {name}...")
-                                lines.append(f"{base} ({elapsed}s)")
-                            animated = "\n".join(lines)
+                            elapsed = max(1, int(time.monotonic() - tool_started_at))
+                            animated = _status_text(
+                                tool_calls,
+                                elapsed_seconds=elapsed,
+                                overrides=status_overrides,
+                            )
                             if display_text:
                                 animated_text = _build_stream_preview(
                                     f"{display_text}\n\n{animated}",
@@ -933,23 +1072,29 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                                     thinking_prefix=thinking_prefix,
                                     cursor=False,
                                 )
-                            await _safe_edit_message(placeholder, animated_text)
+                            await _status_update(animated_text)
                     except asyncio.CancelledError:
                         pass
 
+                status_dirty.set()
                 anim_task = asyncio.create_task(_animate_tool_status())
                 try:
-                    executed_results = await asyncio.wait_for(
-                        asyncio.get_running_loop().run_in_executor(
-                            None,
-                            lambda: process_tool_calls(
-                                user_id,
-                                new_tool_calls,
-                                enabled_tools=enabled_tools,
-                            ),
+                    tool_future = loop.run_in_executor(
+                        None,
+                        lambda: process_tool_calls(
+                            user_id,
+                            new_tool_calls,
+                            enabled_tools=enabled_tools,
+                            event_callback=_on_tool_event,
                         ),
-                        timeout=effective_timeout,
                     )
+                    while True:
+                        try:
+                            executed_results = await asyncio.wait_for(asyncio.shield(tool_future), timeout=1.0)
+                            break
+                        except asyncio.TimeoutError:
+                            if _activity_age() > effective_timeout:
+                                raise asyncio.TimeoutError
                 except asyncio.TimeoutError:
                     logger.warning("%s tool timeout after %ds", ctx, effective_timeout)
                     executed_results = [
@@ -1018,7 +1163,8 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                     "role": "user",
                     "content": (
                         "Please respond to the user based on the information above. "
-                        "Do not attempt to call any more tools."
+                        "Do not attempt to call any more tools. "
+                        "Provide a complete final answer and do not end mid-sentence."
                     ),
                 }
             )
@@ -1029,7 +1175,8 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 settings["temperature"],
                 user_reasoning_effort,
                 None,
-                placeholder,
+                _stream_update,
+                _status_update,
                 show_waiting=False,
                 stream_mode=user_stream_mode,
             )
@@ -1044,7 +1191,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         final_text = filter_thinking_content(combined_response).strip()
         if not final_text and last_text_response:
             final_text = filter_thinking_content(last_text_response).strip()
-        final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools)
+        final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools).strip()
         if not final_text:
             logger.warning(
                 "%s model returned empty visible response (tool_calls=%d last_text_len=%d truncated_len=%d)",
@@ -1055,16 +1202,10 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             )
             final_text = "(Empty response)"
 
-        chunks = split_message(final_text, max_length=DISCORD_MAX_MESSAGE_LENGTH)
-        if not chunks:
-            chunks = ["(Empty response)"]
-
-        edited = await _safe_edit_message(placeholder, chunks[0])
-        if not edited:
-            await message.channel.send(chunks[0])
-
-        for chunk in chunks[1:]:
-            await message.channel.send(chunk)
+        await render_pump.drain()
+        await render_pump.stop()
+        final_delivery_ok = await outbound.deliver_final(final_text)
+        final_delivery_confirmed = final_delivery_ok
 
         pending_voices = drain_pending_voice_jobs(user_id)
         for idx, job in enumerate(pending_voices, 1):
@@ -1090,11 +1231,18 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             caption = job.get("caption") or None
             await message.reply(content=caption, file=discord_file, mention_author=False)
 
-        add_user_message(session_id, save_msg)
-        add_assistant_message(session_id, final_text)
-
-        if get_session_message_count(session_id) <= 2:
-            asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
+        if final_delivery_ok:
+            add_user_message(session_id, save_msg)
+            add_assistant_message(session_id, final_text)
+            if get_session_message_count(session_id) <= 2:
+                asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
+        else:
+            logger.error(
+                "%s final response was not delivered (stream_ack=%d/%d); skip conversation persistence",
+                ctx,
+                outbound.stream_successes,
+                outbound.stream_attempts,
+            )
 
         if not total_prompt_tokens and not total_completion_tokens:
             total_prompt_tokens = _estimate_tokens(messages)
@@ -1123,8 +1271,19 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
     except Exception as e:
         logger.exception("%s AI API error", ctx)
-        await _safe_edit_message(placeholder, build_retry_message())
+        try:
+            await render_pump.stop()
+        except Exception:
+            pass
+        if not final_delivery_confirmed:
+            await outbound.deliver_final(build_retry_message())
         record_error(user_id, str(e), "discord chat handler", settings.get("model"), persona_name)
+    finally:
+        try:
+            await render_pump.stop()
+        except Exception:
+            pass
+        await slot_cm.__aexit__(None, None, None)
 
 
 def _fetch_models(user_id: int) -> list[str]:

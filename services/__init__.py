@@ -65,6 +65,7 @@ from .session_service import (
     get_session_message_count,
     generate_session_title,
 )
+from .runtime_queue import conversation_slot
 
 __all__ = [
     # User service
@@ -126,4 +127,6 @@ __all__ = [
     "get_session_count",
     "get_session_message_count",
     "generate_session_title",
+    # Runtime queue
+    "conversation_slot",
 ]

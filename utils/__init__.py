@@ -10,6 +10,8 @@ from .formatters import (
 )
 from .telegram import send_message_safe, edit_message_safe
 from .template import get_datetime_prompt
+from .chat_events import ChatRenderEvent, ChatEventPump
+from .outbound import StreamOutboundAdapter
 from .files import (
     get_file_extension,
     is_text_file,
@@ -33,6 +35,10 @@ __all__ = [
     "edit_message_safe",
     # Template
     "get_datetime_prompt",
+    # Chat stream events/outbound
+    "ChatRenderEvent",
+    "ChatEventPump",
+    "StreamOutboundAdapter",
     # Files
     "get_file_extension",
     "is_text_file",

@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import requests
 
-from .registry import BaseTool
+from .registry import BaseTool, emit_tool_progress
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,11 @@ class SearchTool(BaseTool):
         }
         for p in targets:
             try:
+                emit_tool_progress(
+                    f"Searching with provider: {p}",
+                    tool_name="web_search",
+                    provider=p,
+                )
                 all_results.extend(dispatch[p](query, max_results))
             except Exception as e:
                 logger.exception("%s search failed for '%s'", p, query)

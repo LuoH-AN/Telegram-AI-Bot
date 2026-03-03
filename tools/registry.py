@@ -2,8 +2,11 @@
 
 import json
 import logging
+import time
+from contextvars import ContextVar
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,32 @@ SERIAL_ONLY_TOOL_NAMES = {
     "browser_wait_for",
     "browser_get_state",
 }
+
+ToolEventCallback = Callable[[dict[str, Any]], None]
+_TOOL_EVENT_CALLBACK: ContextVar[ToolEventCallback | None] = ContextVar(
+    "tool_event_callback",
+    default=None,
+)
+
+
+def emit_tool_progress(message: str, *, tool_name: str | None = None, stage: str = "progress", **extra) -> None:
+    """Emit a control-plane progress event from inside tool implementations."""
+    callback = _TOOL_EVENT_CALLBACK.get()
+    if callback is None:
+        return
+    event: dict[str, Any] = {
+        "type": "tool_progress",
+        "stage": stage,
+        "message": str(message or "").strip(),
+    }
+    if tool_name:
+        event["tool_name"] = tool_name
+    if extra:
+        event.update(extra)
+    try:
+        callback(event)
+    except Exception:
+        logger.debug("tool progress callback failed", exc_info=True)
 
 
 class BaseTool(ABC):
@@ -84,115 +113,188 @@ class ToolRegistry:
             defs.extend(tool.definitions())
         return defs
 
-    def process_tool_calls(self, user_id: int, tool_calls: list, enabled_tools: str | list[str] | None = None) -> list[dict]:
+    def process_tool_calls(
+        self,
+        user_id: int,
+        tool_calls: list,
+        enabled_tools: str | list[str] | None = None,
+        event_callback: ToolEventCallback | None = None,
+    ) -> list[dict]:
         """Dispatch tool calls to the matching tool's execute().
 
         Returns:
             List of tool result messages (always returned so the AI can
             generate a follow-up response even after fire-and-forget tools).
         """
-        # Build name -> tool lookup from enabled tools
-        name_map: dict[str, BaseTool] = {}
-        for tool in self._get_filtered_tools(enabled_tools):
-            for defn in tool.definitions():
-                name_map[defn["function"]["name"]] = tool
+        token = _TOOL_EVENT_CALLBACK.set(event_callback) if event_callback else None
+        try:
+            def _emit(event_type: str, **payload) -> None:
+                if event_callback is None:
+                    return
+                event = {"type": event_type, "user_id": user_id}
+                event.update(payload)
+                try:
+                    event_callback(event)
+                except Exception:
+                    logger.debug("tool event callback failed (type=%s)", event_type, exc_info=True)
 
-        # Keep output order stable to match input tool_calls order.
-        results: list[dict | None] = [None] * len(tool_calls)
-        runnable: list[tuple[int, object, BaseTool, str, dict]] = []
-        force_serial = False
+            # Build name -> tool lookup from enabled tools
+            name_map: dict[str, BaseTool] = {}
+            for tool in self._get_filtered_tools(enabled_tools):
+                for defn in tool.definitions():
+                    name_map[defn["function"]["name"]] = tool
 
-        for idx, tc in enumerate(tool_calls):
-            tc_name = tc.name.strip() if tc.name else tc.name
-            if tc_name in SERIAL_ONLY_TOOL_NAMES:
-                force_serial = True
-            tool = name_map.get(tc_name)
-            if tool is None:
-                logger.warning(f"No enabled tool registered for '{tc_name}'")
-                results[idx] = {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": f"Error: Unknown tool '{tc_name}'",
-                }
-                continue
-            try:
-                raw_arguments = tc.arguments if isinstance(tc.arguments, str) else str(tc.arguments or "")
-                arguments_text = raw_arguments.strip()
-                if arguments_text.startswith("```"):
-                    lines = [
-                        line
-                        for line in arguments_text.splitlines()
-                        if not line.strip().startswith("```")
-                    ]
-                    arguments_text = "\n".join(lines).strip()
-                if not arguments_text or arguments_text.lower() == "null":
-                    args = {}
-                else:
-                    args = json.loads(arguments_text)
-                if not isinstance(args, dict):
-                    raise ValueError("arguments must be a JSON object")
-            except (json.JSONDecodeError, ValueError, TypeError) as e:
-                logger.warning(
-                    "Failed to parse tool call arguments for %s: %s (raw=%r)",
-                    tc_name,
-                    e,
-                    (tc.arguments or "")[:200],
+            # Keep output order stable to match input tool_calls order.
+            results: list[dict | None] = [None] * len(tool_calls)
+            runnable: list[tuple[int, object, BaseTool, str, dict]] = []
+            force_serial = False
+
+            for idx, tc in enumerate(tool_calls):
+                tc_name = tc.name.strip() if tc.name else tc.name
+                if tc_name in SERIAL_ONLY_TOOL_NAMES:
+                    force_serial = True
+                tool = name_map.get(tc_name)
+                if tool is None:
+                    logger.warning(f"No enabled tool registered for '{tc_name}'")
+                    _emit(
+                        "tool_error",
+                        tool_name=tc_name,
+                        index=idx,
+                        reason="unknown_tool",
+                    )
+                    results[idx] = {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": f"Error: Unknown tool '{tc_name}'",
+                    }
+                    continue
+                try:
+                    raw_arguments = tc.arguments if isinstance(tc.arguments, str) else str(tc.arguments or "")
+                    arguments_text = raw_arguments.strip()
+                    if arguments_text.startswith("```"):
+                        lines = [
+                            line
+                            for line in arguments_text.splitlines()
+                            if not line.strip().startswith("```")
+                        ]
+                        arguments_text = "\n".join(lines).strip()
+                    if not arguments_text or arguments_text.lower() == "null":
+                        args = {}
+                    else:
+                        args = json.loads(arguments_text)
+                    if not isinstance(args, dict):
+                        raise ValueError("arguments must be a JSON object")
+                except (json.JSONDecodeError, ValueError, TypeError) as e:
+                    logger.warning(
+                        "Failed to parse tool call arguments for %s: %s (raw=%r)",
+                        tc_name,
+                        e,
+                        (tc.arguments or "")[:200],
+                    )
+                    _emit(
+                        "tool_error",
+                        tool_name=tc_name,
+                        index=idx,
+                        reason="invalid_arguments",
+                        message=str(e),
+                    )
+                    results[idx] = {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": f"Error: Invalid arguments - {e}",
+                    }
+                    continue
+                runnable.append((idx, tc, tool, tc_name, args))
+
+            _emit(
+                "tool_batch_start",
+                count=len(runnable),
+                total=len(tool_calls),
+                serial=bool(force_serial),
+            )
+
+            def _execute_one(item: tuple[int, object, BaseTool, str, dict]) -> tuple[int, dict]:
+                idx, tc, tool, tc_name, args = item
+                started_at = time.monotonic()
+                _emit(
+                    "tool_start",
+                    index=idx,
+                    tool_name=tc_name,
+                    arguments=args,
                 )
-                results[idx] = {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": f"Error: Invalid arguments - {e}",
-                }
-                continue
-            runnable.append((idx, tc, tool, tc_name, args))
-
-        def _execute_one(item: tuple[int, object, BaseTool, str, dict]) -> tuple[int, dict]:
-            idx, tc, tool, tc_name, args = item
-            try:
-                result = tool.execute(user_id, tc_name, args)
-            except Exception as e:
-                logger.exception("[user=%d] tool execution failed: %s", user_id, tc_name)
+                try:
+                    result = tool.execute(user_id, tc_name, args)
+                except Exception as e:
+                    elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                    logger.exception("[user=%d] tool execution failed: %s", user_id, tc_name)
+                    _emit(
+                        "tool_end",
+                        index=idx,
+                        tool_name=tc_name,
+                        ok=False,
+                        elapsed_ms=elapsed_ms,
+                        message=str(e),
+                    )
+                    return idx, {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": f"Error: Tool execution failed - {e}",
+                    }
+                elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                logger.info("[user=%d] tool call: %s(%s)", user_id, tc_name, json.dumps(args, ensure_ascii=False)[:200])
+                if result is not None:
+                    logger.info("[user=%d] tool result: %s (%d chars)", user_id, tc_name, len(result))
+                    preview = result[:180] + ("..." if len(result) > 180 else "")
+                else:
+                    logger.info("[user=%d] tool result: %s -> OK (fire-and-forget)", user_id, tc_name)
+                    preview = "OK"
+                _emit(
+                    "tool_end",
+                    index=idx,
+                    tool_name=tc_name,
+                    ok=True,
+                    elapsed_ms=elapsed_ms,
+                    preview=preview,
+                )
                 return idx, {
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": f"Error: Tool execution failed - {e}",
+                    "content": result if result is not None else "OK",
                 }
-            logger.info("[user=%d] tool call: %s(%s)", user_id, tc_name, json.dumps(args, ensure_ascii=False)[:200])
-            if result is not None:
-                logger.info("[user=%d] tool result: %s (%d chars)", user_id, tc_name, len(result))
-            else:
-                logger.info("[user=%d] tool result: %s -> OK (fire-and-forget)", user_id, tc_name)
-            return idx, {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result if result is not None else "OK",
-            }
 
-        if len(runnable) == 1 or force_serial:
-            if force_serial and len(runnable) > 1:
+            if len(runnable) == 1 or force_serial:
+                if force_serial and len(runnable) > 1:
+                    logger.info(
+                        "[user=%d] serial-only tool detected, executing %d tool calls serially",
+                        user_id,
+                        len(runnable),
+                    )
+                for item in runnable:
+                    idx, result = _execute_one(item)
+                    results[idx] = result
+            elif runnable:
+                workers = min(TOOL_CALL_MAX_WORKERS, len(runnable))
                 logger.info(
-                    "[user=%d] serial-only tool detected, executing %d tool calls serially",
+                    "[user=%d] executing %d tool calls in parallel (workers=%d)",
                     user_id,
                     len(runnable),
+                    workers,
                 )
-            for item in runnable:
-                idx, result = _execute_one(item)
-                results[idx] = result
-        elif runnable:
-            workers = min(TOOL_CALL_MAX_WORKERS, len(runnable))
-            logger.info(
-                "[user=%d] executing %d tool calls in parallel (workers=%d)",
-                user_id,
-                len(runnable),
-                workers,
-            )
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tool-call") as pool:
-                futures = [pool.submit(_execute_one, item) for item in runnable]
-                for future in futures:
-                    idx, result = future.result()
-                    results[idx] = result
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tool-call") as pool:
+                    futures = [pool.submit(_execute_one, item) for item in runnable]
+                    for future in futures:
+                        idx, result = future.result()
+                        results[idx] = result
 
-        return [result for result in results if result is not None]
+            _emit(
+                "tool_batch_end",
+                count=len([result for result in results if result is not None]),
+                total=len(tool_calls),
+            )
+            return [result for result in results if result is not None]
+        finally:
+            if token is not None:
+                _TOOL_EVENT_CALLBACK.reset(token)
 
     def get_instructions(self, enabled_tools: str | list[str] | None = None) -> str:
         """Concatenate filtered tools' instruction strings."""

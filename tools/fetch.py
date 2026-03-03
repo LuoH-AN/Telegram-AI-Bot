@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from .registry import BaseTool
+from .registry import BaseTool, emit_tool_progress
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,10 @@ class FetchTool(BaseTool):
         max_length = max(200, min(max_length, 50000))
 
         try:
+            emit_tool_progress(
+                f"Fetching URL via Jina Reader: {url}",
+                tool_name="url_fetch",
+            )
             text = self._fetch_via_jina(url)
         except Exception as e:
             logger.exception("url_fetch failed for '%s'", url)

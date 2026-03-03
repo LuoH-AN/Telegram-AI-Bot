@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+import threading
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -34,6 +35,7 @@ from services import (
     get_current_persona_name,
     get_session_message_count,
     generate_session_title,
+    conversation_slot,
 )
 from tools import (
     get_all_tools,
@@ -51,6 +53,8 @@ from utils import (
     send_message_safe,
     edit_message_safe,
     get_datetime_prompt,
+    ChatEventPump,
+    StreamOutboundAdapter,
 )
 from utils.ai_helpers import (
     effective_tool_timeout,
@@ -73,7 +77,8 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 3
 TOOL_TIMEOUT = 30  # seconds (default, may be extended by shell_exec)
 AI_STREAM_INIT_TIMEOUT = 25  # seconds waiting for stream object creation
-AI_STREAM_CHUNK_TIMEOUT = 45  # seconds waiting for next streamed chunk
+AI_STREAM_NO_OUTPUT_TIMEOUT = 45  # seconds while stream has produced no visible activity
+AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120  # seconds idle timeout once output has started
 MAX_TOOL_ERROR_SNIPPETS = 3
 VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
@@ -176,7 +181,11 @@ def _stable_text_before_tool_call(text: str) -> str:
     return ""
 
 
-def _build_tool_status_lines(tool_calls: list[ToolCall], elapsed_seconds: int | None = None) -> list[str]:
+def _build_tool_status_lines(
+    tool_calls: list[ToolCall],
+    elapsed_seconds: int | None = None,
+    overrides: dict[str, str] | None = None,
+) -> list[str]:
     """Build deduplicated user-facing tool status lines."""
     order: list[str] = []
     counts: dict[str, int] = {}
@@ -189,7 +198,7 @@ def _build_tool_status_lines(tool_calls: list[ToolCall], elapsed_seconds: int | 
 
     lines: list[str] = []
     for name in order:
-        base = TOOL_STATUS_MAP.get(name, f"Running {name}...")
+        base = (overrides or {}).get(name) or TOOL_STATUS_MAP.get(name, f"Running {name}...")
         count_suffix = f" ×{counts[name]}" if counts[name] > 1 else ""
         elapsed_suffix = f" ({elapsed_seconds}s)" if elapsed_seconds is not None else ""
         lines.append(f"{base}{count_suffix}{elapsed_suffix}")
@@ -256,6 +265,8 @@ async def _stream_response(
     all_tool_calls = []
     first_chunk = True
     finish_reason = None
+    stream_start_time = loop.time()
+    last_output_activity: float | None = None
 
     # Thinking/reasoning tracking
     thinking_start_time = None
@@ -285,13 +296,28 @@ async def _stream_response(
 
     try:
         while True:
+            idle_limit = AI_STREAM_NO_OUTPUT_TIMEOUT if last_output_activity is None else AI_STREAM_OUTPUT_IDLE_TIMEOUT
+            idle_since = stream_start_time if last_output_activity is None else last_output_activity
+            timeout_left = idle_limit - (loop.time() - idle_since)
+            if timeout_left <= 0:
+                logger.warning(
+                    "AI stream idle timeout (%ss, has_output=%s)",
+                    idle_limit,
+                    last_output_activity is not None,
+                )
+                finish_reason = finish_reason or "timeout"
+                break
             try:
                 chunk = await asyncio.wait_for(
                     loop.run_in_executor(None, next, it, _end),
-                    timeout=AI_STREAM_CHUNK_TIMEOUT,
+                    timeout=max(1.0, timeout_left),
                 )
             except asyncio.TimeoutError:
-                logger.warning("AI stream stalled for %ds without chunks", AI_STREAM_CHUNK_TIMEOUT)
+                logger.warning(
+                    "AI stream stalled: no activity for %ss (has_output=%s)",
+                    idle_limit,
+                    last_output_activity is not None,
+                )
                 finish_reason = finish_reason or "timeout"
                 break
 
@@ -302,6 +328,9 @@ async def _stream_response(
                 usage_info = chunk.usage
 
             current_time = loop.time()
+            has_output_activity = bool(chunk.content or chunk.reasoning or chunk.tool_calls)
+            if has_output_activity:
+                last_output_activity = current_time
 
             # Detect thinking/reasoning (separate field, e.g. DeepSeek R1)
             if chunk.reasoning and thinking_start_time is None:
@@ -472,19 +501,52 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         # Legacy streaming: create a single placeholder and edit in-place.
         bot_message = await update.message.reply_text("…")
 
-    async def _stream_update(text: str) -> bool:
-        nonlocal bot_message
-        text = (text or "").rstrip()
-        if not text:
-            text = "…"
+    async def _edit_placeholder(text: str) -> bool:
         if bot_message is None:
             return False
         return await edit_message_safe(bot_message, text)
 
+    async def _send_text(text: str) -> bool:
+        sent_messages = await send_message_safe(update.message, text)
+        return bool(sent_messages)
+
+    async def _delete_placeholder() -> None:
+        nonlocal bot_message
+        if bot_message is None:
+            return
+        await bot_message.delete()
+        bot_message = None
+
+    outbound = StreamOutboundAdapter(
+        max_message_length=MAX_MESSAGE_LENGTH,
+        has_placeholder=lambda: bot_message is not None,
+        edit_placeholder=_edit_placeholder,
+        send_text=_send_text,
+        delete_placeholder=_delete_placeholder,
+        empty_placeholder_text="…",
+    )
+
+    async def _render_event(event) -> None:
+        await outbound.stream_update(event.text)
+
+    render_pump = ChatEventPump(_render_event)
+    render_pump.start()
+
+    async def _stream_update(text: str) -> bool:
+        return await render_pump.emit("stream", text)
+
     async def _status_update(text: str) -> bool:
-        return await _stream_update(text)
+        return await render_pump.emit("status", text)
+
+    slot_key = f"telegram:{update.effective_chat.id}:{user_id}:{session_id}"
+    slot_cm = conversation_slot(slot_key)
+    was_queued = await slot_cm.__aenter__()
+    final_delivery_confirmed = False
 
     try:
+        if was_queued:
+            await _status_update("Previous request is still running. Queued and starting soon...")
+
         client = get_ai_client(user_id)
         request_start = time.monotonic()
 
@@ -611,19 +673,62 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             # Execute only non-duplicate tool calls
             if new_tool_calls:
                 effective_timeout = _effective_tool_timeout(new_tool_calls)
+                tool_status_overrides: dict[str, str] = {}
+                tool_status_dirty = asyncio.Event()
+                tool_started_at = time.monotonic()
+                tool_activity_lock = threading.Lock()
+                tool_last_activity = time.monotonic()
+
+                def _touch_tool_activity() -> None:
+                    nonlocal tool_last_activity
+                    with tool_activity_lock:
+                        tool_last_activity = time.monotonic()
+
+                def _tool_activity_age() -> float:
+                    with tool_activity_lock:
+                        return time.monotonic() - tool_last_activity
+
+                loop = asyncio.get_running_loop()
+
+                def _on_tool_event(event: dict) -> None:
+                    event_type = str(event.get("type") or "").strip().lower()
+                    tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
+                    _touch_tool_activity()
+
+                    if event_type == "tool_start":
+                        tool_status_overrides[tool_name] = TOOL_STATUS_MAP.get(tool_name, f"Running {tool_name}...")
+                    elif event_type == "tool_progress":
+                        message = str(event.get("message") or "").strip()
+                        if message:
+                            tool_status_overrides[tool_name] = message
+                    elif event_type == "tool_end":
+                        if not bool(event.get("ok", True)):
+                            tool_status_overrides[tool_name] = f"{tool_name} failed"
+
+                    try:
+                        loop.call_soon_threadsafe(tool_status_dirty.set)
+                    except RuntimeError:
+                        pass
 
                 # Animate status message while tools run
                 _anim_active = True
                 async def _animate_tool_status():
-                    elapsed = 0
                     try:
                         while _anim_active:
-                            await asyncio.sleep(2)
+                            try:
+                                await asyncio.wait_for(tool_status_dirty.wait(), timeout=2.0)
+                                tool_status_dirty.clear()
+                            except asyncio.TimeoutError:
+                                pass
                             if not _anim_active:
                                 break
-                            elapsed += 2
+                            elapsed = max(1, int(time.monotonic() - tool_started_at))
                             animated_text = "\n".join(
-                                _build_tool_status_lines(tool_calls, elapsed_seconds=elapsed)
+                                _build_tool_status_lines(
+                                    tool_calls,
+                                    elapsed_seconds=elapsed,
+                                    overrides=tool_status_overrides,
+                                )
                             )
                             if display_text:
                                 await _stream_update(thinking_prefix + display_text + "\n\n" + animated_text)
@@ -632,15 +737,26 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                     except asyncio.CancelledError:
                         pass
 
+                tool_status_dirty.set()
                 anim_task = asyncio.create_task(_animate_tool_status())
 
                 try:
-                    executed_results = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(
-                            None, lambda: process_tool_calls(user_id, new_tool_calls, enabled_tools=enabled_tools)
+                    tool_future = loop.run_in_executor(
+                        None,
+                        lambda: process_tool_calls(
+                            user_id,
+                            new_tool_calls,
+                            enabled_tools=enabled_tools,
+                            event_callback=_on_tool_event,
                         ),
-                        timeout=effective_timeout,
                     )
+                    while True:
+                        try:
+                            executed_results = await asyncio.wait_for(asyncio.shield(tool_future), timeout=1.0)
+                            break
+                        except asyncio.TimeoutError:
+                            if _tool_activity_age() > effective_timeout:
+                                raise asyncio.TimeoutError
                 except asyncio.TimeoutError:
                     logger.warning("%s tool timeout after %ds", ctx, effective_timeout)
                     # Feed timeout error back as tool results so the AI can respond
@@ -809,32 +925,26 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         )
         display_final = thinking_prefix + final_text
 
-        if len(display_final) > MAX_MESSAGE_LENGTH:
-            # Delete the placeholder and send multiple messages
-            if bot_message is not None:
-                await bot_message.delete()
-            await send_message_safe(update.message, display_final)
+        # Eventized render path: flush stream events, then deliver final text.
+        await render_pump.drain()
+        await render_pump.stop()
+        final_delivery_ok = await outbound.deliver_final(display_final)
+        final_delivery_confirmed = final_delivery_ok
+        if final_delivery_ok:
+            # Save conversation to database (clean text without thinking prefix)
+            add_user_message(session_id, save_msg)
+            add_assistant_message(session_id, final_text)
+
+            # Auto-generate session title after first exchange
+            if get_session_message_count(session_id) <= 2:
+                asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
         else:
-            if bot_message is None:
-                await send_message_safe(update.message, display_final)
-            else:
-                success = await edit_message_safe(bot_message, display_final)
-                if not success:
-                    # Edit failed (likely rate-limited after many tool rounds),
-                    # fall back to a new message so the user always gets a response.
-                    try:
-                        await bot_message.delete()
-                    except Exception:
-                        pass
-                    await send_message_safe(update.message, display_final)
-
-        # Save conversation to database (clean text without thinking prefix)
-        add_user_message(session_id, save_msg)
-        add_assistant_message(session_id, final_text)
-
-        # Auto-generate session title after first exchange
-        if get_session_message_count(session_id) <= 2:
-            asyncio.create_task(_generate_and_set_title(user_id, session_id, save_msg, final_text))
+            logger.error(
+                "%s final response was not delivered (stream_ack=%d/%d); skip conversation persistence",
+                ctx,
+                outbound.stream_successes,
+                outbound.stream_attempts,
+            )
 
         # Record token usage if available
         # If the API didn't return usage (many providers ignore stream_options),
@@ -858,9 +968,20 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
     except Exception as e:
         logger.exception("%s AI API error", ctx)
-        await _stream_update(build_retry_message())
+        try:
+            await render_pump.stop()
+        except Exception:
+            logger.debug("%s failed to stop render pump during error handling", ctx, exc_info=True)
+        if not final_delivery_confirmed:
+            await outbound.deliver_final(build_retry_message())
         from services.log_service import record_error
         record_error(user_id, str(e), "chat handler", settings.get("model"), persona_name)
+    finally:
+        try:
+            await render_pump.stop()
+        except Exception:
+            logger.debug("%s failed to stop render pump in finally", ctx, exc_info=True)
+        await slot_cm.__aexit__(None, None, None)
 
 
 async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
