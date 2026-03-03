@@ -158,6 +158,7 @@ async def _stream_response(
     show_waiting=True,
     stream_mode="default",
     include_thought_prefix=True,
+    stream_cursor=True,
 ):
     """Stream an AI response, updating output in real-time.
 
@@ -296,7 +297,8 @@ async def _stream_response(
                 # First visible chunk: update immediately, skip throttle interval
                 if first_chunk and display_text:
                     waiting_active = False
-                    await stream_update(thinking_prefix + display_text + " ▌")
+                    cursor_suffix = " ▌" if stream_cursor else ""
+                    await stream_update(thinking_prefix + display_text + cursor_suffix)
                     last_update_time = current_time
                     last_update_length = len(display_text)
                     first_chunk = False
@@ -321,7 +323,8 @@ async def _stream_response(
                         )
 
                     if should_update:
-                        await stream_update(thinking_prefix + display_text + " ▌")
+                        cursor_suffix = " ▌" if stream_cursor else ""
+                        await stream_update(thinking_prefix + display_text + cursor_suffix)
                         last_update_time = current_time
                         last_update_length = len(display_text)
 
@@ -530,6 +533,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 show_waiting=(round_num == 0),
                 stream_mode=user_stream_mode,
                 include_thought_prefix=not use_official_draft,
+                stream_cursor=not use_official_draft,
             )
             total_thinking_seconds += thinking_seconds
 
@@ -728,6 +732,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 show_waiting=False,
                 stream_mode=user_stream_mode,
                 include_thought_prefix=not use_official_draft,
+                stream_cursor=not use_official_draft,
             )
             total_thinking_seconds += thinking_seconds
             if usage_info:
