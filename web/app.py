@@ -3,8 +3,8 @@
 import logging
 import os
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from web.routes.settings import router as settings_router
@@ -18,6 +18,7 @@ from web.routes.memories import router as memories_router
 from web.routes.models import router as models_router
 from web.routes.backup import router as backup_router
 from web.routes.browser_view import router as browser_view_router
+from web.live_logs import get_live_logs_text, install_live_log_handler
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(title="Gemen Dashboard", docs_url=None, redoc_url=None)
+    install_live_log_handler()
 
     # API routers
     app.include_router(settings_router)
@@ -62,6 +64,14 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health():
         return JSONResponse({"status": "ok"})
+
+    @app.get("/logs", include_in_schema=False)
+    async def logs_page(lines: int = Query(default=500, ge=1, le=5000)):
+        """Return latest process logs as plain text."""
+        body = get_live_logs_text(lines=lines)
+        response = PlainTextResponse(body)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.post("/api/auth/exchange")
     async def exchange_token(body: dict):
