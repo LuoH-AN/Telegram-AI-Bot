@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from config import WEB_BASE_URL
 from hf_dataset_store import get_hf_dataset_store
+from utils.browser_proxy import proxy_label, resolve_browser_proxy
 from utils.browser_realism import (
     apply_context_realism,
     build_context_kwargs,
@@ -600,11 +601,24 @@ def _persist_storage_state_for_session(user_id: int, session_id: str, reason: st
         )
 
 
-def _new_context(browser, storage_state: dict | None = None, *, seed_hint: str | None = None):
+def _new_context(
+    browser,
+    storage_state: dict | None = None,
+    *,
+    seed_hint: str | None = None,
+    user_id: int | None = None,
+):
     profile = pick_browser_profile(seed_hint=seed_hint)
-    context = browser.new_context(
-        **build_context_kwargs(profile, storage_state=storage_state, viewport_override={"width": 1366, "height": 768}),
+    context_kwargs = build_context_kwargs(
+        profile,
+        storage_state=storage_state,
+        viewport_override={"width": 1366, "height": 768},
     )
+    proxy = resolve_browser_proxy(user_id=user_id)
+    if proxy:
+        context_kwargs["proxy"] = proxy
+        logger.info("BrowserAgent context proxy enabled: %s", proxy_label(proxy))
+    context = browser.new_context(**context_kwargs)
     apply_context_realism(context, profile)
     return context
 
@@ -841,7 +855,12 @@ def _op_start_session(
 
     storage_state, restored_from_hf = _load_storage_state_for_user(user_id)
     session_id = f"bs_{user_id}_{secrets.token_hex(4)}"
-    context = _new_context(browser, storage_state=storage_state, seed_hint=session_id)
+    context = _new_context(
+        browser,
+        storage_state=storage_state,
+        seed_hint=session_id,
+        user_id=user_id,
+    )
     page = context.new_page()
 
     try:
