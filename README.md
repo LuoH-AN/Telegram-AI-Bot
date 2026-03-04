@@ -167,27 +167,9 @@ python mcp_server.py
 - 工具默认值：`ENABLED_TOOLS`, `CRON_ENABLED_TOOLS`
 - TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
 - 浏览器：`BROWSER_HEADLESS`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
-- 浏览器代理（Resin/HTTP）：`BROWSER_PROXY_URL`, `BROWSER_PROXY_USERNAME`, `BROWSER_PROXY_PASSWORD`, `RESIN_PROXY_URL`, `RESIN_PROXY_TOKEN`, `RESIN_PROXY_PLATFORM`, `RESIN_PROXY_ACCOUNT`
 - HF Dataset 持久化：`HF_DATASET_USERNAME`, `HF_DATASET_TOKEN`, `HF_DATASET_NAME`, `HF_DATASET_ENCRYPTION_KEY`
 
 详细示例请参考 `.env.example`。
-
-## 浏览器工具接入 Resin 代理
-
-`playwright` / `crawl4ai` / `browser_agent` 三个浏览器工具都会读取同一组代理配置。
-
-最简配置：
-
-```env
-RESIN_PROXY_URL=http://your-resin-server:2260
-RESIN_PROXY_TOKEN=my-token
-RESIN_PROXY_PLATFORM=Default
-RESIN_PROXY_ACCOUNT=user-{user_id}
-```
-
-- 运行时会自动拼出用户名格式：`PROXY_TOKEN:Platform:Account`
-- `RESIN_PROXY_ACCOUNT` 支持 `{user_id}` 占位符，可为不同用户保持独立粘性会话
-- 如果 `RESIN_PROXY_TOKEN` 为空，保留为空即可（会按 Resin 无密码模式连接）
 
 ## HF Dataset 持久化（可选）
 

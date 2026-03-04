@@ -9,7 +9,6 @@ import socket
 from urllib.parse import urlparse
 
 from utils import html_to_markdown, strip_style_blocks
-from utils.browser_proxy import proxy_label, resolve_browser_proxy
 from utils.browser_realism import build_extra_http_headers, pick_browser_profile
 
 from .registry import BaseTool, emit_tool_progress
@@ -144,9 +143,6 @@ class Crawl4AITool(BaseTool):
         profile_timezone = str(browser_profile.get("timezone_id") or "America/Los_Angeles")
         profile_user_agent = str(browser_profile.get("user_agent") or "").strip() or None
         profile_headers = build_extra_http_headers(browser_profile)
-        proxy_config = resolve_browser_proxy(user_id=user_id)
-        if proxy_config:
-            logger.info("crawl4ai proxy enabled: %s", proxy_label(proxy_config))
 
         base_crawl_kwargs = {
             "url": url,
@@ -164,7 +160,7 @@ class Crawl4AITool(BaseTool):
             "user_agent_mode": None,
             "headers": profile_headers,
             "cookies": None,
-            "proxy_config": proxy_config,
+            "proxy_config": None,
             "js_code": None,
             "js_only": False,
             "target_elements": None,

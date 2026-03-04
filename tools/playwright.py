@@ -17,7 +17,6 @@ import time
 from urllib.parse import urlparse
 
 from utils import html_to_markdown, strip_style_blocks
-from utils.browser_proxy import proxy_label, resolve_browser_proxy
 from utils.browser_realism import (
     apply_context_realism,
     build_context_kwargs,
@@ -252,15 +251,12 @@ def _run_on_worker(func, *args):
                 )
 
 
-def _open_browser_page(browser, *, seed_hint: str | None = None, user_id: int | None = None):
+def _open_browser_page(browser, *, seed_hint: str | None = None):
     """Open an isolated context/page for one tool call."""
     profile = pick_browser_profile(seed_hint=seed_hint)
-    context_kwargs = build_context_kwargs(profile, viewport_override={"width": 1366, "height": 768})
-    proxy = resolve_browser_proxy(user_id=user_id)
-    if proxy:
-        context_kwargs["proxy"] = proxy
-        logger.info("Playwright context proxy enabled: %s", proxy_label(proxy))
-    context = browser.new_context(**context_kwargs)
+    context = browser.new_context(
+        **build_context_kwargs(profile, viewport_override={"width": 1366, "height": 768}),
+    )
     apply_context_realism(context, profile)
     page = context.new_page()
     return context, page
@@ -482,7 +478,7 @@ class PlaywrightTool(BaseTool):
         if tool_name == "page_screenshot":
             return self._screenshot(user_id, arguments)
         if tool_name == "page_content":
-            return self._content(user_id, arguments)
+            return self._content(arguments)
         return f"Unknown playwright tool: {tool_name}"
 
     def _screenshot(self, user_id: int, arguments: dict) -> str:
@@ -502,8 +498,8 @@ class PlaywrightTool(BaseTool):
             stage="navigate",
         )
 
-        def _do(browser, _url, _full_page, _wait, _user_id):
-            context, page = _open_browser_page(browser, seed_hint=_url, user_id=_user_id)
+        def _do(browser, _url, _full_page, _wait):
+            context, page = _open_browser_page(browser, seed_hint=_url)
             try:
                 used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
                 cf_err = _prepare_page_after_navigation(page, _wait)
@@ -521,7 +517,7 @@ class PlaywrightTool(BaseTool):
                     pass
 
         try:
-            result = _run_on_worker(_do, url, full_page, wait, user_id)
+            result = _run_on_worker(_do, url, full_page, wait)
         except Exception as e:
             logger.exception("page_screenshot failed for '%s'", url)
             return f"Screenshot failed: {e}"
@@ -547,7 +543,7 @@ class PlaywrightTool(BaseTool):
             f"URL: {url}, full_page={full_page}, browser_engine={engine}, headless={headless}, wait_until={used_wait}"
         )
 
-    def _content(self, user_id: int, arguments: dict) -> str:
+    def _content(self, arguments: dict) -> str:
         raw_url = (arguments.get("url") or "").strip()
         if not raw_url:
             return "No URL provided."
@@ -569,8 +565,8 @@ class PlaywrightTool(BaseTool):
             stage="navigate",
         )
 
-        def _do(browser, _url, _wait, _user_id):
-            context, page = _open_browser_page(browser, seed_hint=_url, user_id=_user_id)
+        def _do(browser, _url, _wait):
+            context, page = _open_browser_page(browser, seed_hint=_url)
             try:
                 used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
                 cf_err = _prepare_page_after_navigation(page, _wait)
@@ -601,7 +597,7 @@ class PlaywrightTool(BaseTool):
                     pass
 
         try:
-            result = _run_on_worker(_do, url, wait, user_id)
+            result = _run_on_worker(_do, url, wait)
         except Exception as e:
             logger.exception("page_content failed for '%s'", url)
             return f"Content extraction failed: {e}"
