@@ -17,12 +17,7 @@ import time
 from urllib.parse import urlparse
 
 from utils import html_to_markdown, strip_style_blocks
-from utils.browser_proxy import (
-    browser_route_label,
-    proxy_label,
-    resolve_browser_navigation_url,
-    resolve_browser_proxy,
-)
+from utils.browser_proxy import proxy_label, resolve_browser_proxy
 from utils.browser_realism import (
     apply_context_realism,
     build_context_kwargs,
@@ -498,13 +493,6 @@ class PlaywrightTool(BaseTool):
             url = _validate_url(raw_url)
         except ValueError as e:
             return f"URL rejected: {e}"
-        navigate_url, route_mode = resolve_browser_navigation_url(url, user_id=user_id)
-        if route_mode == "reverse":
-            logger.info(
-                "page_screenshot reverse-routed via Resin: target=%s route=%s",
-                url,
-                navigate_url,
-            )
 
         full_page = bool(arguments.get("full_page", False))
         wait = min(max(float(arguments.get("wait", DEFAULT_WAIT)), 0), MAX_WAIT)
@@ -514,10 +502,10 @@ class PlaywrightTool(BaseTool):
             stage="navigate",
         )
 
-        def _do(browser, _url, _navigate_url, _full_page, _wait, _user_id):
+        def _do(browser, _url, _full_page, _wait, _user_id):
             context, page = _open_browser_page(browser, seed_hint=_url, user_id=_user_id)
             try:
-                used_wait = _goto_with_retry(page, _navigate_url, PAGE_TIMEOUT_MS)
+                used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
                 cf_err = _prepare_page_after_navigation(page, _wait)
                 if cf_err:
                     return ("cf_blocked", cf_err)
@@ -533,7 +521,7 @@ class PlaywrightTool(BaseTool):
                     pass
 
         try:
-            result = _run_on_worker(_do, url, navigate_url, full_page, wait, user_id)
+            result = _run_on_worker(_do, url, full_page, wait, user_id)
         except Exception as e:
             logger.exception("page_screenshot failed for '%s'", url)
             return f"Screenshot failed: {e}"
@@ -556,8 +544,7 @@ class PlaywrightTool(BaseTool):
         headless = _worker_runtime.get("headless")
         return (
             f"Screenshot captured and queued for delivery. "
-            f"URL: {url}, full_page={full_page}, browser_engine={engine}, "
-            f"headless={headless}, wait_until={used_wait}, route={browser_route_label(url=url, user_id=user_id)}"
+            f"URL: {url}, full_page={full_page}, browser_engine={engine}, headless={headless}, wait_until={used_wait}"
         )
 
     def _content(self, user_id: int, arguments: dict) -> str:
@@ -568,13 +555,6 @@ class PlaywrightTool(BaseTool):
             url = _validate_url(raw_url)
         except ValueError as e:
             return f"URL rejected: {e}"
-        navigate_url, route_mode = resolve_browser_navigation_url(url, user_id=user_id)
-        if route_mode == "reverse":
-            logger.info(
-                "page_content reverse-routed via Resin: target=%s route=%s",
-                url,
-                navigate_url,
-            )
 
         wait = min(max(float(arguments.get("wait", DEFAULT_WAIT)), 0), MAX_WAIT)
         max_length = arguments.get("max_length", DEFAULT_CONTENT_LENGTH)
@@ -589,10 +569,10 @@ class PlaywrightTool(BaseTool):
             stage="navigate",
         )
 
-        def _do(browser, _url, _navigate_url, _wait, _user_id):
+        def _do(browser, _url, _wait, _user_id):
             context, page = _open_browser_page(browser, seed_hint=_url, user_id=_user_id)
             try:
-                used_wait = _goto_with_retry(page, _navigate_url, PAGE_TIMEOUT_MS)
+                used_wait = _goto_with_retry(page, _url, PAGE_TIMEOUT_MS)
                 cf_err = _prepare_page_after_navigation(page, _wait)
                 if cf_err:
                     return ("cf_blocked", cf_err)
@@ -621,7 +601,7 @@ class PlaywrightTool(BaseTool):
                     pass
 
         try:
-            result = _run_on_worker(_do, url, navigate_url, wait, user_id)
+            result = _run_on_worker(_do, url, wait, user_id)
         except Exception as e:
             logger.exception("page_content failed for '%s'", url)
             return f"Content extraction failed: {e}"

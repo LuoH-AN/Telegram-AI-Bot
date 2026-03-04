@@ -9,11 +9,7 @@ import socket
 from urllib.parse import urlparse
 
 from utils import html_to_markdown, strip_style_blocks
-from utils.browser_proxy import (
-    proxy_label,
-    resolve_browser_navigation_url,
-    resolve_browser_proxy,
-)
+from utils.browser_proxy import proxy_label, resolve_browser_proxy
 from utils.browser_realism import build_extra_http_headers, pick_browser_profile
 
 from .registry import BaseTool, emit_tool_progress
@@ -125,13 +121,6 @@ class Crawl4AITool(BaseTool):
             url = self._validate_external_url(raw_url)
         except ValueError as e:
             return f"URL rejected: {e}"
-        crawl_url, route_mode = resolve_browser_navigation_url(url, user_id=user_id)
-        if route_mode == "reverse":
-            logger.info(
-                "crawl4ai_fetch reverse-routed via Resin: target=%s route=%s",
-                url,
-                crawl_url,
-            )
 
         max_length = self._int_arg(arguments.get("max_length"), DEFAULT_MAX_LENGTH, 200, MAX_MAX_LENGTH)
         css_selector = (
@@ -160,8 +149,7 @@ class Crawl4AITool(BaseTool):
             logger.info("crawl4ai proxy enabled: %s", proxy_label(proxy_config))
 
         base_crawl_kwargs = {
-            "url": crawl_url,
-            "source_url": url,
+            "url": url,
             "timeout_ms": DEFAULT_TIMEOUT_MS,
             "delay_seconds": DEFAULT_DELAY_SECONDS,
             "cache_mode": _DEFAULT_CACHE_MODE,
@@ -256,7 +244,6 @@ class Crawl4AITool(BaseTool):
         self,
         *,
         url: str,
-        source_url: str,
         timeout_ms: int,
         delay_seconds: float,
         cache_mode: str,
@@ -390,11 +377,11 @@ class Crawl4AITool(BaseTool):
 
         cleaned_html = (getattr(result, "cleaned_html", "") or "").strip()
         if cleaned_html:
-            return html_to_markdown(cleaned_html, base_url=source_url).strip()
+            return html_to_markdown(cleaned_html, base_url=url).strip()
 
         html = (getattr(result, "html", "") or "").strip()
         if html:
-            return html_to_markdown(html, base_url=source_url).strip()
+            return html_to_markdown(html, base_url=url).strip()
 
         return ""
 
