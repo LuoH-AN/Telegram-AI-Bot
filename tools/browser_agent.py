@@ -791,6 +791,24 @@ def _run_on_worker(func, *args):
                 )
 
 
+def prewarm_browser_agent_worker() -> tuple[bool, str]:
+    """Start BrowserAgent worker/browser early so session startup is warm."""
+
+    def _noop(browser):
+        _ = browser
+        return True
+
+    try:
+        _run_on_worker(_noop)
+        engine = str(_browser_runtime.get("engine") or "chromium")
+        headless = _browser_runtime.get("headless")
+        executable = str(_browser_runtime.get("executable") or "bundled")
+        return True, f"engine={engine} headless={headless} executable={executable}"
+    except Exception as e:
+        logger.exception("browser_agent prewarm failed: %s", e)
+        return False, str(e)
+
+
 # ── Worker operations ──
 
 

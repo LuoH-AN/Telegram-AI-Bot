@@ -25,6 +25,7 @@ DEFAULT_MAX_ATTEMPTS = 4
 _DEFAULT_CACHE_MODE = "bypass"
 _CACHE_MODE_MEMBER = "BYPASS"
 
+
 def _has_usable_display() -> bool:
     """Best-effort check for an actually usable GUI display."""
     wayland = (os.getenv("WAYLAND_DISPLAY") or "").strip()
@@ -66,6 +67,38 @@ def _resolve_playwright_headless() -> bool:
         )
         return True
     return not has_display
+
+
+async def _crawl4ai_prewarm_async() -> tuple[bool, str]:
+    try:
+        from crawl4ai import AsyncWebCrawler, BrowserConfig
+    except Exception as e:
+        return False, f"crawl4ai import failed: {e}"
+
+    headless = _resolve_playwright_headless()
+    browser_config = BrowserConfig(
+        browser_type="chromium",
+        headless=headless,
+        verbose=False,
+    )
+
+    try:
+        # Enter crawler context once at startup to initialize browser stack.
+        async with AsyncWebCrawler(config=browser_config):
+            pass
+        return True, f"headless={headless}"
+    except Exception as e:
+        logger.exception("crawl4ai prewarm failed: %s", e)
+        return False, str(e)
+
+
+def prewarm_crawl4ai_runtime() -> tuple[bool, str]:
+    """Best-effort Crawl4AI runtime warmup for startup readiness."""
+    try:
+        return asyncio.run(_crawl4ai_prewarm_async())
+    except Exception as e:
+        logger.exception("crawl4ai prewarm wrapper failed: %s", e)
+        return False, str(e)
 
 
 class Crawl4AITool(BaseTool):

@@ -251,6 +251,24 @@ def _run_on_worker(func, *args):
                 )
 
 
+def prewarm_playwright_worker() -> tuple[bool, str]:
+    """Start Playwright worker/browser early so first call is warm."""
+
+    def _noop(browser):
+        _ = browser
+        return True
+
+    try:
+        _run_on_worker(_noop)
+        engine = str(_worker_runtime.get("engine") or "chromium")
+        headless = _worker_runtime.get("headless")
+        executable = str(_worker_runtime.get("executable") or "bundled")
+        return True, f"engine={engine} headless={headless} executable={executable}"
+    except Exception as e:
+        logger.exception("playwright prewarm failed: %s", e)
+        return False, str(e)
+
+
 def _open_browser_page(browser, *, seed_hint: str | None = None):
     """Open an isolated context/page for one tool call."""
     profile = pick_browser_profile(seed_hint=seed_hint)

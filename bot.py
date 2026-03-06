@@ -30,6 +30,7 @@ from config import (
     HEALTH_CHECK_PORT,
 )
 from cache import init_database
+from tools import prewarm_browser_tools
 from web.app import create_app
 from utils.rate_limiter import QueuedRateLimiter
 from handlers import (
@@ -110,6 +111,7 @@ def main() -> None:
 
     # Initialize database
     init_database()
+    prewarm_browser_tools()
 
     # Start web server (FastAPI + uvicorn) in background thread
     web_thread = threading.Thread(target=start_web_server, daemon=True)

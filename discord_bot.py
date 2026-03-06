@@ -99,6 +99,7 @@ from tools import (
     post_process_response,
     drain_pending_voice_jobs,
     drain_pending_screenshot_jobs,
+    prewarm_browser_tools,
 )
 from ai import get_ai_client, ToolCall
 from utils import (
@@ -2419,6 +2420,7 @@ def main() -> None:
         return
 
     init_database()
+    prewarm_browser_tools()
 
     web_thread = threading.Thread(target=start_web_server, daemon=True)
     web_thread.start()
