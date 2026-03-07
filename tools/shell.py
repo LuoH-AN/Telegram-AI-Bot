@@ -1,9 +1,11 @@
 """Shell tool - execute commands in the container."""
 
 import io
+import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import tarfile
 import threading
@@ -47,6 +49,29 @@ _HF_SKIP_SUFFIXES = {
 _HF_STATE_LOCK = threading.Lock()
 _HF_RESTORED_USERS: set[int] = set()
 _HF_LAST_SYNC_AT: dict[int, float] = {}
+
+_PKG_SINGLE_TIMEOUT = 120
+_PKG_RESTORED_USERS: set[int] = set()
+
+_INSTALL_PATTERNS: dict[str, re.Pattern] = {
+    "pip": re.compile(
+        r"(?:pip3?|python3?\s+-m\s+pip)\s+(?:install|uninstall)\b",
+        re.IGNORECASE,
+    ),
+    "npm": re.compile(
+        r"npm\s+(?:install|i|uninstall|remove)\s+(?:.*\s)?(?:-g|--global)\b"
+        r"|npm\s+(?:install|i|uninstall|remove)\s+(?:-g|--global)\b",
+        re.IGNORECASE,
+    ),
+    "apt": re.compile(
+        r"(?:apt|apt-get)\s+(?:install|remove|purge)\b",
+        re.IGNORECASE,
+    ),
+}
+_APT_PKG_EXTRACT = re.compile(
+    r"(?:apt|apt-get)\s+(?:install|remove|purge)\s+(.*)",
+    re.IGNORECASE,
+)
 
 # Patterns that should be blocked
 _BLOCKED_PATTERNS = [
@@ -273,6 +298,224 @@ def _snapshot_workspace_to_hf(user_id: int, cwd: str, command: str) -> None:
     )
 
 
+# ── Package manifest backup / restore ──────────────────────────────
+
+
+def _detect_pkg_managers(command: str) -> list[str]:
+    """Return list of package manager names that the command invokes."""
+    return [name for name, pat in _INSTALL_PATTERNS.items() if pat.search(command)]
+
+
+def _extract_apt_packages(command: str) -> list[str]:
+    """Parse package names from an apt install/remove/purge command."""
+    m = _APT_PKG_EXTRACT.search(command)
+    if not m:
+        return []
+    args = m.group(1)
+    packages = []
+    for token in args.split():
+        if token.startswith("-"):
+            continue
+        # skip version specifiers like package=1.2.3
+        name = token.split("=")[0]
+        if name and name[0].isalpha():
+            packages.append(name)
+    return packages
+
+
+def _capture_pip_manifest() -> list[str]:
+    """Run ``pip freeze --local`` and return the list of installed packages."""
+    try:
+        proc = subprocess.run(
+            ["pip", "freeze", "--local"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            return []
+        return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    except Exception as e:
+        logger.warning("Failed to capture pip manifest: %s", e)
+        return []
+
+
+def _capture_npm_manifest() -> list[str]:
+    """Run ``npm list -g --depth=0`` and return global packages."""
+    if not shutil.which("npm"):
+        return []
+    try:
+        proc = subprocess.run(
+            ["npm", "list", "-g", "--depth=0", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode != 0 and not proc.stdout:
+            return []
+        data = json.loads(proc.stdout)
+        deps = data.get("dependencies", {})
+        packages = []
+        for pkg, info in deps.items():
+            if pkg == "npm":
+                continue
+            version = info.get("version", "")
+            packages.append(f"{pkg}@{version}" if version else pkg)
+        return packages
+    except Exception as e:
+        logger.warning("Failed to capture npm manifest: %s", e)
+        return []
+
+
+def _get_existing_manifest(user_id: int) -> dict:
+    """Load the existing package manifest from HF, or return an empty skeleton."""
+    store = get_hf_dataset_store()
+    if not store.enabled:
+        return {"version": 1, "updated_at": 0, "pip": [], "npm": [], "apt": []}
+    path = f"shell/{user_id}/packages_manifest.json"
+    data = store.get_json(path)
+    if isinstance(data, dict) and data.get("version"):
+        return data
+    return {"version": 1, "updated_at": 0, "pip": [], "npm": [], "apt": []}
+
+
+def _snapshot_packages_to_hf(user_id: int, command: str, exit_code: int) -> None:
+    """After a successful install/uninstall, capture manifests and upload."""
+    if exit_code != 0:
+        return
+
+    managers = _detect_pkg_managers(command)
+    if not managers:
+        return
+
+    store = get_hf_dataset_store()
+    if not store.enabled:
+        return
+
+    manifest = _get_existing_manifest(user_id)
+
+    # Determine if this is an apt remove/purge
+    is_apt_remove = bool(
+        re.search(r"(?:apt|apt-get)\s+(?:remove|purge)\b", command, re.IGNORECASE)
+    )
+
+    for mgr in managers:
+        if mgr == "pip":
+            manifest["pip"] = _capture_pip_manifest()
+        elif mgr == "npm":
+            manifest["npm"] = _capture_npm_manifest()
+        elif mgr == "apt":
+            if is_apt_remove:
+                removed = _extract_apt_packages(command)
+                manifest["apt"] = [
+                    p for p in manifest.get("apt", []) if p not in removed
+                ]
+            else:
+                new_pkgs = _extract_apt_packages(command)
+                existing = set(manifest.get("apt", []))
+                for pkg in new_pkgs:
+                    existing.add(pkg)
+                manifest["apt"] = sorted(existing)
+
+    manifest["updated_at"] = int(time.time())
+    path = f"shell/{user_id}/packages_manifest.json"
+    store.put_json(
+        path,
+        manifest,
+        commit_message=f"shell package manifest user={user_id}",
+    )
+    logger.info(
+        "[user=%d] saved package manifest (pip=%d, npm=%d, apt=%d)",
+        user_id,
+        len(manifest.get("pip", [])),
+        len(manifest.get("npm", [])),
+        len(manifest.get("apt", [])),
+    )
+
+
+def _restore_apt(user_id: int, packages: list[str]) -> None:
+    """Reinstall apt packages."""
+    if not packages:
+        return
+    try:
+        subprocess.run(
+            ["apt-get", "update"],
+            capture_output=True,
+            timeout=_PKG_SINGLE_TIMEOUT,
+        )
+        subprocess.run(
+            ["apt-get", "install", "-y", "--no-install-recommends", *packages],
+            capture_output=True,
+            timeout=_PKG_SINGLE_TIMEOUT,
+        )
+        logger.info("[user=%d] restored %d apt packages", user_id, len(packages))
+    except Exception as e:
+        logger.warning("[user=%d] apt restore failed: %s", user_id, e)
+
+
+def _restore_pip(user_id: int, packages: list[str]) -> None:
+    """Reinstall pip packages."""
+    if not packages:
+        return
+    try:
+        subprocess.run(
+            ["pip", "install", "--quiet", *packages],
+            capture_output=True,
+            timeout=_PKG_SINGLE_TIMEOUT,
+        )
+        logger.info("[user=%d] restored %d pip packages", user_id, len(packages))
+    except Exception as e:
+        logger.warning("[user=%d] pip restore failed: %s", user_id, e)
+
+
+def _restore_npm(user_id: int, packages: list[str]) -> None:
+    """Reinstall global npm packages."""
+    if not packages or not shutil.which("npm"):
+        return
+    try:
+        subprocess.run(
+            ["npm", "install", "-g", "--silent", *packages],
+            capture_output=True,
+            timeout=_PKG_SINGLE_TIMEOUT,
+        )
+        logger.info("[user=%d] restored %d npm packages", user_id, len(packages))
+    except Exception as e:
+        logger.warning("[user=%d] npm restore failed: %s", user_id, e)
+
+
+def _restore_packages_from_hf(user_id: int) -> None:
+    """Load the package manifest from HF and reinstall everything."""
+    store = get_hf_dataset_store()
+    if not store.enabled:
+        return
+
+    with _HF_STATE_LOCK:
+        if user_id in _PKG_RESTORED_USERS:
+            return
+        _PKG_RESTORED_USERS.add(user_id)
+
+    manifest = _get_existing_manifest(user_id)
+    apt_pkgs = manifest.get("apt", [])
+    pip_pkgs = manifest.get("pip", [])
+    npm_pkgs = manifest.get("npm", [])
+
+    if not apt_pkgs and not pip_pkgs and not npm_pkgs:
+        return
+
+    logger.info(
+        "[user=%d] restoring packages (apt=%d, pip=%d, npm=%d)",
+        user_id,
+        len(apt_pkgs),
+        len(pip_pkgs),
+        len(npm_pkgs),
+    )
+
+    # Restore order: apt → pip → npm
+    _restore_apt(user_id, apt_pkgs)
+    _restore_pip(user_id, pip_pkgs)
+    _restore_npm(user_id, npm_pkgs)
+
+
 class ShellTool(BaseTool):
     """Execute shell commands in the container."""
 
@@ -343,6 +586,7 @@ class ShellTool(BaseTool):
         cwd = (arguments.get("working_directory") or "").strip() or default_cwd
         os.makedirs(cwd, exist_ok=True)
         _restore_workspace_from_hf(user_id, cwd)
+        _restore_packages_from_hf(user_id)
 
         # Execute
         logger.info("[user=%d] shell_exec: %s (timeout=%ds, cwd=%s)", user_id, command[:200], timeout, cwd)
@@ -368,6 +612,8 @@ class ShellTool(BaseTool):
             logger.exception("[user=%d] shell exec error", user_id)
         finally:
             _snapshot_workspace_to_hf(user_id, cwd, command)
+            if result is not None:
+                _snapshot_packages_to_hf(user_id, command, result.returncode)
 
         if timeout_error:
             return f"Error: Command timed out after {timeout} seconds."
