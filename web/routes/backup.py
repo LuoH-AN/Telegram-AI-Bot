@@ -24,7 +24,7 @@ from services import (
     set_token_limit,
     add_token_usage,
 )
-from services.log_service import record_web_action
+from services.log import record_web_action
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/backup", tags=["backup"])

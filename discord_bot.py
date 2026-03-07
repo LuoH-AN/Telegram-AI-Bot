@@ -89,8 +89,8 @@ from services import (
     generate_session_title,
     conversation_slot,
 )
-from services.log_service import record_ai_interaction, record_error
-from services.cron_service import start_cron_scheduler, set_main_loop
+from services.log import record_ai_interaction, record_error
+from services.cron import start_cron_scheduler, set_main_loop
 from tools import (
     get_all_tools,
     process_tool_calls,

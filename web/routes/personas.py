@@ -16,7 +16,7 @@ from services import (
     get_session_count,
     get_current_session,
 )
-from services.log_service import record_web_action
+from services.log import record_web_action
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/personas", tags=["personas"])

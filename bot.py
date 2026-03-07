@@ -97,7 +97,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Unhandled exception%s: %s", user_info, error, exc_info=context.error)
     if user_id:
         try:
-            from services.log_service import record_error
+            from services.log import record_error
             record_error(user_id, str(error), "global error handler")
         except Exception:
             pass
@@ -145,7 +145,7 @@ def main() -> None:
     async def _post_init(application: Application) -> None:
         """Capture the running event loop for cron service to use."""
         import asyncio
-        from services.cron_service import set_main_loop
+        from services.cron import set_main_loop
         set_main_loop(asyncio.get_running_loop())
 
     builder = builder.post_init(_post_init)
@@ -176,7 +176,7 @@ def main() -> None:
 
     # Start the bot
     logger.info("Starting bot...")
-    from services.cron_service import start_cron_scheduler
+    from services.cron import start_cron_scheduler
     start_cron_scheduler(application.bot)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

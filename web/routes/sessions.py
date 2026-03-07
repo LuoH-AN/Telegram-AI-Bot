@@ -16,9 +16,9 @@ from services import (
     clear_conversation,
     reset_token_usage,
 )
-from services.session_service import delete_session
+from services.session import delete_session
 from services.refresh import ensure_user_state
-from services.log_service import record_web_action
+from services.log import record_web_action
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])

@@ -5,7 +5,7 @@ import threading
 
 from config import DEFAULT_TTS_STYLE, DEFAULT_TTS_VOICE
 from services import get_user_settings
-from services.tts_service import (
+from services.tts import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_STYLE,
     guess_audio_extension,

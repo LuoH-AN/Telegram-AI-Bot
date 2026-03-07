@@ -3,7 +3,7 @@
 import logging
 
 from .registry import BaseTool
-from services.memory_service import add_memory, format_memories_for_prompt
+from services.memory import add_memory, format_memories_for_prompt
 
 logger = logging.getLogger(__name__)
 

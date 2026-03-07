@@ -173,7 +173,7 @@ class CronTool(BaseTool):
         if not name:
             return "Error: name is required."
 
-        from services.cron_service import run_cron_task
+        from services.cron import run_cron_task
         return run_cron_task(user_id, name)
 
     def get_instruction(self) -> str:

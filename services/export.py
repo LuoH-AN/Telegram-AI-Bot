@@ -4,8 +4,8 @@ import io
 from datetime import datetime
 
 from cache import cache
-from .persona_service import get_current_persona_name
-from .session_service import get_current_session_id
+from .persona import get_current_persona_name
+from .session import get_current_session_id
 
 
 def export_to_markdown(user_id: int, persona_name: str = None) -> io.BytesIO | None:

@@ -1,11 +1,11 @@
 """Services module."""
 
-from .user_service import (
+from .user import (
     get_user_settings,
     update_user_setting,
     has_api_key,
 )
-from .persona_service import (
+from .persona import (
     get_personas,
     get_persona,
     get_current_persona,
@@ -19,7 +19,7 @@ from .persona_service import (
     persona_exists,
 )
 from cache import cache as _cache
-from .token_service import (
+from .token import (
     get_token_usage,
     add_token_usage,
     get_token_limit,
@@ -29,8 +29,8 @@ from .token_service import (
     get_remaining_tokens,
     get_usage_percentage,
 )
-from .export_service import export_to_markdown
-from .memory_service import (
+from .export import export_to_markdown
+from .memory import (
     get_memories,
     add_memory,
     update_memory,
@@ -38,14 +38,14 @@ from .memory_service import (
     clear_memories,
     format_memories_for_prompt,
 )
-from .tts_service import (
+from .tts import (
     get_voice,
     get_voice_list,
     get_ssml,
     synthesize_voice,
     normalize_tts_endpoint,
 )
-from .session_service import (
+from .session import (
     get_sessions,
     get_current_session,
     get_current_session_id,

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from services import get_user_settings, update_user_setting
-from services.log_service import record_web_action
+from services.log import record_web_action
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
 from services import get_user_settings, update_user_setting, normalize_tts_endpoint
-from services.log_service import record_web_action
+from services.log import record_web_action
 from utils.tooling import AVAILABLE_TOOLS, normalize_tools_csv
 from web.auth import get_current_user
 

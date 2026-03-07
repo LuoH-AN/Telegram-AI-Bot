@@ -107,7 +107,7 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
     Returns the generated title or None on failure.
     """
     try:
-        from services.user_service import get_user_settings
+        from services.user import get_user_settings
 
         settings = get_user_settings(user_id)
 

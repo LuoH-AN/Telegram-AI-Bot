@@ -36,7 +36,7 @@ from services import (
     generate_session_title,
     conversation_slot,
 )
-from services.log_service import record_ai_interaction, record_error
+from services.log import record_ai_interaction, record_error
 from services.refresh import ensure_user_state
 from tools import (
     get_all_tools,

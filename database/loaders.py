@@ -1,7 +1,7 @@
 """Shared DB-row-to-dict parse functions.
 
 Both ``cache/sync.py`` (full load at startup) and
-``services/state_sync_service.py`` (per-user refresh) need identical
+``services/state_sync.py`` (per-user refresh) need identical
 logic for converting raw database rows into the in-memory dict
 structures used by the cache layer.  Centralising the parse helpers
 here avoids drift between the two code paths.
@@ -74,7 +74,7 @@ def parse_session_row(row: Mapping, *, user_id: int | None = None) -> dict:
 
     If the row already contains ``user_id`` it is used directly; otherwise
     the caller-supplied *user_id* is filled in (needed by
-    ``state_sync_service`` where the query doesn't return ``user_id``).
+    ``state_sync`` where the query doesn't return ``user_id``).
     """
     return {
         "id": row["id"],

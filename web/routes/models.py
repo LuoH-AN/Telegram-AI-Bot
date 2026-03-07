@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ai.openai_client import create_openai_client
 from services import get_user_settings
-from services.log_service import record_web_action
+from services.log import record_web_action
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/models", tags=["models"])

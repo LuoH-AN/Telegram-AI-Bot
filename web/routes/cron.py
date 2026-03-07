@@ -93,7 +93,7 @@ async def run_cron_task(
     user_id: int = Depends(get_current_user),
 ):
     """Manually trigger a cron task."""
-    from services.cron_service import run_cron_task as _run
+    from services.cron import run_cron_task as _run
     result = _run(user_id, name)
     if result.startswith("Error"):
         raise HTTPException(status_code=400, detail=result)

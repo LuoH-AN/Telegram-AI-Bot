@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from services.log_service import (
+from services.log import (
     get_user_logs,
     delete_log_by_id,
     delete_logs_filtered,

@@ -3,7 +3,7 @@
 import logging
 
 from cache import cache
-from services.embedding_service import (
+from services.embedding import (
     get_embedding,
     cosine_similarity,
     is_available,
