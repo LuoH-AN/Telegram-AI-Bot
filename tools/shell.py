@@ -53,26 +53,6 @@ _HF_LAST_SYNC_AT: dict[int, float] = {}
 _PKG_SINGLE_TIMEOUT = 120
 _PKG_RESTORED_USERS: set[int] = set()
 
-_INSTALL_PATTERNS: dict[str, re.Pattern] = {
-    "pip": re.compile(
-        r"(?:pip3?|python3?\s+-m\s+pip)\s+(?:install|uninstall)\b",
-        re.IGNORECASE,
-    ),
-    "npm": re.compile(
-        r"npm\s+(?:install|i|uninstall|remove)\s+(?:.*\s)?(?:-g|--global)\b"
-        r"|npm\s+(?:install|i|uninstall|remove)\s+(?:-g|--global)\b",
-        re.IGNORECASE,
-    ),
-    "apt": re.compile(
-        r"(?:apt|apt-get)\s+(?:install|remove|purge)\b",
-        re.IGNORECASE,
-    ),
-}
-_APT_PKG_EXTRACT = re.compile(
-    r"(?:apt|apt-get)\s+(?:install|remove|purge)\s+(.*)",
-    re.IGNORECASE,
-)
-
 # Patterns that should be blocked
 _BLOCKED_PATTERNS = [
     r"\brm\s+-[^\s]*r[^\s]*f\s+/",  # rm -rf /
@@ -301,28 +281,6 @@ def _snapshot_workspace_to_hf(user_id: int, cwd: str, command: str) -> None:
 # ── Package manifest backup / restore ──────────────────────────────
 
 
-def _detect_pkg_managers(command: str) -> list[str]:
-    """Return list of package manager names that the command invokes."""
-    return [name for name, pat in _INSTALL_PATTERNS.items() if pat.search(command)]
-
-
-def _extract_apt_packages(command: str) -> list[str]:
-    """Parse package names from an apt install/remove/purge command."""
-    m = _APT_PKG_EXTRACT.search(command)
-    if not m:
-        return []
-    args = m.group(1)
-    packages = []
-    for token in args.split():
-        if token.startswith("-"):
-            continue
-        # skip version specifiers like package=1.2.3
-        name = token.split("=")[0]
-        if name and name[0].isalpha():
-            packages.append(name)
-    return packages
-
-
 def _capture_pip_manifest() -> list[str]:
     """Run ``pip freeze --local`` and return the list of installed packages."""
     try:
@@ -379,13 +337,9 @@ def _get_existing_manifest(user_id: int) -> dict:
     return {"version": 1, "updated_at": 0, "pip": [], "npm": [], "apt": []}
 
 
-def _snapshot_packages_to_hf(user_id: int, command: str, exit_code: int) -> None:
-    """After a successful install/uninstall, capture manifests and upload."""
+def _snapshot_packages_to_hf(user_id: int, exit_code: int) -> None:
+    """Capture current package state and upload manifest to HF."""
     if exit_code != 0:
-        return
-
-    managers = _detect_pkg_managers(command)
-    if not managers:
         return
 
     store = get_hf_dataset_store()
@@ -393,29 +347,9 @@ def _snapshot_packages_to_hf(user_id: int, command: str, exit_code: int) -> None
         return
 
     manifest = _get_existing_manifest(user_id)
-
-    # Determine if this is an apt remove/purge
-    is_apt_remove = bool(
-        re.search(r"(?:apt|apt-get)\s+(?:remove|purge)\b", command, re.IGNORECASE)
-    )
-
-    for mgr in managers:
-        if mgr == "pip":
-            manifest["pip"] = _capture_pip_manifest()
-        elif mgr == "npm":
-            manifest["npm"] = _capture_npm_manifest()
-        elif mgr == "apt":
-            if is_apt_remove:
-                removed = _extract_apt_packages(command)
-                manifest["apt"] = [
-                    p for p in manifest.get("apt", []) if p not in removed
-                ]
-            else:
-                new_pkgs = _extract_apt_packages(command)
-                existing = set(manifest.get("apt", []))
-                for pkg in new_pkgs:
-                    existing.add(pkg)
-                manifest["apt"] = sorted(existing)
+    manifest["pip"] = _capture_pip_manifest()
+    manifest["npm"] = _capture_npm_manifest()
+    # apt: managed by _update_apt_manifest (AI provides package names)
 
     manifest["updated_at"] = int(time.time())
     path = f"shell/{user_id}/packages_manifest.json"
@@ -431,6 +365,28 @@ def _snapshot_packages_to_hf(user_id: int, command: str, exit_code: int) -> None
         len(manifest.get("npm", [])),
         len(manifest.get("apt", [])),
     )
+
+
+def _update_apt_manifest(user_id: int, command: str, packages: list[str]) -> None:
+    """Update the apt section of the manifest based on AI-provided package names."""
+    if not packages:
+        return
+    manifest = _get_existing_manifest(user_id)
+    is_remove = bool(
+        re.search(r"(?:apt|apt-get)\s+(?:remove|purge)\b", command, re.IGNORECASE)
+    )
+    if is_remove:
+        removed = set(packages)
+        manifest["apt"] = [p for p in manifest.get("apt", []) if p not in removed]
+    else:
+        existing = set(manifest.get("apt", []))
+        existing.update(packages)
+        manifest["apt"] = sorted(existing)
+    # Write immediately so _snapshot_packages_to_hf picks up the updated apt list
+    store = get_hf_dataset_store()
+    if store.enabled:
+        path = f"shell/{user_id}/packages_manifest.json"
+        store.put_json(path, manifest, commit_message=f"shell apt manifest user={user_id}")
 
 
 def _restore_apt(user_id: int, packages: list[str]) -> None:
@@ -552,6 +508,24 @@ class ShellTool(BaseTool):
                                 "type": "string",
                                 "description": "Working directory for the command (default: per-user temp dir)",
                             },
+                            "persist_packages": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": (
+                                    "Set to true when the command installs or removes system packages "
+                                    "(pip, npm, apt, etc.) so that installed packages are persisted "
+                                    "across container restarts."
+                                ),
+                            },
+                            "apt_packages": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "When persist_packages is true and the command uses apt install/remove, "
+                                    "list the package names here (e.g. [\"curl\", \"ffmpeg\"]). "
+                                    "For apt remove/purge, these packages will be removed from the manifest."
+                                ),
+                            },
                         },
                         "required": ["command"],
                     },
@@ -612,8 +586,10 @@ class ShellTool(BaseTool):
             logger.exception("[user=%d] shell exec error", user_id)
         finally:
             _snapshot_workspace_to_hf(user_id, cwd, command)
-            if result is not None:
-                _snapshot_packages_to_hf(user_id, command, result.returncode)
+            if result is not None and arguments.get("persist_packages"):
+                apt_packages = arguments.get("apt_packages") or []
+                _update_apt_manifest(user_id, command, apt_packages)
+                _snapshot_packages_to_hf(user_id, result.returncode)
 
         if timeout_error:
             return f"Error: Command timed out after {timeout} seconds."
@@ -643,4 +619,7 @@ class ShellTool(BaseTool):
             f"Each user has their own working directory at {_DEFAULT_WORK_ROOT}/<user_id>/.\n"
             "When HF_DATASET_USERNAME/HF_DATASET_TOKEN/HF_DATASET_NAME are configured, "
             "workspace snapshots are synced to a Hugging Face dataset.\n"
+            "Set persist_packages=true when your command installs or removes system-level packages "
+            "(pip install, npm install -g, apt install, etc.) so they survive container restarts. "
+            "For apt commands, also provide apt_packages with the list of package names.\n"
         )
