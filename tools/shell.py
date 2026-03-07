@@ -611,6 +611,7 @@ class ShellTool(BaseTool):
         return _truncate_output(output)
 
     def get_instruction(self) -> str:
+        from config.settings import WEB_BASE_URL
         return (
             "\n\nYou have the shell_exec tool to execute shell commands in the container.\n"
             "Use it when the user asks you to run commands, write/run scripts, check system info, "
@@ -622,4 +623,10 @@ class ShellTool(BaseTool):
             "Set persist_packages=true when your command installs or removes system-level packages "
             "(pip install, npm install -g, apt install, etc.) so they survive container restarts. "
             "For apt commands, also provide apt_packages with the list of package names.\n"
+            "\n"
+            "**Web service proxy:** When you start a web service (Flask, Gradio, Streamlit, etc.) "
+            "that listens on a port inside the container, users can access it via:\n"
+            f"  {WEB_BASE_URL}/proxy/<port>/\n"
+            "Tell the user this URL so they can open it in their browser. "
+            "Make sure the service binds to 0.0.0.0 (not just 127.0.0.1) for the proxy to work.\n"
         )
