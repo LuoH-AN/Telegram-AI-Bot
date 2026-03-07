@@ -9,6 +9,20 @@ from database.connection import get_connection, get_dict_cursor
 logger = logging.getLogger(__name__)
 
 
+def _execute_insert(sql: str, params: tuple) -> None:
+    """Execute an INSERT statement with connection lifecycle management."""
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to record log entry")
+
+
 def record_ai_interaction(
     user_id: int,
     model: str | None = None,
@@ -20,31 +34,17 @@ def record_ai_interaction(
     persona_name: str | None = None,
 ):
     """Record an AI interaction log entry."""
-    try:
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO user_logs
-                       (user_id, log_type, model, prompt_tokens, completion_tokens,
-                        total_tokens, tool_calls, latency_ms, persona_name)
-                       VALUES (%s, 'ai_interaction', %s, %s, %s, %s, %s, %s, %s)""",
-                    (
-                        user_id,
-                        model,
-                        prompt_tokens,
-                        completion_tokens,
-                        total_tokens,
-                        json.dumps(tool_calls) if tool_calls else None,
-                        latency_ms,
-                        persona_name,
-                    ),
-                )
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception:
-        logger.exception("Failed to record AI interaction log")
+    _execute_insert(
+        """INSERT INTO user_logs
+           (user_id, log_type, model, prompt_tokens, completion_tokens,
+            total_tokens, tool_calls, latency_ms, persona_name)
+           VALUES (%s, 'ai_interaction', %s, %s, %s, %s, %s, %s, %s)""",
+        (
+            user_id, model, prompt_tokens, completion_tokens, total_tokens,
+            json.dumps(tool_calls) if tool_calls else None,
+            latency_ms, persona_name,
+        ),
+    )
 
 
 def record_error(
@@ -55,21 +55,12 @@ def record_error(
     persona_name: str | None = None,
 ):
     """Record an error log entry."""
-    try:
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO user_logs
-                       (user_id, log_type, error_message, error_context, model, persona_name)
-                       VALUES (%s, 'error', %s, %s, %s, %s)""",
-                    (user_id, error_message, error_context, model, persona_name),
-                )
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception:
-        logger.exception("Failed to record error log")
+    _execute_insert(
+        """INSERT INTO user_logs
+           (user_id, log_type, error_message, error_context, model, persona_name)
+           VALUES (%s, 'error', %s, %s, %s, %s)""",
+        (user_id, error_message, error_context, model, persona_name),
+    )
 
 
 def record_web_action(
@@ -79,26 +70,23 @@ def record_web_action(
     persona_name: str | None = None,
 ):
     """Record a web UI action log entry."""
-    try:
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO user_logs
-                       (user_id, log_type, error_message, error_context, persona_name)
-                       VALUES (%s, 'web_action', %s, %s, %s)""",
-                    (
-                        user_id,
-                        action,
-                        json.dumps(detail, ensure_ascii=False) if detail is not None else None,
-                        persona_name,
-                    ),
-                )
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception:
-        logger.exception("Failed to record web action log")
+    _execute_insert(
+        """INSERT INTO user_logs
+           (user_id, log_type, error_message, error_context, persona_name)
+           VALUES (%s, 'web_action', %s, %s, %s)""",
+        (
+            user_id, action,
+            json.dumps(detail, ensure_ascii=False) if detail is not None else None,
+            persona_name,
+        ),
+    )
+
+
+def _build_where(user_id: int, log_type: str | None = None) -> tuple[str, tuple]:
+    """Build a WHERE clause with optional log_type filter."""
+    if log_type:
+        return "WHERE user_id = %s AND log_type = %s", (user_id, log_type)
+    return "WHERE user_id = %s", (user_id,)
 
 
 def get_user_logs(
@@ -112,39 +100,17 @@ def get_user_logs(
     Returns (rows, total_count).
     """
     offset = (page - 1) * limit
+    where, params = _build_where(user_id, log_type)
     conn = get_connection()
     try:
         with get_dict_cursor(conn) as cur:
-            # Count
-            if log_type:
-                cur.execute(
-                    "SELECT COUNT(*) AS cnt FROM user_logs WHERE user_id = %s AND log_type = %s",
-                    (user_id, log_type),
-                )
-            else:
-                cur.execute(
-                    "SELECT COUNT(*) AS cnt FROM user_logs WHERE user_id = %s",
-                    (user_id,),
-                )
+            cur.execute(f"SELECT COUNT(*) AS cnt FROM user_logs {where}", params)
             total = cur.fetchone()["cnt"]
 
-            # Fetch page
-            if log_type:
-                cur.execute(
-                    """SELECT * FROM user_logs
-                       WHERE user_id = %s AND log_type = %s
-                       ORDER BY created_at DESC
-                       LIMIT %s OFFSET %s""",
-                    (user_id, log_type, limit, offset),
-                )
-            else:
-                cur.execute(
-                    """SELECT * FROM user_logs
-                       WHERE user_id = %s
-                       ORDER BY created_at DESC
-                       LIMIT %s OFFSET %s""",
-                    (user_id, limit, offset),
-                )
+            cur.execute(
+                f"SELECT * FROM user_logs {where} ORDER BY created_at DESC LIMIT %s OFFSET %s",
+                params + (limit, offset),
+            )
             rows = cur.fetchall()
         return [dict(r) for r in rows], total
     finally:
@@ -205,53 +171,24 @@ def keep_latest_logs(
 ) -> int:
     """Keep latest N logs for user (optionally by type), delete older rows."""
     keep_latest = max(0, int(keep_latest))
+    where, params = _build_where(user_id, log_type)
+
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             if keep_latest == 0:
-                if log_type:
-                    cur.execute(
-                        "DELETE FROM user_logs WHERE user_id = %s AND log_type = %s",
-                        (user_id, log_type),
-                    )
-                else:
-                    cur.execute(
-                        "DELETE FROM user_logs WHERE user_id = %s",
-                        (user_id,),
-                    )
-                deleted = cur.rowcount
-                conn.commit()
-                return int(deleted)
-
-            if log_type:
-                cur.execute(
-                    """
-                    DELETE FROM user_logs
-                    WHERE user_id = %s
-                      AND log_type = %s
-                      AND id NOT IN (
-                        SELECT id FROM user_logs
-                        WHERE user_id = %s
-                          AND log_type = %s
-                        ORDER BY created_at DESC, id DESC
-                        LIMIT %s
-                      )
-                    """,
-                    (user_id, log_type, user_id, log_type, keep_latest),
-                )
+                cur.execute(f"DELETE FROM user_logs {where}", params)
             else:
                 cur.execute(
-                    """
-                    DELETE FROM user_logs
-                    WHERE user_id = %s
+                    f"""DELETE FROM user_logs
+                    {where}
                       AND id NOT IN (
                         SELECT id FROM user_logs
-                        WHERE user_id = %s
+                        {where}
                         ORDER BY created_at DESC, id DESC
                         LIMIT %s
-                      )
-                    """,
-                    (user_id, user_id, keep_latest),
+                      )""",
+                    params + params + (keep_latest,),
                 )
             deleted = cur.rowcount
         conn.commit()

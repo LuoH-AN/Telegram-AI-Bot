@@ -49,6 +49,13 @@ TOKEN_REFRESH_MARGIN = 60
 VOICE_LIST_TTL = 60 * 60 * 6
 DEFAULT_TTS_HOST_SUFFIX = ".tts.speech.microsoft.com"
 
+# Shared retry policy for all external HTTP calls
+_RETRY_POLICY = dict(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    reraise=True,
+)
+
 _session = requests.Session()
 _token_lock = threading.Lock()
 _voice_list_lock = threading.Lock()
@@ -111,12 +118,7 @@ def sign(url_str: str) -> str:
     return f"MSTranslatorAndroidApp::{signature}::{formatted_date}::{request_id}"
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=5),
-    retry=retry_if_exception_type(requests.RequestException),
-    reraise=True,
-)
+@retry(**_RETRY_POLICY, retry=retry_if_exception_type(requests.RequestException))
 def _fetch_endpoint(proxies: dict | None = None) -> dict:
     """Fetch endpoint/token payload from translator endpoint."""
     headers = {
@@ -213,11 +215,20 @@ def normalize_tts_endpoint(value: str | None) -> str:
     return text
 
 
+def _make_tts_request(url: str, headers: dict, ssml: str, proxies: dict | None) -> requests.Response:
+    """Make a single TTS synthesis POST request."""
+    return _session.post(
+        url,
+        headers=headers,
+        data=ssml.encode("utf-8"),
+        proxies=proxies,
+        timeout=REQUEST_TIMEOUT,
+    )
+
+
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=5),
+    **_RETRY_POLICY,
     retry=retry_if_exception_type((requests.RequestException, ValueError)),
-    reraise=True,
 )
 def get_voice(
     text: str,
@@ -251,45 +262,23 @@ def get_voice(
     }
     ssml = get_ssml(text, voice_name, rate, pitch, style)
 
-    response = _session.post(
-        url,
-        headers=headers,
-        data=ssml.encode("utf-8"),
-        proxies=proxies,
-        timeout=REQUEST_TIMEOUT,
-    )
+    response = _make_tts_request(url, headers, ssml, proxies)
 
     if response.status_code == 401:
+        # Refresh token and retry
         endpoint = get_endpoint(proxies=proxies, force_refresh=True)
         token_host = f"{endpoint['r']}{DEFAULT_TTS_HOST_SUFFIX}"
         headers["Authorization"] = endpoint["t"]
-        response = _session.post(
-            url,
-            headers=headers,
-            data=ssml.encode("utf-8"),
-            proxies=proxies,
-            timeout=REQUEST_TIMEOUT,
-        )
+        response = _make_tts_request(url, headers, ssml, proxies)
 
-        # Custom host may reject translator token; fallback to token region host.
-        if (
-            response.status_code == 401
-            and requested_host
-            and requested_host != token_host
-        ):
+        # Custom host may reject translator token; fallback to token region host
+        if response.status_code == 401 and requested_host and requested_host != token_host:
             fallback_url = f"https://{token_host}/cognitiveservices/v1"
             logger.warning(
                 "Custom TTS endpoint unauthorized: %s; fallback to token host: %s",
-                requested_host,
-                token_host,
+                requested_host, token_host,
             )
-            response = _session.post(
-                fallback_url,
-                headers=headers,
-                data=ssml.encode("utf-8"),
-                proxies=proxies,
-                timeout=REQUEST_TIMEOUT,
-            )
+            response = _make_tts_request(fallback_url, headers, ssml, proxies)
 
     response.raise_for_status()
     return response.content
@@ -318,12 +307,7 @@ def synthesize_voice(
     )
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=5),
-    retry=retry_if_exception_type(requests.RequestException),
-    reraise=True,
-)
+@retry(**_RETRY_POLICY, retry=retry_if_exception_type(requests.RequestException))
 def _fetch_voice_list(proxies: dict | None = None) -> list[dict]:
     """Fetch available voice list from Microsoft speech endpoint."""
     headers = {

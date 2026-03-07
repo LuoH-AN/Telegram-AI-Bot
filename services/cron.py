@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
 from cache.manager import cache
@@ -90,32 +91,77 @@ def _field_matches(field: str, value: int, lo: int, hi: int) -> bool:
     return False
 
 
+@contextmanager
+def _heartbeat_monitor(user_id: int, task_name: str):
+    """Context manager that logs heartbeat messages while a cron task runs."""
+    task_start = time.time()
+    phase = ["init"]
+    stop_event = threading.Event()
+
+    def _loop():
+        while not stop_event.wait(10):
+            elapsed = int(time.time() - task_start)
+            logger.info("[user=%d] cron task '%s': %s (%ds)", user_id, task_name, phase[0], elapsed)
+
+    hb = threading.Thread(target=_loop, daemon=True)
+    hb.start()
+    try:
+        yield phase
+    finally:
+        stop_event.set()
+        hb.join(timeout=1)
+
+
+def _create_task_client(user_id: int, model_spec: str, settings: dict):
+    """Create an AI client for a cron/title task.
+
+    If model_spec is non-empty, resolves provider:model and creates a dedicated
+    client. Otherwise falls back to the user's default client.
+
+    Returns (client, resolved_model).
+    """
+    from ai import get_ai_client
+    from ai.openai_client import create_openai_client
+
+    api_key = settings["api_key"]
+    base_url = settings["base_url"]
+    model = settings.get("model", "gpt-4o")
+
+    if model_spec:
+        try:
+            api_key, base_url, model = resolve_provider_model(
+                model_spec,
+                settings.get("api_presets", {}),
+                api_key,
+                base_url,
+                model,
+            )
+        except ValueError:
+            logger.warning("[user=%d] provider not found in presets: %s", user_id, model_spec)
+            return get_ai_client(user_id), model
+
+        client = create_openai_client(
+            api_key=api_key,
+            base_url=base_url,
+            log_context=f"[user={user_id}]",
+        )
+        return client, model
+
+    return get_ai_client(user_id), model
+
+
 def _execute_cron_task(bot, task: dict) -> None:
     """Execute a single cron task: call AI with the task prompt, send result to user."""
     user_id = task["user_id"]
     task_name = task["name"]
     task_key = (user_id, task_name)
     prompt = task["prompt"]
+    task_start = time.time()
 
     logger.info("[user=%d] cron task '%s' started | prompt: %s", user_id, task_name, prompt[:100])
 
-    # Heartbeat: independent timer thread that logs elapsed time every 10s
-    task_start = time.time()
-    _heartbeat_phase = ["init"]
-    _heartbeat_stop = threading.Event()
-
-    def _heartbeat():
-        while not _heartbeat_stop.wait(10):
-            elapsed = int(time.time() - task_start)
-            logger.info("[user=%d] cron task '%s': %s (%ds)", user_id, task_name, _heartbeat_phase[0], elapsed)
-
-    hb = threading.Thread(target=_heartbeat, daemon=True)
-    hb.start()
-
     try:
         from services import get_user_settings, get_system_prompt
-        from ai import get_ai_client
-        from ai.openai_client import create_openai_client
         from tools import get_all_tools, process_tool_calls
         from utils import get_datetime_prompt, filter_thinking_content
 
@@ -127,32 +173,9 @@ def _execute_cron_task(bot, task: dict) -> None:
         if reasoning_effort not in VALID_REASONING_EFFORTS:
             reasoning_effort = ""
 
-        # Resolve cron_model — same logic as title_model
-        cron_model_raw = settings.get("cron_model", "")
-        api_key = settings["api_key"]
-        base_url = settings["base_url"]
-        cron_model = settings.get("model", "gpt-4o")
-
-        if cron_model_raw:
-            try:
-                api_key, base_url, cron_model = resolve_provider_model(
-                    cron_model_raw,
-                    settings.get("api_presets", {}),
-                    api_key,
-                    base_url,
-                    cron_model,
-                )
-            except ValueError:
-                logger.warning("[user=%d] cron_model provider not found: %s", user_id, cron_model_raw)
-
-        if cron_model_raw:
-            client = create_openai_client(
-                api_key=api_key,
-                base_url=base_url,
-                log_context=f"[user={user_id}]",
-            )
-        else:
-            client = get_ai_client(user_id)
+        client, cron_model = _create_task_client(
+            user_id, settings.get("cron_model", ""), settings
+        )
 
         enabled_tools = resolve_cron_tools_csv(settings)
         logger.info("[user=%d] cron task tools: %s", user_id, enabled_tools or "(none)")
@@ -160,11 +183,7 @@ def _execute_cron_task(bot, task: dict) -> None:
         # Build system prompt
         system_prompt = get_system_prompt(user_id)
         system_prompt += "\n\n" + get_datetime_prompt()
-        platform_hint = "this platform"
-        if hasattr(bot, "send_message"):
-            platform_hint = "Telegram"
-        elif hasattr(bot, "fetch_user"):
-            platform_hint = "Discord DM"
+        platform_hint = _detect_platform(bot)
 
         system_prompt += (
             "\n\nYou are executing a scheduled task. Provide a concise, useful response. "
@@ -180,89 +199,87 @@ def _execute_cron_task(bot, task: dict) -> None:
 
         tools = get_all_tools(enabled_tools=enabled_tools)
 
-        # Non-streaming AI call with tool loop (max 2 rounds)
-        full_response = ""
-        last_text_response = ""
-        tool_results_pending = False
-        for round_num in range(MAX_TOOL_ROUNDS + 1):
-            _heartbeat_phase[0] = f"waiting for AI (round {round_num + 1})"
-            chunks = list(client.chat_completion(
-                messages=messages,
-                model=cron_model,
-                temperature=settings["temperature"],
-                reasoning_effort=reasoning_effort or None,
-                stream=False,
-                tools=tools if round_num < MAX_TOOL_ROUNDS else None,
-            ))
+        with _heartbeat_monitor(user_id, task_name) as phase:
+            # Non-streaming AI call with tool loop
+            full_response = ""
+            last_text_response = ""
+            tool_results_pending = False
+            for round_num in range(MAX_TOOL_ROUNDS + 1):
+                phase[0] = f"waiting for AI (round {round_num + 1})"
+                chunks = list(client.chat_completion(
+                    messages=messages,
+                    model=cron_model,
+                    temperature=settings["temperature"],
+                    reasoning_effort=reasoning_effort or None,
+                    stream=False,
+                    tools=tools if round_num < MAX_TOOL_ROUNDS else None,
+                ))
 
-            if not chunks:
-                break
+                if not chunks:
+                    break
 
-            chunk = chunks[0]
-            content = chunk.content or ""
-            full_response = content
+                chunk = chunks[0]
+                content = chunk.content or ""
+                full_response = content
 
-            if content.strip():
-                last_text_response = content
-                tool_results_pending = False
+                if content.strip():
+                    last_text_response = content
+                    tool_results_pending = False
 
-            if not chunk.tool_calls:
-                break
+                if not chunk.tool_calls:
+                    break
 
-            # Process tool calls
-            tool_names = [tc.name for tc in chunk.tool_calls]
-            _heartbeat_phase[0] = f"running tools: {', '.join(tool_names)}"
-            tool_results = process_tool_calls(user_id, chunk.tool_calls, enabled_tools=enabled_tools)
+                # Process tool calls
+                tool_names = [tc.name for tc in chunk.tool_calls]
+                phase[0] = f"running tools: {', '.join(tool_names)}"
+                tool_results = process_tool_calls(user_id, chunk.tool_calls, enabled_tools=enabled_tools)
 
-            # Add assistant message with tool calls
-            assistant_msg = {
-                "role": "assistant",
-                "content": content or None,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": tc.arguments},
-                    }
-                    for tc in chunk.tool_calls
-                ],
-            }
-            messages.append(assistant_msg)
-            messages.extend(tool_results)
-            tool_results_pending = True
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": content or None,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.name, "arguments": tc.arguments},
+                        }
+                        for tc in chunk.tool_calls
+                    ],
+                }
+                messages.append(assistant_msg)
+                messages.extend(tool_results)
+                tool_results_pending = True
 
-        # If loop ended with pending tool results, make one final call without tools
-        if tool_results_pending:
-            _heartbeat_phase[0] = "waiting for AI (final)"
-            messages.append({
-                "role": "user",
-                "content": "Please respond based on the information you have gathered above. Do not attempt to call any more tools.",
-            })
-            chunks = list(client.chat_completion(
-                messages=messages,
-                model=cron_model,
-                temperature=settings["temperature"],
-                reasoning_effort=reasoning_effort or None,
-                stream=False,
-                tools=None,
-            ))
-            if chunks and chunks[0].content:
-                full_response = chunks[0].content
-                last_text_response = full_response
+            # If loop ended with pending tool results, make one final call without tools
+            if tool_results_pending:
+                phase[0] = "waiting for AI (final)"
+                messages.append({
+                    "role": "user",
+                    "content": "Please respond based on the information you have gathered above. Do not attempt to call any more tools.",
+                })
+                chunks = list(client.chat_completion(
+                    messages=messages,
+                    model=cron_model,
+                    temperature=settings["temperature"],
+                    reasoning_effort=reasoning_effort or None,
+                    stream=False,
+                    tools=None,
+                ))
+                if chunks and chunks[0].content:
+                    full_response = chunks[0].content
+                    last_text_response = full_response
 
-        # Clean response
-        final_text = filter_thinking_content(full_response).strip()
-        if not final_text and last_text_response:
-            final_text = filter_thinking_content(last_text_response).strip()
-        if not final_text:
-            final_text = "(Scheduled task produced no output)"
+            # Clean response
+            final_text = filter_thinking_content(full_response).strip()
+            if not final_text and last_text_response:
+                final_text = filter_thinking_content(last_text_response).strip()
+            if not final_text:
+                final_text = "(Scheduled task produced no output)"
 
-        # Prepend task header
-        result_text = f"[Scheduled: {task_name}]\n\n{final_text}"
+            result_text = f"[Scheduled: {task_name}]\n\n{final_text}"
 
-        # Send to user via the active runtime platform
-        _heartbeat_phase[0] = "sending message"
-        _send_message(bot, user_id, result_text)
+            phase[0] = "sending message"
+            _send_message(bot, user_id, result_text)
 
         # Update last_run_at
         now = datetime.now(_CST)
@@ -277,53 +294,66 @@ def _execute_cron_task(bot, task: dict) -> None:
         except Exception:
             logger.exception("[user=%d] failed to send cron error message", user_id)
     finally:
-        _heartbeat_stop.set()
-        hb.join(timeout=1)
         with _running_tasks_lock:
             _running_tasks.discard(task_key)
 
 
-def _send_message(bot, chat_id: int, text: str) -> None:
-    """Send a cron result message using the active runtime platform."""
+def _detect_platform(bot) -> str:
+    """Detect the platform from the bot instance."""
+    if hasattr(bot, "send_message"):
+        return "Telegram"
+    if hasattr(bot, "fetch_user"):
+        return "Discord DM"
+    return "this platform"
+
+
+def _send_telegram(bot, chat_id: int, text: str, loop) -> None:
+    """Send a message via Telegram bot."""
+    from telegram.constants import ParseMode
     from utils.formatters import markdown_to_telegram_html, split_message
 
+    html_text = markdown_to_telegram_html(text)
+    chunks = split_message(html_text, max_length=4096)
+    for chunk in chunks:
+        future = asyncio.run_coroutine_threadsafe(
+            bot.send_message(chat_id=chat_id, text=chunk, parse_mode=ParseMode.HTML),
+            loop,
+        )
+        future.result(timeout=60)
+
+
+def _send_discord(bot, chat_id: int, text: str, loop) -> None:
+    """Send a message via Discord bot DM."""
+    from utils.formatters import split_message
+
+    chunks = split_message(text, max_length=2000)
+
+    async def _dm() -> None:
+        user = bot.get_user(chat_id)
+        if user is None:
+            user = await bot.fetch_user(chat_id)
+        if user is None:
+            raise RuntimeError(f"Discord user {chat_id} not found")
+        for chunk in chunks:
+            await user.send(chunk)
+
+    future = asyncio.run_coroutine_threadsafe(_dm(), loop)
+    future.result(timeout=60)
+
+
+def _send_message(bot, chat_id: int, text: str) -> None:
+    """Send a cron result message using the active runtime platform."""
     loop = _main_loop
     if loop is None or loop.is_closed():
         logger.error("Main event loop not available, cannot send cron message")
         return
 
-    # Telegram bot instance (python-telegram-bot)
     if hasattr(bot, "send_message"):
-        from telegram.constants import ParseMode
-
-        html_text = markdown_to_telegram_html(text)
-        chunks = split_message(html_text, max_length=4096)
-        for chunk in chunks:
-            future = asyncio.run_coroutine_threadsafe(
-                bot.send_message(chat_id=chat_id, text=chunk, parse_mode=ParseMode.HTML),
-                loop,
-            )
-            future.result(timeout=60)
-        return
-
-    # Discord bot instance (discord.py)
-    if hasattr(bot, "fetch_user"):
-        chunks = split_message(text, max_length=2000)
-
-        async def _send_discord_dm() -> None:
-            user = bot.get_user(chat_id)
-            if user is None:
-                user = await bot.fetch_user(chat_id)
-            if user is None:
-                raise RuntimeError(f"Discord user {chat_id} not found")
-            for chunk in chunks:
-                await user.send(chunk)
-
-        future = asyncio.run_coroutine_threadsafe(_send_discord_dm(), loop)
-        future.result(timeout=60)
-        return
-
-    logger.error("Unsupported bot type for cron delivery: %s", type(bot).__name__)
+        _send_telegram(bot, chat_id, text, loop)
+    elif hasattr(bot, "fetch_user"):
+        _send_discord(bot, chat_id, text, loop)
+    else:
+        logger.error("Unsupported bot type for cron delivery: %s", type(bot).__name__)
 
 
 def _scheduler_loop(bot) -> None:
@@ -387,7 +417,7 @@ def start_cron_scheduler(bot) -> None:
     _bot_ref = bot
     thread = threading.Thread(target=_scheduler_loop, args=(bot,), daemon=True)
     thread.start()
-    platform = "telegram" if hasattr(bot, "send_message") else "discord" if hasattr(bot, "fetch_user") else "unknown"
+    platform = _detect_platform(bot)
     logger.info("Cron scheduler started (platform=%s, poll interval=%ds)", platform, _POLL_INTERVAL)
 
 

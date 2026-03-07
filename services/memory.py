@@ -28,14 +28,6 @@ def add_memory(user_id: int, content: str, source: str = "user") -> dict:
         2. Check existing memories for semantic duplicates (similarity > threshold)
         3. If duplicate found, remove old and add new (update semantics)
         4. Otherwise add as new memory
-
-    Args:
-        user_id: User ID
-        content: Memory content
-        source: 'user' for manual, 'ai' for automatic
-
-    Returns:
-        The created memory dict
     """
     content = content.strip()
     embedding = get_embedding(content)
@@ -43,16 +35,22 @@ def add_memory(user_id: int, content: str, source: str = "user") -> dict:
     if embedding:
         logger.info("Memory embedded: '%s...' (source=%s)", content[:50], source)
         existing = cache.get_memories(user_id)
-        for i, mem in enumerate(existing):
-            if mem.get("embedding"):
-                sim = cosine_similarity(embedding, mem["embedding"])
-                if sim > MEMORY_DEDUP_THRESHOLD:
-                    logger.info(
-                        "Dedup: replacing memory (sim=%.3f): '%s' -> '%s'",
-                        sim, mem["content"][:40], content[:40],
-                    )
-                    cache.delete_memory(user_id, i)
-                    break
+        dup = next(
+            (
+                (i, mem) for i, mem in enumerate(existing)
+                if mem.get("embedding")
+                and cosine_similarity(embedding, mem["embedding"]) > MEMORY_DEDUP_THRESHOLD
+            ),
+            None,
+        )
+        if dup is not None:
+            i, mem = dup
+            sim = cosine_similarity(embedding, mem["embedding"])
+            logger.info(
+                "Dedup: replacing memory (sim=%.3f): '%s' -> '%s'",
+                sim, mem["content"][:40], content[:40],
+            )
+            cache.delete_memory(user_id, i)
     else:
         logger.info("Memory saved without embedding: '%s...' (source=%s)", content[:50], source)
 
@@ -60,11 +58,7 @@ def add_memory(user_id: int, content: str, source: str = "user") -> dict:
 
 
 def update_memory(user_id: int, index: int, content: str) -> bool:
-    """Update a memory by index (1-based), preserving list order.
-
-    This uses delete + add under the hood so existing cache dirty-sync logic
-    can persist changes without introducing a dedicated "update" dirty path.
-    """
+    """Update a memory by index (1-based), preserving list order."""
     zero_index = index - 1
     content = content.strip()
     if not content:
@@ -77,7 +71,6 @@ def update_memory(user_id: int, index: int, content: str) -> bool:
     source = memories[zero_index].get("source", "user")
     embedding = get_embedding(content)
 
-    # Remove old memory then add new one so DB sync naturally handles it.
     cache.delete_memory(user_id, zero_index)
     cache.add_memory(user_id, content, source, embedding=embedding)
 
@@ -89,27 +82,33 @@ def update_memory(user_id: int, index: int, content: str) -> bool:
 
 
 def delete_memory(user_id: int, index: int) -> bool:
-    """Delete a memory by index (1-based for user display, converted to 0-based).
-
-    Args:
-        user_id: User ID
-        index: 1-based index as shown to user
-
-    Returns:
-        True if deleted, False if index invalid
-    """
+    """Delete a memory by index (1-based for user display, converted to 0-based)."""
     return cache.delete_memory(user_id, index - 1)
 
 
 def clear_memories(user_id: int) -> int:
-    """Clear all memories for a user.
-
-    Returns:
-        Number of memories that were cleared
-    """
+    """Clear all memories for a user. Returns number of memories cleared."""
     count = len(cache.get_memories(user_id))
     cache.clear_memories(user_id)
     return count
+
+
+def _score_memories(
+    memories: list[dict], query_embedding: list[float]
+) -> tuple[list[tuple[float, dict]], list[dict]]:
+    """Score memories by similarity to query embedding.
+
+    Returns (scored_pairs, unembedded_memories).
+    """
+    scored = []
+    unembedded = []
+    for mem in memories:
+        if mem.get("embedding"):
+            scored.append((cosine_similarity(query_embedding, mem["embedding"]), mem))
+        else:
+            unembedded.append(mem)
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored, unembedded
 
 
 def format_memories_for_prompt(user_id: int, query: str | None = None) -> str | None:
@@ -120,13 +119,6 @@ def format_memories_for_prompt(user_id: int, query: str | None = None) -> str | 
     threshold). Unembedded legacy memories are always included.
 
     When no query or embedding service unavailable, returns all memories.
-
-    Args:
-        user_id: User ID
-        query: Optional user message for semantic search
-
-    Returns:
-        Formatted string or None if no memories
     """
     memories = cache.get_memories(user_id)
     if not memories:
@@ -136,26 +128,14 @@ def format_memories_for_prompt(user_id: int, query: str | None = None) -> str | 
     if query and is_available():
         query_embedding = get_embedding(query)
         if query_embedding:
-            scored = []
-            unembedded = []
+            scored, unembedded = _score_memories(memories, query_embedding)
 
-            for mem in memories:
-                if mem.get("embedding"):
-                    sim = cosine_similarity(query_embedding, mem["embedding"])
-                    scored.append((sim, mem))
-                else:
-                    unembedded.append(mem)
-
-            # Sort by similarity descending, take top-K above threshold
-            scored.sort(key=lambda x: x[0], reverse=True)
             relevant = [
                 (s, m) for s, m in scored[:MEMORY_TOP_K]
                 if s >= MEMORY_SIMILARITY_THRESHOLD
             ]
-
             selected = [m for _, m in relevant] + unembedded
 
-            # Log search results
             if scored:
                 top_scores = ", ".join(f"{s:.3f}" for s, _ in scored[:5])
                 logger.info(
@@ -175,13 +155,11 @@ def format_memories_for_prompt(user_id: int, query: str | None = None) -> str | 
                 return None
 
             lines = ["User memories (relevant to current conversation):"]
-            for mem in selected:
-                lines.append(f"- {mem['content']}")
+            lines.extend(f"- {mem['content']}" for mem in selected)
             return "\n".join(lines)
 
     # Fallback: return all memories
     logger.info("Memory fallback: returning all %d memories (no vector search)", len(memories))
     lines = ["User memories (use these to personalize responses):"]
-    for mem in memories:
-        lines.append(f"- {mem['content']}")
+    lines.extend(f"- {mem['content']}" for mem in memories)
     return "\n".join(lines)

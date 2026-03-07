@@ -3,10 +3,8 @@
 import asyncio
 import logging
 
-from ai.openai_client import create_openai_client
 from cache import cache
 from config import TITLE_GENERATION_PROMPT
-from utils.provider import resolve_provider_model
 
 logger = logging.getLogger(__name__)
 
@@ -100,44 +98,21 @@ def get_session_message_count(session_id: int) -> int:
 async def generate_session_title(user_id: int, user_message: str, ai_response: str) -> str | None:
     """Generate a title for the current session using AI.
 
-    title_model format: "provider:model" or just "model".
-    When provider is specified, uses that provider's api_key/base_url from presets.
-    Otherwise uses the current provider.
-
     Returns the generated title or None on failure.
     """
     try:
         from services.user import get_user_settings
+        from services.cron import _create_task_client
 
         settings = get_user_settings(user_id)
 
-        title_model_raw = settings.get("title_model", "")
-        api_key = settings["api_key"]
-        base_url = settings["base_url"]
-        title_model = settings.get("model", "gpt-4o")
-
-        if title_model_raw:
-            try:
-                api_key, base_url, title_model = resolve_provider_model(
-                    title_model_raw,
-                    settings.get("api_presets", {}),
-                    api_key,
-                    base_url,
-                    title_model,
-                )
-            except ValueError:
-                logger.warning("Title generation provider not found in presets: %s", title_model_raw)
-                return None
+        client, title_model = _create_task_client(
+            user_id, settings.get("title_model", ""), settings
+        )
 
         prompt = TITLE_GENERATION_PROMPT.format(
             user_message=user_message[:500],
             ai_response=ai_response[:500],
-        )
-
-        client = create_openai_client(
-            api_key=api_key,
-            base_url=base_url,
-            log_context=f"[user={user_id}]",
         )
 
         loop = asyncio.get_event_loop()
@@ -154,11 +129,7 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
         if not chunks:
             return None
 
-        response_text = ""
-        for chunk in chunks:
-            if chunk.content:
-                response_text += chunk.content
-
+        response_text = "".join(chunk.content for chunk in chunks if chunk.content)
         if not response_text:
             return None
 
