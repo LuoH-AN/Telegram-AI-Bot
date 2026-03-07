@@ -44,7 +44,7 @@ See `.env.example` and `config/settings.py` for optional variables (API keys, mo
 - **cache/** — In-memory cache (`manager.py`) with dirty-flag tracking. `sync.py` runs a background thread that flushes changes to PostgreSQL every 30 seconds.
 - **database/** — PostgreSQL connection management and schema definitions (7 tables: `user_settings`, `user_personas`, `user_sessions`, `user_conversations`, `user_persona_tokens`, `user_memories`, `user_logs`).
 - **web/** — FastAPI dashboard. JWT auth (24h tokens). Routes in `web/routes/` for settings, personas, logs, usage, providers, sessions.
-- **static/** — Single-page dashboard frontend (vanilla HTML/CSS/JS, dark/light theme). Design spec in `FRONTEND_DESIGN_SPEC.md`.
+- **static/** — Single-page dashboard frontend (vanilla HTML/CSS/JS, dark/light theme). Design spec in `docs/frontend_design_spec.md`.
 
 ### Key Data Flow
 
@@ -65,3 +65,31 @@ See `.env.example` and `config/settings.py` for optional variables (API keys, mo
 - **Group chat:** Bot responds only to @mentions or direct replies.
 - **Streaming:** Uses generator pattern (`Iterator[StreamChunk]`). Messages are edited in-place as chunks arrive.
 - **IDs:** User IDs are Telegram BigInt. Session IDs are auto-incrementing integers managed in-memory.
+
+## Python Refactoring Skills
+
+8 Python refactoring skills are installed in `~/.claude/skills/`. Use them by name:
+
+| Skill | Purpose |
+|-------|---------|
+| `py-refactor` | Orchestrate comprehensive refactoring across all tools |
+| `py-security` | Detect & fix security vulnerabilities |
+| `py-complexity` | Reduce cyclomatic/cognitive complexity |
+| `py-code-health` | Remove dead code & duplication |
+| `py-modernize` | Upgrade tooling & syntax |
+| `py-quality-setup` | Configure linters & type checkers |
+| `py-git-hooks` | Set up pre-commit hooks |
+| `py-test-quality` | Improve test coverage & effectiveness |
+
+Priority: security > test coverage > code health > complexity > modernization.
+
+## Codex Collaboration
+
+This project is also worked on by Codex CLI. Both tools share the same refactoring skills (`.agents/skills/`) and project instructions (`AGENTS.md`).
+
+When working alongside Codex:
+- Commit after completing a refactoring phase so Codex can pick up changes.
+- Use conventional commit messages: `refactor:`, `fix:`, `chore:`, `feat:`.
+- Run `git pull` before starting work.
+- Write analysis reports to `reports/` directory.
+- Follow the same quality standards defined in pyproject.toml.

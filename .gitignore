@@ -7,3 +7,11 @@ __pycache__/
 .venv
 docs/image
 docs/log
+
+.codex
+.claude
+.agents
+.idx
+
+reports/
+*.egg-info/

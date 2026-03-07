@@ -166,10 +166,24 @@ python mcp_server.py
 - 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`, `OPENAI_REASONING_EFFORT`
 - 工具默认值：`ENABLED_TOOLS`, `CRON_ENABLED_TOOLS`
 - TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
-- 浏览器：`BROWSER_HEADLESS`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
+- 浏览器：`BROWSER_HEADLESS`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, `BROWSER_AUTO_START`, `BROWSER_AUTO_START_BACKGROUND`, `BROWSER_AUTO_START_CRAWL4AI`
 - HF Dataset 持久化：`HF_DATASET_USERNAME`, `HF_DATASET_TOKEN`, `HF_DATASET_NAME`, `HF_DATASET_ENCRYPTION_KEY`
 
 详细示例请参考 `.env.example`。
+
+## 浏览器工具启动预热
+
+启动 `bot.py` / `discord_bot.py` 时会自动预热浏览器运行时：
+
+- `playwright`：预先启动 Chromium worker
+- `browser_agent`：预先启动会话 worker
+- `crawl4ai`：预先做浏览器栈可用性预热（可关闭）
+
+可选环境变量：
+
+- `BROWSER_AUTO_START`（默认 `1`）：总开关
+- `BROWSER_AUTO_START_BACKGROUND`（默认 `1`）：后台线程预热，避免阻塞启动
+- `BROWSER_AUTO_START_CRAWL4AI`（默认 `1`）：是否包含 `crawl4ai` 预热
 
 ## HF Dataset 持久化（可选）
 
