@@ -29,6 +29,14 @@ STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 SENTENCE_END_CHARS = set(".!?;:。！？；：…\n")
 
 
+def _find_last_sentence_break(text: str) -> int:
+    """Return the index of the last sentence-ending character, or -1 if none."""
+    for idx in range(len(text) - 1, -1, -1):
+        if text[idx] in SENTENCE_END_CHARS:
+            return idx
+    return -1
+
+
 def stable_text_before_tool_call(text: str) -> str:
     """Return only stable/complete text before entering tool execution.
 
@@ -42,11 +50,7 @@ def stable_text_before_tool_call(text: str) -> str:
     if candidate[-1] in SENTENCE_END_CHARS:
         return candidate
 
-    last_break = -1
-    for idx, ch in enumerate(candidate):
-        if ch in SENTENCE_END_CHARS:
-            last_break = idx
-
+    last_break = _find_last_sentence_break(candidate)
     if last_break >= 0:
         trimmed = candidate[: last_break + 1].rstrip()
         if len(trimmed) >= max(8, len(candidate) // 3):
@@ -56,6 +60,22 @@ def stable_text_before_tool_call(text: str) -> str:
     if len(candidate) <= 12 and re.search(r"[。！？!?]$", candidate):
         return candidate
     return ""
+
+
+def _should_update_stream(
+    mode: str, elapsed: float, new_chars: int, ends_with_boundary: bool,
+) -> bool:
+    """Determine if the streamed output should be pushed to the user."""
+    if mode == "time":
+        return elapsed >= STREAM_TIME_MODE_INTERVAL
+    if mode == "chars":
+        return new_chars >= STREAM_CHARS_MODE_INTERVAL
+    # Default mode: time + chars OR boundary OR force
+    return (
+        (elapsed >= STREAM_UPDATE_INTERVAL and new_chars >= STREAM_MIN_UPDATE_CHARS)
+        or (elapsed >= STREAM_UPDATE_INTERVAL and ends_with_boundary)
+        or (elapsed >= STREAM_FORCE_UPDATE_INTERVAL)
+    )
 
 
 async def stream_response(
@@ -240,19 +260,9 @@ async def stream_response(
                     ends_with_boundary = display_text[-1] in STREAM_BOUNDARY_CHARS
 
                     # Determine if we should update based on stream_mode
-                    if stream_mode == "time":
-                        # Time mode: update every STREAM_TIME_MODE_INTERVAL seconds
-                        should_update = elapsed >= STREAM_TIME_MODE_INTERVAL
-                    elif stream_mode == "chars":
-                        # Chars mode: update every STREAM_CHARS_MODE_INTERVAL characters
-                        should_update = new_chars >= STREAM_CHARS_MODE_INTERVAL
-                    else:
-                        # Default mode: original behavior (time + chars OR force update)
-                        should_update = (
-                            (elapsed >= STREAM_UPDATE_INTERVAL and new_chars >= STREAM_MIN_UPDATE_CHARS)
-                            or (elapsed >= STREAM_UPDATE_INTERVAL and ends_with_boundary)
-                            or (elapsed >= STREAM_FORCE_UPDATE_INTERVAL)
-                        )
+                    should_update = _should_update_stream(
+                        stream_mode, elapsed, new_chars, ends_with_boundary,
+                    )
 
                     if should_update:
                         cursor_suffix = " ▌" if stream_cursor else ""

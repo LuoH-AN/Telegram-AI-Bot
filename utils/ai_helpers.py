@@ -54,6 +54,14 @@ def estimate_tokens(messages: Sequence[Mapping[str, object]]) -> int:
     return total
 
 
+# Dispatch table for tool dedup keys: tool_name -> arg_key to use
+_DEDUP_ARG_KEYS = {
+    "url_fetch": "url",
+    "crawl4ai_fetch": "url",
+    "web_search": "query",
+}
+
+
 def tool_dedup_key(tool_call: ToolCallLike) -> str:
     """Extract dedup key from a tool call (name + primary argument)."""
     try:
@@ -64,13 +72,20 @@ def tool_dedup_key(tool_call: ToolCallLike) -> str:
     if tool_call.name.startswith("browser_"):
         # Stateful browser actions may legitimately repeat with same args.
         return f"{tool_call.name}:{tool_call.id}"
-    if tool_call.name == "url_fetch":
-        return f"url_fetch:{args.get('url', '')}"
-    if tool_call.name == "crawl4ai_fetch":
-        return f"crawl4ai_fetch:{args.get('url', '')}"
-    if tool_call.name == "web_search":
-        return f"web_search:{args.get('query', '')}"
+
+    arg_key = _DEDUP_ARG_KEYS.get(tool_call.name)
+    if arg_key:
+        return f"{tool_call.name}:{args.get(arg_key, '')}"
+
     return f"{tool_call.name}:{tool_call.arguments}"
+
+
+def _parse_timeout_args(tool_call: ToolCallLike) -> dict | None:
+    """Parse JSON arguments from a tool call, returning None on failure."""
+    try:
+        return json.loads(tool_call.arguments)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
 
 
 def effective_tool_timeout(tool_calls: Sequence[ToolCallLike], *, default_timeout: int) -> int:
@@ -78,26 +93,22 @@ def effective_tool_timeout(tool_calls: Sequence[ToolCallLike], *, default_timeou
     timeout = default_timeout
     for tool_call in tool_calls:
         if tool_call.name == "shell_exec":
-            try:
-                args = json.loads(tool_call.arguments)
+            args = _parse_timeout_args(tool_call)
+            if args:
                 requested = int(args.get("timeout", 0))
                 if requested > timeout:
                     timeout = min(requested + 5, 125)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
         elif tool_call.name == "crawl4ai_fetch":
             timeout = max(timeout, 60)
-            try:
-                args = json.loads(tool_call.arguments)
+            args = _parse_timeout_args(tool_call)
+            if args:
                 requested_ms = int(args.get("timeout_ms", 60000))
                 requested_sec = max(5, min(requested_ms, 180000)) // 1000
                 timeout = max(timeout, min(requested_sec + 15, 210))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
         elif tool_call.name.startswith("browser_"):
             timeout = max(timeout, 90)
-            try:
-                args = json.loads(tool_call.arguments)
+            args = _parse_timeout_args(tool_call)
+            if args:
                 requested_ms = 0
                 if tool_call.name == "browser_wait_for":
                     requested_ms = int(args.get("timeout_ms", 10000)) + int(args.get("wait_ms", 0))
@@ -106,8 +117,6 @@ def effective_tool_timeout(tool_calls: Sequence[ToolCallLike], *, default_timeou
                 requested_wait = float(args.get("wait", 0))
                 requested_sec = int(max(0, min(requested_ms, 180000)) / 1000 + max(0.0, min(requested_wait, 30.0)))
                 timeout = max(timeout, min(requested_sec + 15, 210))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
         elif tool_call.name in _SLOW_WEB_TOOL_NAMES:
             timeout = max(timeout, 60)
     return timeout

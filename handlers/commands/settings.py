@@ -45,6 +45,25 @@ from utils.platform_parity import (
 logger = logging.getLogger(__name__)
 
 
+def _mask_api_key(key: str) -> str:
+    """Mask an API key for display, showing first 8 and last 4 chars."""
+    if len(key) > 12:
+        return key[:8] + "..." + key[-4:]
+    return "***"
+
+
+def _truncate_display(text: str, max_len: int = 80) -> str:
+    """Truncate text for display with ellipsis."""
+    return text[:max_len] + "..." if len(text) > max_len else text
+
+
+def _format_model_display(raw: str) -> str:
+    """Format a model spec (e.g. provider:model) for display."""
+    if not raw:
+        return "(current model)"
+    return raw
+
+
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /settings command - show current settings."""
     user_id = update.effective_user.id
@@ -56,19 +75,15 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     token_limit = get_token_limit(user_id, persona_name)
 
     # Mask API key for security
-    masked_key = (
-        settings["api_key"][:8] + "..." + settings["api_key"][-4:]
-        if len(settings["api_key"]) > 12
-        else "***"
-    )
+    masked_key = _mask_api_key(settings["api_key"])
 
     # Truncate prompt for display
     prompt = persona["system_prompt"]
-    prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
+    prompt_display = _truncate_display(prompt)
 
     # Get global prompt for display
     global_prompt = settings.get("global_prompt", "") or ""
-    global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
+    global_prompt_display = _truncate_display(global_prompt) if global_prompt else "(none)"
 
     enabled_tools = resolve_enabled_tools_csv(settings)
     cron_tools = resolve_cron_tools_csv(settings) or "(none)"
@@ -78,22 +93,8 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     stream_mode = settings.get("stream_mode", "") or "default"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
-    title_model_raw = settings.get("title_model", "")
-    if not title_model_raw:
-        title_model_display = "(current model)"
-    elif ":" in title_model_raw:
-        p, m = title_model_raw.split(":", 1)
-        title_model_display = f"{p}:{m}"
-    else:
-        title_model_display = title_model_raw
-    cron_model_raw = settings.get("cron_model", "")
-    if not cron_model_raw:
-        cron_model_display = "(current model)"
-    elif ":" in cron_model_raw:
-        p, m = cron_model_raw.split(":", 1)
-        cron_model_display = f"{p}:{m}"
-    else:
-        cron_model_display = cron_model_raw
+    title_model_display = _format_model_display(settings.get("title_model", ""))
+    cron_model_display = _format_model_display(settings.get("cron_model", ""))
 
     await update.message.reply_text(
         f"Current Settings:\n\n"
@@ -216,7 +217,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         if context.args and context.args[0].lower() == "global_prompt":
             current = settings.get("global_prompt", "") or "(none)"
-            display = current[:100] + "..." if len(current) > 100 else current
+            display = _truncate_display(current, 100)
             await update.message.reply_text(
                 f"Current global_prompt: {display}\n\n"
                 "Usage: /set global_prompt <prompt>\n"
@@ -236,7 +237,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"base_url set to: {value}")
     elif key == "api_key":
         update_user_setting(user_id, "api_key", value)
-        masked = value[:8] + "..." + value[-4:] if len(value) > 12 else "***"
+        masked = _mask_api_key(value)
         logger.info("%s set api_key = %s", ctx, masked)
         # Validate key by listing models
         try:
@@ -268,11 +269,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
         update_user_setting(user_id, "global_prompt", val)
-        logger.info("%s set global_prompt = %s", ctx, val[:50] + "..." if len(val) > 50 else val)
-        # Show truncated prompt
-        display = val[:100] + "..." if len(val) > 100 else val
+        logger.info("%s set global_prompt = %s", ctx, _truncate_display(val, 50))
         await update.message.reply_text(
-            f"global_prompt set to: {display}\n\n"
+            f"global_prompt set to: {_truncate_display(val, 100)}\n\n"
             "This prompt will be prepended to all personas' system prompts.\n"
             "Use /set global_prompt clear to remove."
         )
@@ -447,66 +446,8 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(f"cron_tools set to: {normalized}")
     elif key == "provider":
         await _handle_provider_command(update, context, user_id, settings, ctx)
-    elif key == "title_model":
-        val = value.strip()
-        if not val or val.lower() in {"off", "clear", "none"}:
-            update_user_setting(user_id, "title_model", "")
-            await update.message.reply_text("title_model cleared (will use current provider + model)")
-        else:
-            update_user_setting(user_id, "title_model", val)
-            logger.info("%s set title_model = %s", ctx, val)
-            if ":" in val:
-                provider, model = val.split(":", 1)
-                presets = settings.get("api_presets", {})
-                found = any(k.lower() == provider.lower() for k in presets)
-                if found:
-                    await update.message.reply_text(
-                        f"title_model set to: {val}\n"
-                        f"Provider: {provider} | Model: {model}"
-                    )
-                else:
-                    available = ", ".join(presets.keys()) if presets else "(none)"
-                    await update.message.reply_text(
-                        f"title_model set to: {val}\n"
-                        f"Provider '{provider}' not found in presets.\n"
-                        f"Available: {available}\n"
-                        f"{build_provider_save_hint_message('/')}"
-                    )
-            else:
-                await update.message.reply_text(
-                    f"title_model set to: {val}\n"
-                    f"(uses current provider's API)"
-                )
-    elif key == "cron_model":
-        val = value.strip()
-        if not val or val.lower() in {"off", "clear", "none"}:
-            update_user_setting(user_id, "cron_model", "")
-            await update.message.reply_text("cron_model cleared (will use current provider + model)")
-        else:
-            update_user_setting(user_id, "cron_model", val)
-            logger.info("%s set cron_model = %s", ctx, val)
-            if ":" in val:
-                provider, model = val.split(":", 1)
-                presets = settings.get("api_presets", {})
-                found = any(k.lower() == provider.lower() for k in presets)
-                if found:
-                    await update.message.reply_text(
-                        f"cron_model set to: {val}\n"
-                        f"Provider: {provider} | Model: {model}"
-                    )
-                else:
-                    available = ", ".join(presets.keys()) if presets else "(none)"
-                    await update.message.reply_text(
-                        f"cron_model set to: {val}\n"
-                        f"Provider '{provider}' not found in presets.\n"
-                        f"Available: {available}\n"
-                        f"{build_provider_save_hint_message('/')}"
-                    )
-            else:
-                await update.message.reply_text(
-                    f"cron_model set to: {val}\n"
-                    f"(uses current provider's API)"
-                )
+    elif key in ("title_model", "cron_model"):
+        await _handle_specialized_model_set(update, user_id, settings, ctx, key, value)
     elif key == "stream_mode":
         val = value.strip().lower()
         if val in {"default", "time", "chars"}:
@@ -534,6 +475,43 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
     else:
         await update.message.reply_text(build_unknown_set_key_message(key))
+
+
+async def _handle_specialized_model_set(
+    update: Update, user_id: int, settings: dict, ctx: str, key: str, value: str,
+) -> None:
+    """Handle /set title_model or /set cron_model (shared logic)."""
+    val = value.strip()
+    if not val or val.lower() in {"off", "clear", "none"}:
+        update_user_setting(user_id, key, "")
+        await update.message.reply_text(f"{key} cleared (will use current provider + model)")
+        return
+
+    update_user_setting(user_id, key, val)
+    logger.info("%s set %s = %s", ctx, key, val)
+
+    if ":" in val:
+        provider, model = val.split(":", 1)
+        presets = settings.get("api_presets", {})
+        found = any(k.lower() == provider.lower() for k in presets)
+        if found:
+            await update.message.reply_text(
+                f"{key} set to: {val}\n"
+                f"Provider: {provider} | Model: {model}"
+            )
+        else:
+            available = ", ".join(presets.keys()) if presets else "(none)"
+            await update.message.reply_text(
+                f"{key} set to: {val}\n"
+                f"Provider '{provider}' not found in presets.\n"
+                f"Available: {available}\n"
+                f"{build_provider_save_hint_message('/')}"
+            )
+    else:
+        await update.message.reply_text(
+            f"{key} set to: {val}\n"
+            f"(uses current provider's API)"
+        )
 
 
 def _fetch_models(user_id: int) -> list[str]:
@@ -622,11 +600,7 @@ async def _show_provider_list(update: Update, settings: dict) -> None:
 
     lines = ["Saved Providers:\n"]
     for name, preset in presets.items():
-        masked_key = (
-            preset["api_key"][:8] + "..." + preset["api_key"][-4:]
-            if len(preset.get("api_key", "")) > 12
-            else "***"
-        )
+        masked_key = _mask_api_key(preset.get("api_key", ""))
         lines.append(
             f"[{name}]\n"
             f"  base_url: {preset.get('base_url', '')}\n"
@@ -666,11 +640,7 @@ async def _handle_provider_command(
             "model": settings["model"],
         }
         update_user_setting(user_id, "api_presets", presets)
-        masked_key = (
-            settings["api_key"][:8] + "..." + settings["api_key"][-4:]
-            if len(settings["api_key"]) > 12
-            else "***"
-        )
+        masked_key = _mask_api_key(settings["api_key"])
         logger.info("%s provider save %s", ctx, name)
         await update.message.reply_text(
             f"Provider '{name}' saved:\n"
@@ -713,11 +683,7 @@ async def _handle_provider_command(
         update_user_setting(user_id, "base_url", preset["base_url"])
         update_user_setting(user_id, "model", preset["model"])
 
-        masked_key = (
-            preset["api_key"][:8] + "..." + preset["api_key"][-4:]
-            if len(preset.get("api_key", "")) > 12
-            else "***"
-        )
+        masked_key = _mask_api_key(preset.get("api_key", ""))
         logger.info("%s provider load %s", ctx, name)
         await update.message.reply_text(
             f"Loaded provider '{name}':\n"

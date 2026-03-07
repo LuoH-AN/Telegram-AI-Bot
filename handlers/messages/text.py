@@ -82,6 +82,13 @@ from .delivery import deliver_pending_voices, deliver_pending_screenshots
 logger = logging.getLogger(__name__)
 
 
+def _make_thinking_prefix(seconds: int | float) -> str:
+    """Build a thinking duration prefix string, or empty if no thinking."""
+    if seconds > 0:
+        return f"_Thought for {int(seconds)}s_\n\n"
+    return ""
+
+
 def _normalize_reasoning_effort(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     return normalized if normalized in VALID_REASONING_EFFORTS else ""
@@ -293,9 +300,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             display_text = stable_text_before_tool_call(raw_display_text)
             status_lines = build_tool_status_lines(tool_calls)
             status_text = "\n".join(status_lines)
-            thinking_prefix = (
-                f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
-            )
+            thinking_prefix = _make_thinking_prefix(total_thinking_seconds)
             if display_text:
                 await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
             else:
@@ -410,9 +415,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             )
             final_text = build_empty_response_fallback(tool_error_snippets)
 
-        thinking_prefix = (
-            f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
-        )
+        thinking_prefix = _make_thinking_prefix(total_thinking_seconds)
         display_final = thinking_prefix + final_text
 
         await render_pump.drain()
