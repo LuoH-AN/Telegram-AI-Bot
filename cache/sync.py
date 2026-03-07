@@ -28,6 +28,52 @@ from .manager import cache
 
 logger = logging.getLogger(__name__)
 
+# Settings upsert column definitions
+_SETTINGS_COLUMNS = [
+    "user_id", "api_key", "base_url", "model", "temperature", "reasoning_effort",
+    "token_limit", "current_persona", "enabled_tools",
+    "cron_enabled_tools", "stream_mode", "tts_voice", "tts_style", "tts_endpoint",
+    "api_presets", "title_model", "cron_model", "global_prompt",
+]
+_SETTINGS_PLACEHOLDERS = ", ".join(["%s"] * len(_SETTINGS_COLUMNS))
+_SETTINGS_UPDATE = ", ".join(f"{col} = EXCLUDED.{col}" for col in _SETTINGS_COLUMNS[1:])
+_SETTINGS_UPSERT_SQL = (
+    f"INSERT INTO user_settings ({', '.join(_SETTINGS_COLUMNS)}) "
+    f"VALUES ({_SETTINGS_PLACEHOLDERS}) "
+    f"ON CONFLICT (user_id) DO UPDATE SET {_SETTINGS_UPDATE}"
+)
+
+# Sync log labels for summary
+_SYNC_LOG_LABELS = {
+    "settings": "settings",
+    "personas": "personas",
+    "deleted_personas": "deleted personas",
+    "new_sessions": "new sessions",
+    "dirty_session_titles": "session titles",
+    "deleted_sessions": "deleted sessions",
+    "conversations": "conversations",
+    "cleared_conversations": "cleared convs",
+    "tokens": "token records",
+    "new_memories": "new memories",
+    "deleted_memory_ids": "deleted memories",
+    "cleared_memories": "cleared memories",
+    "new_cron_tasks": "new cron tasks",
+    "updated_cron_tasks": "updated cron tasks",
+    "deleted_cron_tasks": "deleted cron tasks",
+}
+
+
+def _cascade_delete_persona(cur, user_id: int, persona_name: str) -> None:
+    """Delete a persona and all related data (sessions, conversations, tokens)."""
+    cur.execute("""
+        DELETE FROM user_conversations WHERE session_id IN (
+            SELECT id FROM user_sessions WHERE user_id = %s AND persona_name = %s
+        )
+    """, (user_id, persona_name))
+    cur.execute("DELETE FROM user_sessions WHERE user_id = %s AND persona_name = %s", (user_id, persona_name))
+    cur.execute("DELETE FROM user_personas WHERE user_id = %s AND name = %s", (user_id, persona_name))
+    cur.execute("DELETE FROM user_persona_tokens WHERE user_id = %s AND persona_name = %s", (user_id, persona_name))
+
 
 def load_from_database() -> None:
     """Load all data from database into cache."""
@@ -138,32 +184,7 @@ def sync_to_database() -> None:
                 for user_id in dirty["settings"]:
                     s = cache.get_settings(user_id)
                     api_presets_json = json.dumps(s.get("api_presets", {}), ensure_ascii=False) if s.get("api_presets") else None
-                    cur.execute("""
-                        INSERT INTO user_settings (
-                            user_id, api_key, base_url, model, temperature, reasoning_effort,
-                            token_limit, current_persona, enabled_tools,
-                            cron_enabled_tools, stream_mode, tts_voice, tts_style, tts_endpoint, api_presets, title_model, cron_model, global_prompt
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (user_id) DO UPDATE SET
-                            api_key = EXCLUDED.api_key,
-                            base_url = EXCLUDED.base_url,
-                            model = EXCLUDED.model,
-                            temperature = EXCLUDED.temperature,
-                            reasoning_effort = EXCLUDED.reasoning_effort,
-                            token_limit = EXCLUDED.token_limit,
-                            current_persona = EXCLUDED.current_persona,
-                            enabled_tools = EXCLUDED.enabled_tools,
-                            cron_enabled_tools = EXCLUDED.cron_enabled_tools,
-                            stream_mode = EXCLUDED.stream_mode,
-                            tts_voice = EXCLUDED.tts_voice,
-                            tts_style = EXCLUDED.tts_style,
-                            tts_endpoint = EXCLUDED.tts_endpoint,
-                            api_presets = EXCLUDED.api_presets,
-                            title_model = EXCLUDED.title_model,
-                            cron_model = EXCLUDED.cron_model,
-                            global_prompt = EXCLUDED.global_prompt
-                    """, (
+                    cur.execute(_SETTINGS_UPSERT_SQL, (
                         user_id, s["api_key"], s["base_url"],
                         s["model"], s["temperature"], s.get("reasoning_effort", DEFAULT_REASONING_EFFORT),
                         s["token_limit"], s["current_persona"],
@@ -180,24 +201,7 @@ def sync_to_database() -> None:
 
                 # Sync deleted personas (cascade: delete sessions + conversations + tokens)
                 for user_id, persona_name in dirty["deleted_personas"]:
-                    # Delete conversations belonging to sessions of this persona
-                    cur.execute("""
-                        DELETE FROM user_conversations WHERE session_id IN (
-                            SELECT id FROM user_sessions WHERE user_id = %s AND persona_name = %s
-                        )
-                    """, (user_id, persona_name))
-                    cur.execute(
-                        "DELETE FROM user_sessions WHERE user_id = %s AND persona_name = %s",
-                        (user_id, persona_name)
-                    )
-                    cur.execute(
-                        "DELETE FROM user_personas WHERE user_id = %s AND name = %s",
-                        (user_id, persona_name)
-                    )
-                    cur.execute(
-                        "DELETE FROM user_persona_tokens WHERE user_id = %s AND persona_name = %s",
-                        (user_id, persona_name)
-                    )
+                    _cascade_delete_persona(cur, user_id, persona_name)
 
                 # Sync personas (with current_session_id)
                 for user_id, persona_name in dirty["personas"]:
@@ -362,37 +366,11 @@ def sync_to_database() -> None:
             conn.commit()
 
             # Log sync summary
-            parts = []
-            if dirty["settings"]:
-                parts.append(f"{len(dirty['settings'])} settings")
-            if dirty["personas"]:
-                parts.append(f"{len(dirty['personas'])} personas")
-            if dirty["deleted_personas"]:
-                parts.append(f"{len(dirty['deleted_personas'])} deleted personas")
-            if dirty["new_sessions"]:
-                parts.append(f"{len(dirty['new_sessions'])} new sessions")
-            if dirty["dirty_session_titles"]:
-                parts.append(f"{len(dirty['dirty_session_titles'])} session titles")
-            if dirty["deleted_sessions"]:
-                parts.append(f"{len(dirty['deleted_sessions'])} deleted sessions")
-            if dirty["conversations"]:
-                parts.append(f"{len(dirty['conversations'])} conversations")
-            if dirty["cleared_conversations"]:
-                parts.append(f"{len(dirty['cleared_conversations'])} cleared convs")
-            if dirty["tokens"]:
-                parts.append(f"{len(dirty['tokens'])} token records")
-            if dirty["new_memories"]:
-                parts.append(f"{len(dirty['new_memories'])} new memories")
-            if dirty["deleted_memory_ids"]:
-                parts.append(f"{len(dirty['deleted_memory_ids'])} deleted memories")
-            if dirty["cleared_memories"]:
-                parts.append(f"{len(dirty['cleared_memories'])} cleared memories")
-            if dirty["new_cron_tasks"]:
-                parts.append(f"{len(dirty['new_cron_tasks'])} new cron tasks")
-            if dirty["updated_cron_tasks"]:
-                parts.append(f"{len(dirty['updated_cron_tasks'])} updated cron tasks")
-            if dirty["deleted_cron_tasks"]:
-                parts.append(f"{len(dirty['deleted_cron_tasks'])} deleted cron tasks")
+            parts = [
+                f"{len(dirty[key])} {label}"
+                for key, label in _SYNC_LOG_LABELS.items()
+                if dirty.get(key)
+            ]
             if parts:
                 logger.info(f"Synced to DB: {', '.join(parts)}")
 

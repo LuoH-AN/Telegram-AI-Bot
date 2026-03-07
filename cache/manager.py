@@ -52,22 +52,6 @@ class CacheManager:
 
         self._lock = threading.RLock()
 
-    @staticmethod
-    def _copy_message(message: dict) -> dict:
-        return dict(message)
-
-    @classmethod
-    def _copy_messages(cls, messages: list[dict]) -> list[dict]:
-        return [cls._copy_message(message) for message in messages]
-
-    @staticmethod
-    def _copy_session(session: dict) -> dict:
-        return dict(session)
-
-    @classmethod
-    def _copy_sessions(cls, sessions: list[dict]) -> list[dict]:
-        return [cls._copy_session(session) for session in sessions]
-
     def _next_session_id(self) -> int:
         """Get the next session ID atomically."""
         with self._lock:
@@ -227,14 +211,14 @@ class CacheManager:
         with self._lock:
             if key not in self._sessions_cache:
                 self._sessions_cache[key] = []
-            return self._copy_sessions(self._sessions_cache[key])
+            return [dict(s) for s in self._sessions_cache[key]]
 
     def set_sessions(self, user_id: int, persona_name: str, sessions: list[dict]) -> None:
         """Set sessions list for a persona (used during loading)."""
-        copied = self._copy_sessions(sessions)
+        session_copies = [dict(s) for s in sessions]
         with self._lock:
-            self._sessions_cache[(user_id, persona_name)] = copied
-            for session in copied:
+            self._sessions_cache[(user_id, persona_name)] = session_copies
+            for session in session_copies:
                 self._conversations_cache.setdefault(session["id"], [])
 
     def replace_user_sessions(self, user_id: int, sessions_by_persona: dict[str, list[dict]]) -> None:
@@ -252,9 +236,9 @@ class CacheManager:
                 self._conversations_cache.pop(session_id, None)
 
             for persona_name, sessions in sessions_by_persona.items():
-                copied = self._copy_sessions(sessions)
-                self._sessions_cache[(user_id, persona_name)] = copied
-                for session in copied:
+                session_copies = [dict(s) for s in sessions]
+                self._sessions_cache[(user_id, persona_name)] = session_copies
+                for session in session_copies:
                     self._conversations_cache.setdefault(session["id"], [])
 
     def create_session(self, user_id: int, persona_name: str = None, title: str = None) -> dict:
@@ -305,7 +289,7 @@ class CacheManager:
             for sessions in self._sessions_cache.values():
                 for session in sessions:
                     if session["id"] == session_id:
-                        return self._copy_session(session)
+                        return dict(session)
         return None
 
     def get_current_session_id(self, user_id: int, persona_name: str = None) -> int | None:
@@ -370,14 +354,14 @@ class CacheManager:
     def set_conversation_by_session(self, session_id: int, messages: list) -> None:
         """Set conversation for a session (used during loading)."""
         with self._lock:
-            self._conversations_cache[session_id] = self._copy_messages(messages)
+            self._conversations_cache[session_id] = [dict(m) for m in messages]
 
     def get_conversation_by_session(self, session_id: int) -> list:
         """Get conversation for a specific session."""
         with self._lock:
             if session_id not in self._conversations_cache:
                 self._conversations_cache[session_id] = []
-            return self._copy_messages(self._conversations_cache[session_id])
+            return [dict(m) for m in self._conversations_cache[session_id]]
 
     # Token usage cache methods (per persona)
     def get_token_usage(self, user_id: int, persona_name: str = None) -> dict:
@@ -574,62 +558,46 @@ class CacheManager:
         """Set cron tasks for a user (used during loading)."""
         self._cron_tasks_cache[user_id] = tasks
 
-    # Dirty tracking methods
+    # Map from dirty dict key → (attribute name, type: 'set'|'list'|'dict')
+    _DIRTY_ATTRS = {
+        "settings": ("_dirty_settings", "set"),
+        "personas": ("_dirty_personas", "set"),
+        "deleted_personas": ("_deleted_personas", "set"),
+        "conversations": ("_dirty_conversations", "set"),
+        "cleared_conversations": ("_cleared_conversations", "set"),
+        "tokens": ("_dirty_tokens", "set"),
+        "cleared_memories": ("_cleared_memories", "set"),
+        "deleted_sessions": ("_deleted_sessions", "set"),
+        "new_memories": ("_new_memories", "list"),
+        "deleted_memory_ids": ("_deleted_memory_ids", "list"),
+        "new_sessions": ("_new_sessions", "list"),
+        "new_cron_tasks": ("_new_cron_tasks", "list"),
+        "updated_cron_tasks": ("_updated_cron_tasks", "list"),
+        "deleted_cron_tasks": ("_deleted_cron_tasks", "list"),
+        "dirty_session_titles": ("_dirty_session_titles", "dict"),
+    }
+
     def get_and_clear_dirty(self) -> dict:
         """Get all dirty flags and clear them atomically."""
         with self._lock:
-            result = {
-                "settings": self._dirty_settings.copy(),
-                "personas": self._dirty_personas.copy(),
-                "deleted_personas": self._deleted_personas.copy(),
-                "conversations": self._dirty_conversations.copy(),
-                "cleared_conversations": self._cleared_conversations.copy(),
-                "tokens": self._dirty_tokens.copy(),
-                "new_memories": self._new_memories.copy(),
-                "deleted_memory_ids": self._deleted_memory_ids.copy(),
-                "cleared_memories": self._cleared_memories.copy(),
-                "new_sessions": self._new_sessions.copy(),
-                "dirty_session_titles": self._dirty_session_titles.copy(),
-                "deleted_sessions": self._deleted_sessions.copy(),
-                "new_cron_tasks": self._new_cron_tasks.copy(),
-                "updated_cron_tasks": self._updated_cron_tasks.copy(),
-                "deleted_cron_tasks": self._deleted_cron_tasks.copy(),
-            }
-            self._dirty_settings.clear()
-            self._dirty_personas.clear()
-            self._deleted_personas.clear()
-            self._dirty_conversations.clear()
-            self._cleared_conversations.clear()
-            self._dirty_tokens.clear()
-            self._new_memories.clear()
-            self._deleted_memory_ids.clear()
-            self._cleared_memories.clear()
-            self._new_sessions.clear()
-            self._dirty_session_titles.clear()
-            self._deleted_sessions.clear()
-            self._new_cron_tasks.clear()
-            self._updated_cron_tasks.clear()
-            self._deleted_cron_tasks.clear()
+            result = {}
+            for key, (attr_name, _) in self._DIRTY_ATTRS.items():
+                attr = getattr(self, attr_name)
+                result[key] = attr.copy()
+                attr.clear()
         return result
 
     def restore_dirty(self, dirty: dict) -> None:
         """Restore dirty flags (used on sync failure)."""
         with self._lock:
-            self._dirty_settings.update(dirty.get("settings", set()))
-            self._dirty_personas.update(dirty.get("personas", set()))
-            self._deleted_personas.update(dirty.get("deleted_personas", set()))
-            self._dirty_conversations.update(dirty.get("conversations", set()))
-            self._cleared_conversations.update(dirty.get("cleared_conversations", set()))
-            self._dirty_tokens.update(dirty.get("tokens", set()))
-            self._new_memories.extend(dirty.get("new_memories", []))
-            self._deleted_memory_ids.extend(dirty.get("deleted_memory_ids", []))
-            self._cleared_memories.update(dirty.get("cleared_memories", set()))
-            self._new_sessions.extend(dirty.get("new_sessions", []))
-            self._dirty_session_titles.update(dirty.get("dirty_session_titles", {}))
-            self._deleted_sessions.update(dirty.get("deleted_sessions", set()))
-            self._new_cron_tasks.extend(dirty.get("new_cron_tasks", []))
-            self._updated_cron_tasks.extend(dirty.get("updated_cron_tasks", []))
-            self._deleted_cron_tasks.extend(dirty.get("deleted_cron_tasks", []))
+            for key, (attr_name, kind) in self._DIRTY_ATTRS.items():
+                attr = getattr(self, attr_name)
+                if kind == "set":
+                    attr.update(dirty.get(key, set()))
+                elif kind == "list":
+                    attr.extend(dirty.get(key, []))
+                else:
+                    attr.update(dirty.get(key, {}))
 
 
 # Global cache instance
