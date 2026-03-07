@@ -36,6 +36,7 @@ from services import (
     conversation_slot,
 )
 from services.log_service import record_ai_interaction, record_error
+from services.refresh import ensure_user_state
 from tools import (
     get_all_tools,
     get_tool_instructions,
@@ -108,6 +109,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
     user_id = update.effective_user.id
     ctx = get_log_context(update)
+    ensure_user_state(user_id)
 
     if not internal_call:
         user_message = update.message.text

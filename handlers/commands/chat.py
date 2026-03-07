@@ -23,6 +23,7 @@ from services import (
     rename_session,
     get_session_message_count,
 )
+from services.refresh import ensure_user_state
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user_id = update.effective_user.id
     args = context.args or []
     ctx = get_log_context(update)
+    ensure_user_state(user_id)
     persona_name = get_current_persona_name(user_id)
 
     if not args:

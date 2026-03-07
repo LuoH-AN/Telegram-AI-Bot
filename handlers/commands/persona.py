@@ -29,6 +29,7 @@ from services import (
     get_session_count,
     get_current_session,
 )
+from services.refresh import ensure_user_state
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.effective_user.id
     args = context.args or []
     ctx = get_log_context(update)
+    ensure_user_state(user_id)
 
     if not args:
         # List all personas

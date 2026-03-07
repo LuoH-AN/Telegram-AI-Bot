@@ -19,6 +19,7 @@ from services import (
     get_usage_percentage,
     reset_token_usage,
 )
+from services.refresh import ensure_user_state
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_id = update.effective_user.id
     args = context.args or []
     logger.info("%s /usage %s", get_log_context(update), " ".join(args) if args else "")
+    ensure_user_state(user_id)
     persona_name = get_current_persona_name(user_id)
 
     if args and args[0].lower() == "reset":
@@ -76,6 +78,7 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle /export command - export current session chat history as markdown file."""
     user_id = update.effective_user.id
     logger.info("%s /export", get_log_context(update))
+    ensure_user_state(user_id)
     persona_name = get_current_persona_name(user_id)
     session_id = get_current_session_id(user_id, persona_name)
 

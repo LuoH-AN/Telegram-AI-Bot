@@ -17,7 +17,7 @@ from services import (
     reset_token_usage,
 )
 from services.session_service import delete_session
-from services.state_sync_service import refresh_user_state_from_db
+from services.refresh import ensure_user_state
 from services.log_service import record_web_action
 from web.auth import get_current_user
 
@@ -47,7 +47,7 @@ def _require_persona(user_id: int, persona: str) -> str:
 
 
 def _require_owned_session(user_id: int, session_id: int) -> dict:
-    refresh_user_state_from_db(user_id)
+    ensure_user_state(user_id)
     session = cache.get_session_by_id(session_id)
     if session is None or session.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -88,7 +88,7 @@ async def create_session_route(
     user_id: int = Depends(get_current_user),
 ):
     """Create a new session for persona (default: current persona)."""
-    refresh_user_state_from_db(user_id)
+    ensure_user_state(user_id)
     persona_name = (body.persona or "").strip() or cache.get_current_persona_name(user_id)
     _require_persona(user_id, persona_name)
     title = (body.title or "").strip() or None

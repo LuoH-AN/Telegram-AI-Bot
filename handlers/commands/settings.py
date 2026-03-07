@@ -18,6 +18,7 @@ from services import (
     get_current_persona,
     normalize_tts_endpoint,
 )
+from services.refresh import ensure_user_state
 from ai import get_openai_client
 from handlers.common import get_log_context
 from utils.tooling import (
@@ -49,6 +50,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Handle /settings command - show current settings."""
     user_id = update.effective_user.id
     logger.info("%s /settings", get_log_context(update))
+    ensure_user_state(user_id)
     settings = get_user_settings(user_id)
     persona_name = get_current_persona_name(user_id)
     persona = get_current_persona(user_id)
@@ -124,6 +126,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /set command - set configuration."""
     user_id = update.effective_user.id
+    ensure_user_state(user_id)
     settings = get_user_settings(user_id)
     ctx = get_log_context(update)
     logger.info("%s /set %s", ctx, " ".join(context.args)[:120] if context.args else "")

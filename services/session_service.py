@@ -6,20 +6,18 @@ import logging
 from ai.openai_client import create_openai_client
 from cache import cache
 from config import TITLE_GENERATION_PROMPT
-from .state_sync_service import refresh_user_state_from_db
+from utils.provider import resolve_provider_model
 
 logger = logging.getLogger(__name__)
 
 
 def get_sessions(user_id: int, persona_name: str = None) -> list[dict]:
     """Get all sessions for a user's current or specified persona."""
-    refresh_user_state_from_db(user_id)
     return cache.get_sessions(user_id, persona_name)
 
 
 def get_current_session(user_id: int, persona_name: str = None) -> dict | None:
     """Get the current session dict for a persona."""
-    refresh_user_state_from_db(user_id)
     session_id = get_current_session_id(user_id, persona_name)
     if session_id is None:
         return None
@@ -28,7 +26,6 @@ def get_current_session(user_id: int, persona_name: str = None) -> dict | None:
 
 def get_current_session_id(user_id: int, persona_name: str = None) -> int | None:
     """Get the current session ID for a persona."""
-    refresh_user_state_from_db(user_id)
     if persona_name is None:
         persona_name = cache.get_current_persona_name(user_id)
     return cache.get_current_session_id(user_id, persona_name)
@@ -36,7 +33,6 @@ def get_current_session_id(user_id: int, persona_name: str = None) -> int | None
 
 def create_session(user_id: int, persona_name: str = None, title: str = None) -> dict:
     """Create a new session and switch to it."""
-    refresh_user_state_from_db(user_id)
     if persona_name is None:
         persona_name = cache.get_current_persona_name(user_id)
     session = cache.create_session(user_id, persona_name, title)
@@ -46,7 +42,6 @@ def create_session(user_id: int, persona_name: str = None, title: str = None) ->
 
 def delete_session(user_id: int, session_index: int, persona_name: str = None) -> bool:
     """Delete a session by 1-based index. Returns False if index invalid."""
-    refresh_user_state_from_db(user_id)
     if persona_name is None:
         persona_name = cache.get_current_persona_name(user_id)
     sessions = cache.get_sessions(user_id, persona_name)
@@ -72,7 +67,6 @@ def delete_session(user_id: int, session_index: int, persona_name: str = None) -
 
 def switch_session(user_id: int, session_index: int, persona_name: str = None) -> bool:
     """Switch to a session by 1-based index. Returns False if index invalid."""
-    refresh_user_state_from_db(user_id)
     if persona_name is None:
         persona_name = cache.get_current_persona_name(user_id)
     sessions = cache.get_sessions(user_id, persona_name)
@@ -86,7 +80,6 @@ def switch_session(user_id: int, session_index: int, persona_name: str = None) -
 
 def rename_session(user_id: int, title: str, persona_name: str = None) -> bool:
     """Rename the current session. Returns False if no current session."""
-    refresh_user_state_from_db(user_id)
     session_id = get_current_session_id(user_id, persona_name)
     if session_id is None:
         return False
@@ -96,7 +89,6 @@ def rename_session(user_id: int, title: str, persona_name: str = None) -> bool:
 
 def get_session_count(user_id: int, persona_name: str = None) -> int:
     """Get the number of sessions for a persona."""
-    refresh_user_state_from_db(user_id)
     return len(cache.get_sessions(user_id, persona_name))
 
 
@@ -125,23 +117,17 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
         title_model = settings.get("model", "gpt-4o")
 
         if title_model_raw:
-            if ":" in title_model_raw:
-                provider_name, model_name = title_model_raw.split(":", 1)
-                presets = settings.get("api_presets", {})
-                preset = None
-                for k, v in presets.items():
-                    if k.lower() == provider_name.lower():
-                        preset = v
-                        break
-                if preset:
-                    api_key = preset["api_key"]
-                    base_url = preset["base_url"]
-                    title_model = model_name or preset.get("model", title_model)
-                else:
-                    logger.warning("Title generation provider '%s' not found in presets", provider_name)
-                    return None
-            else:
-                title_model = title_model_raw
+            try:
+                api_key, base_url, title_model = resolve_provider_model(
+                    title_model_raw,
+                    settings.get("api_presets", {}),
+                    api_key,
+                    base_url,
+                    title_model,
+                )
+            except ValueError:
+                logger.warning("Title generation provider not found in presets: %s", title_model_raw)
+                return None
 
         prompt = TITLE_GENERATION_PROMPT.format(
             user_message=user_message[:500],

@@ -19,6 +19,7 @@ from .files import (
     is_likely_text,
     decode_file_content,
 )
+from .provider import resolve_provider_model
 
 __all__ = [
     # Filters
@@ -45,4 +46,6 @@ __all__ = [
     "is_image_file",
     "is_likely_text",
     "decode_file_content",
+    # Provider resolution
+    "resolve_provider_model",
 ]

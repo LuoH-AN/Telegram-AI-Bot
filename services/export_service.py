@@ -3,7 +3,7 @@
 import io
 from datetime import datetime
 
-from .conversation_service import ensure_session, get_conversation
+from cache import cache
 from .persona_service import get_current_persona_name
 from .session_service import get_current_session_id
 
@@ -22,9 +22,9 @@ def export_to_markdown(user_id: int, persona_name: str = None) -> io.BytesIO | N
 
     session_id = get_current_session_id(user_id, persona_name)
     if session_id is None:
-        session_id = ensure_session(user_id, persona_name)
+        session_id = cache.ensure_session_id(user_id, persona_name)
 
-    conversation = get_conversation(session_id)
+    conversation = cache.get_conversation_by_session(session_id)
 
     if not conversation:
         return None

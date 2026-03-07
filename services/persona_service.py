@@ -2,36 +2,30 @@
 
 from config import DEFAULT_SYSTEM_PROMPT
 from cache import cache
-from .state_sync_service import refresh_user_state_from_db
 
 
 def get_personas(user_id: int) -> dict[str, dict]:
     """Get all personas for a user."""
-    refresh_user_state_from_db(user_id)
     return cache.get_personas(user_id)
 
 
 def get_persona(user_id: int, name: str) -> dict | None:
     """Get a specific persona by name."""
-    refresh_user_state_from_db(user_id)
     return cache.get_persona(user_id, name)
 
 
 def get_current_persona(user_id: int) -> dict:
     """Get the current active persona for a user."""
-    refresh_user_state_from_db(user_id)
     return cache.get_current_persona(user_id)
 
 
 def get_current_persona_name(user_id: int) -> str:
     """Get the name of the current persona."""
-    refresh_user_state_from_db(user_id)
     return cache.get_current_persona_name(user_id)
 
 
 def get_system_prompt(user_id: int, persona_name: str | None = None) -> str:
     """Get a persona's system prompt combined with the global prompt."""
-    refresh_user_state_from_db(user_id)
     if persona_name is None:
         persona = cache.get_current_persona(user_id)
     else:

@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services import has_api_key, get_current_persona_name, get_remaining_tokens, ensure_session
+from services.refresh import ensure_user_state
 from utils.platform_parity import (
     build_api_key_required_message,
     build_retry_message,
@@ -166,6 +167,7 @@ async def preflight_media_request(
         return None
 
     user_id = update.effective_user.id
+    ensure_user_state(user_id)
     if not has_api_key(user_id):
         await update.message.reply_text(build_api_key_required_message("/"))
         return None

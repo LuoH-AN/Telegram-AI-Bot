@@ -18,15 +18,7 @@ from .persona_service import (
     update_current_prompt,
     persona_exists,
 )
-from .conversation_service import (
-    ensure_session,
-    get_conversation,
-    add_message,
-    add_user_message,
-    add_assistant_message,
-    clear_conversation,
-    get_message_count,
-)
+from cache import cache as _cache
 from .token_service import (
     get_token_usage,
     add_token_usage,
@@ -66,6 +58,44 @@ from .session_service import (
     generate_session_title,
 )
 from .runtime_queue import conversation_slot
+
+
+# Conversation functions — thin wrappers over cache, no longer in a
+# separate service module.  Kept here for backward-compatible imports.
+
+def ensure_session(user_id: int, persona_name: str = None) -> int:
+    """Ensure a persona has a current session and return its ID."""
+    return _cache.ensure_session_id(user_id, persona_name)
+
+
+def get_conversation(session_id: int) -> list:
+    """Get conversation history for a specific session."""
+    return _cache.get_conversation_by_session(session_id)
+
+
+def add_message(session_id: int, role: str, content: str) -> None:
+    """Add a message to a specific session by ID."""
+    _cache.add_message_to_session(session_id, role, content)
+
+
+def add_user_message(session_id: int, content: str) -> None:
+    """Add a user message to a specific session."""
+    _cache.add_message_to_session(session_id, "user", content)
+
+
+def add_assistant_message(session_id: int, content: str) -> None:
+    """Add an assistant message to a specific session."""
+    _cache.add_message_to_session(session_id, "assistant", content)
+
+
+def clear_conversation(session_id: int) -> None:
+    """Clear conversation history for a specific session."""
+    _cache.clear_conversation_by_session(session_id)
+
+
+def get_message_count(session_id: int) -> int:
+    """Get number of messages in a session."""
+    return len(_cache.get_conversation_by_session(session_id))
 
 __all__ = [
     # User service

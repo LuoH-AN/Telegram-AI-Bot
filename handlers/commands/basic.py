@@ -19,6 +19,7 @@ from services import (
     reset_token_usage,
     has_api_key,
 )
+from services.refresh import ensure_user_state
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     ctx = get_log_context(update)
     logger.info("%s /start", ctx)
+    ensure_user_state(user_id)
 
     if not has_api_key(user_id):
         await update.message.reply_text(build_start_message_missing_api("/"))
@@ -45,6 +47,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /clear command - clear conversation history and reset usage for current persona."""
     user_id = update.effective_user.id
+    ensure_user_state(user_id)
     persona_name = get_current_persona_name(user_id)
     ctx = get_log_context(update)
     logger.info("%s /clear (persona=%s)", ctx, persona_name)

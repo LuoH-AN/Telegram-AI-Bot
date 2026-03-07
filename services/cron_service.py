@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 
 from cache.manager import cache
 from utils.tooling import resolve_cron_tools_csv
+from utils.provider import resolve_provider_model
 
 logger = logging.getLogger(__name__)
 
@@ -134,22 +135,16 @@ def _execute_cron_task(bot, task: dict) -> None:
         cron_model = settings.get("model", "gpt-4o")
 
         if cron_model_raw:
-            if ":" in cron_model_raw:
-                provider_name, model_name = cron_model_raw.split(":", 1)
-                presets = settings.get("api_presets", {})
-                preset = None
-                for k, v in presets.items():
-                    if k.lower() == provider_name.lower():
-                        preset = v
-                        break
-                if preset:
-                    api_key = preset["api_key"]
-                    base_url = preset["base_url"]
-                    cron_model = model_name or preset.get("model", cron_model)
-                else:
-                    logger.warning("[user=%d] cron_model provider '%s' not found", user_id, provider_name)
-            else:
-                cron_model = cron_model_raw
+            try:
+                api_key, base_url, cron_model = resolve_provider_model(
+                    cron_model_raw,
+                    settings.get("api_presets", {}),
+                    api_key,
+                    base_url,
+                    cron_model,
+                )
+            except ValueError:
+                logger.warning("[user=%d] cron_model provider not found: %s", user_id, cron_model_raw)
 
         if cron_model_raw:
             client = create_openai_client(
