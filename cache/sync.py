@@ -10,11 +10,19 @@ from config import (
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_ENDPOINT,
-    DEFAULT_ENABLED_TOOLS,
     DEFAULT_CRON_ENABLED_TOOLS,
     DEFAULT_REASONING_EFFORT,
 )
 from database import get_connection, get_dict_cursor
+from database.loaders import (
+    parse_settings_row,
+    parse_persona_row,
+    parse_session_row,
+    parse_conversation_row,
+    parse_token_row,
+    parse_memory_row,
+    parse_cron_task_row,
+)
 from database.schema import create_tables
 from .manager import cache
 
@@ -29,47 +37,12 @@ def load_from_database() -> None:
                 # Load settings
                 cur.execute("SELECT * FROM user_settings")
                 for row in cur.fetchall():
-                    # Parse api_presets from JSON
-                    api_presets = {}
-                    if row.get("api_presets"):
-                        try:
-                            api_presets = json.loads(row["api_presets"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                    enabled_tools = row.get("enabled_tools") or DEFAULT_ENABLED_TOOLS
-                    derived_cron_tools = ",".join(
-                        t for t in (x.strip().lower() for x in enabled_tools.split(","))
-                        if t and t != "memory"
-                    )
-                    settings = {
-                        "api_key": row["api_key"] or "",
-                        "base_url": row["base_url"] or "https://api.openai.com/v1",
-                        "model": row["model"] or "gpt-4o",
-                        "temperature": row["temperature"] or 0.7,
-                        "reasoning_effort": row.get("reasoning_effort") or DEFAULT_REASONING_EFFORT,
-                        "stream_mode": row.get("stream_mode") or "",
-                        "token_limit": row.get("token_limit") or 0,
-                        "current_persona": row.get("current_persona") or "default",
-                        "enabled_tools": enabled_tools,
-                        "cron_enabled_tools": row.get("cron_enabled_tools") or derived_cron_tools,
-                        "tts_voice": row.get("tts_voice") or DEFAULT_TTS_VOICE,
-                        "tts_style": row.get("tts_style") or DEFAULT_TTS_STYLE,
-                        "tts_endpoint": row.get("tts_endpoint") or DEFAULT_TTS_ENDPOINT,
-                        "api_presets": api_presets,
-                        "title_model": row.get("title_model") or "",
-                        "cron_model": row.get("cron_model") or "",
-                        "global_prompt": row.get("global_prompt") or "",
-                    }
-                    cache.set_settings(row["user_id"], settings)
+                    cache.set_settings(row["user_id"], parse_settings_row(row))
 
                 # Load personas
                 cur.execute("SELECT user_id, name, system_prompt, current_session_id FROM user_personas")
                 for row in cur.fetchall():
-                    cache.set_persona(row["user_id"], {
-                        "name": row["name"],
-                        "system_prompt": row["system_prompt"],
-                        "current_session_id": row.get("current_session_id"),
-                    })
+                    cache.set_persona(row["user_id"], parse_persona_row(row))
 
                 # Ensure users with settings have at least a default persona
                 cur.execute("""
@@ -87,16 +60,10 @@ def load_from_database() -> None:
                 cur.execute("SELECT id, user_id, persona_name, title, created_at FROM user_sessions ORDER BY id")
                 sessions_by_key: dict[tuple[int, str], list[dict]] = {}
                 for row in cur.fetchall():
-                    key = (row["user_id"], row["persona_name"])
+                    session = parse_session_row(row)
+                    key = (session["user_id"], session["persona_name"])
                     if key not in sessions_by_key:
                         sessions_by_key[key] = []
-                    session = {
-                        "id": row["id"],
-                        "user_id": row["user_id"],
-                        "persona_name": row["persona_name"],
-                        "title": row["title"],
-                        "created_at": str(row["created_at"]) if row["created_at"] else None,
-                    }
                     sessions_by_key[key].append(session)
                     if row["id"] > max_session_id:
                         max_session_id = row["id"]
@@ -119,10 +86,7 @@ def load_from_database() -> None:
                     sid = row["session_id"]
                     if sid not in conversations_by_session:
                         conversations_by_session[sid] = []
-                    conversations_by_session[sid].append({
-                        "role": row["role"],
-                        "content": row["content"],
-                    })
+                    conversations_by_session[sid].append(parse_conversation_row(row))
 
                 for session_id, messages in conversations_by_session.items():
                     cache.set_conversation_by_session(session_id, messages)
@@ -130,12 +94,9 @@ def load_from_database() -> None:
                 # Load persona token usage
                 cur.execute("SELECT * FROM user_persona_tokens")
                 for row in cur.fetchall():
-                    cache.set_token_usage(row["user_id"], row["persona_name"], {
-                        "prompt_tokens": row["prompt_tokens"] or 0,
-                        "completion_tokens": row["completion_tokens"] or 0,
-                        "total_tokens": row["total_tokens"] or 0,
-                        "token_limit": row.get("token_limit") or 0,
-                    })
+                    cache.set_token_usage(
+                        row["user_id"], row["persona_name"], parse_token_row(row)
+                    )
 
                 # Load memories
                 cur.execute("SELECT id, user_id, content, source, embedding FROM user_memories ORDER BY id")
@@ -144,20 +105,7 @@ def load_from_database() -> None:
                     uid = row["user_id"]
                     if uid not in memories:
                         memories[uid] = []
-                    # Parse embedding from JSON string
-                    embedding = None
-                    if row.get("embedding"):
-                        try:
-                            embedding = json.loads(row["embedding"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                    memories[uid].append({
-                        "id": row["id"],
-                        "user_id": uid,
-                        "content": row["content"],
-                        "source": row["source"],
-                        "embedding": embedding,
-                    })
+                    memories[uid].append(parse_memory_row(row))
                 for uid, mem_list in memories.items():
                     cache.set_memories(uid, mem_list)
 
@@ -168,15 +116,7 @@ def load_from_database() -> None:
                     uid = row["user_id"]
                     if uid not in cron_tasks:
                         cron_tasks[uid] = []
-                    cron_tasks[uid].append({
-                        "id": row["id"],
-                        "user_id": uid,
-                        "name": row["name"],
-                        "cron_expression": row["cron_expression"],
-                        "prompt": row["prompt"],
-                        "enabled": row["enabled"],
-                        "last_run_at": row["last_run_at"],
-                    })
+                    cron_tasks[uid].append(parse_cron_task_row(row))
                 for uid, task_list in cron_tasks.items():
                     cache.set_cron_tasks(uid, task_list)
 
