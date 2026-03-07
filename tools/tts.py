@@ -192,9 +192,9 @@ class TTSTool(BaseTool):
                 output_format=output_format,
                 endpoint_host=endpoint_host,
             )
-        except Exception as e:
+        except Exception:
             logger.exception("tts_speak failed")
-            return f"TTS failed: {e}"
+            return "Error. Please retry."
 
         extension = guess_audio_extension(output_format)
         _enqueue_pending_tts_job(

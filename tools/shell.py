@@ -372,7 +372,7 @@ class ShellTool(BaseTool):
         if timeout_error:
             return f"Error: Command timed out after {timeout} seconds."
         if runtime_error is not None:
-            return f"Error: {runtime_error}"
+            return "Error. Please retry."
         if result is None:
             return "Error: command execution returned no result."
 

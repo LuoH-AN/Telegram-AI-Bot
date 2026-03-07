@@ -57,7 +57,7 @@ def _parse_iso_datetime(value: str | None):
 
 
 def _clear_persona_sessions(user_id: int, persona_name: str) -> None:
-    sessions = list(cache.get_sessions(user_id, persona_name))
+    sessions = get_sessions(user_id, persona_name)
     for session in sessions:
         cache.delete_session(session["id"], user_id, persona_name)
     # clear pointer explicitly (method accepts runtime None)

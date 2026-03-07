@@ -426,7 +426,9 @@ async def _stream_response(
 
 
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
-               user_content=None, save_msg=None, bot_message=None) -> None:
+               user_content=None, save_msg=None, bot_message=None,
+               frozen_persona_name: str | None = None,
+               frozen_session_id: int | None = None) -> None:
     """Handle chat messages with streaming output.
 
     Can be called from photo/document handlers with pre-processed content:
@@ -481,8 +483,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             return
 
     # Freeze persona/session snapshot for this request to avoid cross-session writes.
-    persona_name = get_current_persona_name(user_id)
-    session_id = ensure_session(user_id, persona_name)
+    persona_name = frozen_persona_name or get_current_persona_name(user_id)
+    session_id = frozen_session_id or ensure_session(user_id, persona_name)
     if session_id is None:
         await update.message.reply_text(build_retry_message())
         return
@@ -551,7 +553,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         request_start = time.monotonic()
 
         # Build system prompt from current persona
-        system_prompt = get_system_prompt(user_id)
+        system_prompt = get_system_prompt(user_id, persona_name)
         system_prompt += "\n\n" + get_datetime_prompt()
 
         # Derive query text for memory enrichment

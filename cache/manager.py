@@ -50,7 +50,23 @@ class CacheManager:
         # Session ID counter
         self._session_id_counter: int = 0
 
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _copy_message(message: dict) -> dict:
+        return dict(message)
+
+    @classmethod
+    def _copy_messages(cls, messages: list[dict]) -> list[dict]:
+        return [cls._copy_message(message) for message in messages]
+
+    @staticmethod
+    def _copy_session(session: dict) -> dict:
+        return dict(session)
+
+    @classmethod
+    def _copy_sessions(cls, sessions: list[dict]) -> list[dict]:
+        return [cls._copy_session(session) for session in sessions]
 
     def _next_session_id(self) -> int:
         """Get the next session ID atomically."""
@@ -199,7 +215,8 @@ class CacheManager:
             default["current_session_id"] = None
             replaced["default"] = default
 
-        self._personas_cache[user_id] = replaced
+        with self._lock:
+            self._personas_cache[user_id] = replaced
 
     # Session cache methods
     def get_sessions(self, user_id: int, persona_name: str = None) -> list[dict]:
@@ -207,13 +224,38 @@ class CacheManager:
         if persona_name is None:
             persona_name = self.get_current_persona_name(user_id)
         key = (user_id, persona_name)
-        if key not in self._sessions_cache:
-            self._sessions_cache[key] = []
-        return self._sessions_cache[key]
+        with self._lock:
+            if key not in self._sessions_cache:
+                self._sessions_cache[key] = []
+            return self._copy_sessions(self._sessions_cache[key])
 
     def set_sessions(self, user_id: int, persona_name: str, sessions: list[dict]) -> None:
         """Set sessions list for a persona (used during loading)."""
-        self._sessions_cache[(user_id, persona_name)] = sessions
+        copied = self._copy_sessions(sessions)
+        with self._lock:
+            self._sessions_cache[(user_id, persona_name)] = copied
+            for session in copied:
+                self._conversations_cache.setdefault(session["id"], [])
+
+    def replace_user_sessions(self, user_id: int, sessions_by_persona: dict[str, list[dict]]) -> None:
+        """Replace all cached sessions for one user from database state."""
+        with self._lock:
+            keys_to_delete = [key for key in self._sessions_cache if key[0] == user_id]
+            old_session_ids = {
+                session["id"]
+                for key in keys_to_delete
+                for session in self._sessions_cache.get(key, [])
+            }
+            for key in keys_to_delete:
+                del self._sessions_cache[key]
+            for session_id in old_session_ids:
+                self._conversations_cache.pop(session_id, None)
+
+            for persona_name, sessions in sessions_by_persona.items():
+                copied = self._copy_sessions(sessions)
+                self._sessions_cache[(user_id, persona_name)] = copied
+                for session in copied:
+                    self._conversations_cache.setdefault(session["id"], [])
 
     def create_session(self, user_id: int, persona_name: str = None, title: str = None) -> dict:
         """Create a new session. Returns the session dict."""
@@ -228,59 +270,60 @@ class CacheManager:
             "created_at": None,
         }
         key = (user_id, persona_name)
-        if key not in self._sessions_cache:
-            self._sessions_cache[key] = []
-        self._sessions_cache[key].append(session)
-        self._conversations_cache[session_id] = []
         with self._lock:
-            self._new_sessions.append(session)
-        return session
+            if key not in self._sessions_cache:
+                self._sessions_cache[key] = []
+            self._sessions_cache[key].append(dict(session))
+            self._conversations_cache[session_id] = []
+            self._new_sessions.append(dict(session))
+        return dict(session)
 
     def delete_session(self, session_id: int, user_id: int, persona_name: str) -> None:
         """Delete a session and its conversations."""
         key = (user_id, persona_name)
-        sessions = self._sessions_cache.get(key, [])
-        self._sessions_cache[key] = [s for s in sessions if s["id"] != session_id]
-        self._conversations_cache.pop(session_id, None)
         with self._lock:
+            sessions = self._sessions_cache.get(key, [])
+            self._sessions_cache[key] = [s for s in sessions if s["id"] != session_id]
+            self._conversations_cache.pop(session_id, None)
             self._deleted_sessions.add(session_id)
             self._dirty_conversations.discard(session_id)
             self._cleared_conversations.discard(session_id)
 
     def update_session_title(self, session_id: int, title: str) -> None:
         """Update a session's title."""
-        # Find and update in cache
-        for key, sessions in self._sessions_cache.items():
-            for session in sessions:
-                if session["id"] == session_id:
-                    session["title"] = title
-                    with self._lock:
+        with self._lock:
+            for sessions in self._sessions_cache.values():
+                for session in sessions:
+                    if session["id"] == session_id:
+                        session["title"] = title
                         self._dirty_session_titles[session_id] = title
-                    return
+                        return
 
     def get_session_by_id(self, session_id: int) -> dict | None:
         """Get a session dict by its ID."""
-        for sessions in self._sessions_cache.values():
-            for session in sessions:
-                if session["id"] == session_id:
-                    return session
+        with self._lock:
+            for sessions in self._sessions_cache.values():
+                for session in sessions:
+                    if session["id"] == session_id:
+                        return self._copy_session(session)
         return None
 
     def get_current_session_id(self, user_id: int, persona_name: str = None) -> int | None:
         """Get the current session ID for a persona."""
         if persona_name is None:
             persona_name = self.get_current_persona_name(user_id)
-        persona = self.get_persona(user_id, persona_name)
-        if persona:
-            return persona.get("current_session_id")
+        with self._lock:
+            persona = self._personas_cache.get(user_id, {}).get(persona_name)
+            if persona:
+                return persona.get("current_session_id")
         return None
 
-    def set_current_session_id(self, user_id: int, persona_name: str, session_id: int) -> None:
+    def set_current_session_id(self, user_id: int, persona_name: str, session_id: int | None) -> None:
         """Set the current session ID for a persona."""
-        persona = self.get_persona(user_id, persona_name)
-        if persona:
-            persona["current_session_id"] = session_id
-            with self._lock:
+        with self._lock:
+            persona = self._personas_cache.get(user_id, {}).get(persona_name)
+            if persona:
+                persona["current_session_id"] = session_id
                 self._dirty_personas.add((user_id, persona_name))
 
     def ensure_session_id(self, user_id: int, persona_name: str = None) -> int:
@@ -311,28 +354,30 @@ class CacheManager:
     # Conversation cache methods (per session)
     def add_message_to_session(self, session_id: int, role: str, content: str) -> None:
         """Add a message directly to a specific session."""
-        if session_id not in self._conversations_cache:
-            self._conversations_cache[session_id] = []
-        self._conversations_cache[session_id].append({"role": role, "content": content})
         with self._lock:
+            if session_id not in self._conversations_cache:
+                self._conversations_cache[session_id] = []
+            self._conversations_cache[session_id].append({"role": role, "content": content})
             self._dirty_conversations.add(session_id)
 
     def clear_conversation_by_session(self, session_id: int) -> None:
         """Clear conversation history for a specific session."""
-        self._conversations_cache[session_id] = []
         with self._lock:
+            self._conversations_cache[session_id] = []
             self._cleared_conversations.add(session_id)
             self._dirty_conversations.discard(session_id)
 
     def set_conversation_by_session(self, session_id: int, messages: list) -> None:
         """Set conversation for a session (used during loading)."""
-        self._conversations_cache[session_id] = messages
+        with self._lock:
+            self._conversations_cache[session_id] = self._copy_messages(messages)
 
     def get_conversation_by_session(self, session_id: int) -> list:
         """Get conversation for a specific session."""
-        if session_id not in self._conversations_cache:
-            self._conversations_cache[session_id] = []
-        return self._conversations_cache[session_id]
+        with self._lock:
+            if session_id not in self._conversations_cache:
+                self._conversations_cache[session_id] = []
+            return self._copy_messages(self._conversations_cache[session_id])
 
     # Token usage cache methods (per persona)
     def get_token_usage(self, user_id: int, persona_name: str = None) -> dict:

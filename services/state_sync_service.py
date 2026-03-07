@@ -37,6 +37,10 @@ def _has_local_dirty_state(user_id: int) -> bool:
         return True
     if any(uid == user_id for uid, _ in cache._deleted_personas):
         return True
+    if cache._new_sessions or cache._dirty_session_titles or cache._deleted_sessions:
+        return True
+    if cache._dirty_conversations or cache._cleared_conversations:
+        return True
     return False
 
 
@@ -53,22 +57,21 @@ def _should_refresh(user_id: int, force: bool) -> bool:
 
 
 def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
-    """Refresh one user's settings/personas/tokens from DB with throttling."""
+    """Refresh one user's state from DB with throttling."""
     if not _should_refresh(user_id, force):
         return
 
-    # If this process has dirty state, flush first to avoid losing local edits.
     if _has_local_dirty_state(user_id):
         try:
             sync_to_database()
         except Exception:
             logger.exception("Failed to flush dirty state before refresh (user=%s)", user_id)
+            return
 
     try:
         conn = get_connection()
         try:
             with get_dict_cursor(conn) as cur:
-                # Settings
                 cur.execute("SELECT * FROM user_settings WHERE user_id = %s", (user_id,))
                 row = cur.fetchone()
                 if row:
@@ -104,7 +107,6 @@ def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
                     }
                     cache.set_settings(user_id, settings)
 
-                # Personas
                 cur.execute(
                     """
                     SELECT name, system_prompt, current_session_id
@@ -115,16 +117,58 @@ def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
                 )
                 persona_rows = cur.fetchall() or []
                 personas = []
-                for p in persona_rows:
+                for persona in persona_rows:
                     personas.append({
-                        "name": p["name"],
-                        "system_prompt": p["system_prompt"],
-                        "current_session_id": p.get("current_session_id"),
+                        "name": persona["name"],
+                        "system_prompt": persona["system_prompt"],
+                        "current_session_id": persona.get("current_session_id"),
                     })
-                if personas:
-                    cache.replace_user_personas(user_id, personas)
+                cache.replace_user_personas(user_id, personas)
 
-                # Tokens
+                cur.execute(
+                    """
+                    SELECT id, persona_name, title, created_at
+                    FROM user_sessions
+                    WHERE user_id = %s
+                    ORDER BY id
+                    """,
+                    (user_id,),
+                )
+                session_rows = cur.fetchall() or []
+                sessions_by_persona: dict[str, list[dict]] = {}
+                session_ids: set[int] = set()
+                for row in session_rows:
+                    session = {
+                        "id": row["id"],
+                        "user_id": user_id,
+                        "persona_name": row["persona_name"],
+                        "title": row.get("title"),
+                        "created_at": str(row["created_at"]) if row.get("created_at") else None,
+                    }
+                    sessions_by_persona.setdefault(row["persona_name"], []).append(session)
+                    session_ids.add(row["id"])
+                cache.replace_user_sessions(user_id, sessions_by_persona)
+
+                conversations_by_session: dict[int, list[dict]] = {session_id: [] for session_id in session_ids}
+                if session_ids:
+                    cur.execute(
+                        """
+                        SELECT c.session_id, c.role, c.content
+                        FROM user_conversations c
+                        JOIN user_sessions s ON s.id = c.session_id
+                        WHERE s.user_id = %s AND c.session_id IS NOT NULL
+                        ORDER BY c.id
+                        """,
+                        (user_id,),
+                    )
+                    for row in cur.fetchall() or []:
+                        conversations_by_session.setdefault(row["session_id"], []).append({
+                            "role": row["role"],
+                            "content": row["content"],
+                        })
+                for session_id, messages in conversations_by_session.items():
+                    cache.set_conversation_by_session(session_id, messages)
+
                 cur.execute(
                     """
                     SELECT persona_name, prompt_tokens, completion_tokens, total_tokens, token_limit
@@ -135,12 +179,12 @@ def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
                 )
                 token_rows = cur.fetchall() or []
                 usage_by_persona: dict[str, dict] = {}
-                for t in token_rows:
-                    usage_by_persona[t["persona_name"]] = {
-                        "prompt_tokens": t.get("prompt_tokens") or 0,
-                        "completion_tokens": t.get("completion_tokens") or 0,
-                        "total_tokens": t.get("total_tokens") or 0,
-                        "token_limit": t.get("token_limit") or 0,
+                for token_row in token_rows:
+                    usage_by_persona[token_row["persona_name"]] = {
+                        "prompt_tokens": token_row.get("prompt_tokens") or 0,
+                        "completion_tokens": token_row.get("completion_tokens") or 0,
+                        "total_tokens": token_row.get("total_tokens") or 0,
+                        "token_limit": token_row.get("token_limit") or 0,
                     }
                 cache.replace_user_token_usage(user_id, usage_by_persona)
         finally:

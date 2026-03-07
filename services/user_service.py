@@ -17,4 +17,5 @@ def update_user_setting(user_id: int, key: str, value) -> None:
 
 def has_api_key(user_id: int) -> bool:
     """Check if user has an API key configured."""
+    refresh_user_state_from_db(user_id)
     return bool(cache.get_settings(user_id)["api_key"])

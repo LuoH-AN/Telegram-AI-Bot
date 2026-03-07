@@ -1,10 +1,12 @@
 """Conversation management service."""
 
 from cache import cache
+from .state_sync_service import refresh_user_state_from_db
 
 
 def ensure_session(user_id: int, persona_name: str = None) -> int:
     """Ensure a persona has a current session and return its ID."""
+    refresh_user_state_from_db(user_id)
     return cache.ensure_session_id(user_id, persona_name)
 
 

@@ -27,6 +27,9 @@ from .registry import BaseTool
 
 logger = logging.getLogger(__name__)
 
+_SAFE_TOOL_RETRY_MESSAGE = "Error. Please retry."
+_SAFE_URL_REJECTED_MESSAGE = "Error. Please retry with a valid public http(s) URL."
+
 PAGE_TIMEOUT_MS = 60_000
 DEFAULT_WAIT_SECONDS = 1.5
 MAX_WAIT_SECONDS = 20
@@ -2135,8 +2138,8 @@ class BrowserAgentTool(BaseTool):
         if start_url:
             try:
                 start_url = _validate_url(start_url)
-            except ValueError as e:
-                return f"URL rejected: {e}"
+            except ValueError:
+                return _SAFE_URL_REJECTED_MESSAGE
         else:
             start_url = None
 
@@ -2151,26 +2154,26 @@ class BrowserAgentTool(BaseTool):
             )
         except Exception as e:
             logger.exception("browser_start_session failed for user=%d", user_id)
-            return f"browser_start_session failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _list_sessions(self, user_id: int) -> str:
         try:
             return _run_on_worker(_op_list_sessions, user_id)
         except Exception as e:
             logger.exception("browser_list_sessions failed for user=%d", user_id)
-            return f"browser_list_sessions failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _get_view_url(self, user_id: int, arguments: dict) -> str:
         requested_session_id = (arguments.get("session_id") or "").strip()
         try:
             session_id = _resolve_session_id_for_user(user_id, requested_session_id)
         except ValueError as e:
-            return str(e)
+            return "Browser session not available. Start or choose a valid session and retry."
         try:
             return _run_on_worker(_op_get_view_url, user_id, session_id)
         except Exception as e:
             logger.exception("browser_get_view_url failed for user=%d session=%s", user_id, session_id)
-            return f"browser_get_view_url failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _close_session(self, user_id: int, arguments: dict) -> str:
         session_id = (arguments.get("session_id") or "").strip()
@@ -2180,7 +2183,7 @@ class BrowserAgentTool(BaseTool):
             return _run_on_worker(_op_close_session, user_id, session_id)
         except Exception as e:
             logger.exception("browser_close_session failed for user=%d session=%s", user_id, session_id)
-            return f"browser_close_session failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _goto(self, user_id: int, arguments: dict) -> str:
         requested_session_id = (arguments.get("session_id") or "").strip()
@@ -2190,12 +2193,12 @@ class BrowserAgentTool(BaseTool):
         try:
             session_id = _resolve_session_id_for_user(user_id, requested_session_id)
         except ValueError as e:
-            return str(e)
+            return "Browser session not available. Start or choose a valid session and retry."
 
         try:
             url = _validate_url(raw_url)
-        except ValueError as e:
-            return f"URL rejected: {e}"
+        except ValueError:
+            return _SAFE_URL_REJECTED_MESSAGE
 
         wait_seconds = self._float_arg(
             arguments.get("wait"),
@@ -2211,7 +2214,7 @@ class BrowserAgentTool(BaseTool):
             return _run_on_worker(_op_goto, user_id, session_id, url, wait_seconds, wait_until)
         except Exception as e:
             logger.exception("browser_goto failed for user=%d session=%s url=%s", user_id, session_id, url)
-            return f"browser_goto failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _click(self, user_id: int, arguments: dict) -> str:
         requested_session_id = (arguments.get("session_id") or "").strip()
@@ -2223,7 +2226,7 @@ class BrowserAgentTool(BaseTool):
         try:
             session_id = _resolve_session_id_for_user(user_id, requested_session_id)
         except ValueError as e:
-            return str(e)
+            return "Browser session not available. Start or choose a valid session and retry."
 
         index = self._int_arg(arguments.get("index"), 0, 0, 100)
         timeout_ms = self._int_arg(
@@ -2257,7 +2260,7 @@ class BrowserAgentTool(BaseTool):
             )
         except Exception as e:
             logger.exception("browser_click failed for user=%d session=%s", user_id, session_id)
-            return f"browser_click failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _type(self, user_id: int, arguments: dict) -> str:
         requested_session_id = (arguments.get("session_id") or "").strip()
@@ -2268,7 +2271,7 @@ class BrowserAgentTool(BaseTool):
         try:
             session_id = _resolve_session_id_for_user(user_id, requested_session_id)
         except ValueError as e:
-            return str(e)
+            return "Browser session not available. Start or choose a valid session and retry."
 
         clear = self._bool_arg(arguments.get("clear"), True)
         click_first = self._bool_arg(arguments.get("click_first"), True)
@@ -2299,7 +2302,7 @@ class BrowserAgentTool(BaseTool):
             )
         except Exception as e:
             logger.exception("browser_type failed for user=%d session=%s", user_id, session_id)
-            return f"browser_type failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _press(self, user_id: int, arguments: dict) -> str:
         requested_session_id = (arguments.get("session_id") or "").strip()
@@ -2309,7 +2312,7 @@ class BrowserAgentTool(BaseTool):
         try:
             session_id = _resolve_session_id_for_user(user_id, requested_session_id)
         except ValueError as e:
-            return str(e)
+            return "Browser session not available. Start or choose a valid session and retry."
 
         timeout_ms = self._int_arg(
             arguments.get("timeout_ms"),
@@ -2321,7 +2324,7 @@ class BrowserAgentTool(BaseTool):
             return _run_on_worker(_op_press, user_id, session_id, key, timeout_ms)
         except Exception as e:
             logger.exception("browser_press failed for user=%d session=%s", user_id, session_id)
-            return f"browser_press failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _wait_for(self, user_id: int, arguments: dict) -> str:
         requested_session_id = (arguments.get("session_id") or "").strip()
@@ -2329,7 +2332,7 @@ class BrowserAgentTool(BaseTool):
         try:
             session_id = _resolve_session_id_for_user(user_id, requested_session_id)
         except ValueError as e:
-            return str(e)
+            return "Browser session not available. Start or choose a valid session and retry."
 
         state = str(arguments.get("state") or "visible").strip().lower()
         if state not in ALLOWED_WAIT_STATES:
@@ -2358,14 +2361,14 @@ class BrowserAgentTool(BaseTool):
             )
         except Exception as e:
             logger.exception("browser_wait_for failed for user=%d session=%s", user_id, session_id)
-            return f"browser_wait_for failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def _get_state(self, user_id: int, arguments: dict) -> str:
         requested_session_id = (arguments.get("session_id") or "").strip()
         try:
             session_id = _resolve_session_id_for_user(user_id, requested_session_id)
         except ValueError as e:
-            return str(e)
+            return "Browser session not available. Start or choose a valid session and retry."
 
         max_elements = self._int_arg(arguments.get("max_elements"), 40, 5, 120)
         max_text_length = self._int_arg(arguments.get("max_text_length"), 3000, 300, 10_000)
@@ -2379,7 +2382,7 @@ class BrowserAgentTool(BaseTool):
             )
         except Exception as e:
             logger.exception("browser_get_state failed for user=%d session=%s", user_id, session_id)
-            return f"browser_get_state failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
     def get_instruction(self) -> str:
         return (

@@ -2,21 +2,40 @@
 
 import asyncio
 import threading
+import time
+from dataclasses import dataclass
 
 from telegram import Message
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from services import has_api_key, get_current_persona_name, get_remaining_tokens
+from services import has_api_key, get_current_persona_name, get_remaining_tokens, ensure_session
 from utils.platform_parity import (
     build_api_key_required_message,
+    build_retry_message,
     build_token_limit_reached_message,
     format_log_context,
 )
 
 _MEDIA_GROUP_WAIT_SECONDS = 1.0
+_MEDIA_GROUP_COMPLETE_TTL_SECONDS = 10.0
 _MEDIA_GROUP_LOCK = threading.Lock()
 _MEDIA_GROUP_BUFFER: dict[tuple[int, str], list[Message]] = {}
+_MEDIA_GROUP_COMPLETED: dict[tuple[int, str], float] = {}
+
+
+@dataclass(frozen=True)
+class MediaRequestContext:
+    grouped_messages: list[Message]
+    caption: str
+    persona_name: str
+    session_id: int
+
+
+def _prune_completed_media_groups(now: float) -> None:
+    expired = [key for key, expires_at in _MEDIA_GROUP_COMPLETED.items() if expires_at <= now]
+    for key in expired:
+        del _MEDIA_GROUP_COMPLETED[key]
 
 
 def get_log_context(update: Update) -> str:
@@ -38,30 +57,24 @@ async def should_respond_in_group(update: Update, context: ContextTypes.DEFAULT_
     - Message is a reply to the bot's message
     - Bot is mentioned (@botusername) in the message
     """
-    # Always respond in private chats
     if update.effective_chat.type == "private":
         return True
 
-    # In group chats, check if bot is mentioned or replied to
     message = update.message
     bot_username = context.bot.username
 
-    # Check if this is a reply to the bot's message
     if message.reply_to_message:
         if message.reply_to_message.from_user.id == context.bot.id:
             return True
 
-    # Check if bot is mentioned in message text
     if message.text and bot_username:
         if f"@{bot_username}" in message.text:
             return True
 
-    # Check if bot is mentioned in caption (for photos)
     if message.caption and bot_username:
         if f"@{bot_username}" in message.caption:
             return True
 
-    # Check entities for mentions
     entities = message.entities or message.caption_entities or []
     for entity in entities:
         if entity.type == "mention":
@@ -87,13 +100,19 @@ async def collect_media_group_messages(message: Message) -> list[Message] | None
 
     key = (message.chat_id, media_group_id)
     is_leader = False
+    now = time.monotonic()
 
     with _MEDIA_GROUP_LOCK:
+        _prune_completed_media_groups(now)
+        if key in _MEDIA_GROUP_COMPLETED:
+            return None
         if key not in _MEDIA_GROUP_BUFFER:
             _MEDIA_GROUP_BUFFER[key] = [message]
             is_leader = True
         else:
-            _MEDIA_GROUP_BUFFER[key].append(message)
+            existing_ids = {msg.message_id for msg in _MEDIA_GROUP_BUFFER[key]}
+            if message.message_id not in existing_ids:
+                _MEDIA_GROUP_BUFFER[key].append(message)
 
     if not is_leader:
         return None
@@ -102,8 +121,9 @@ async def collect_media_group_messages(message: Message) -> list[Message] | None
 
     with _MEDIA_GROUP_LOCK:
         grouped = _MEDIA_GROUP_BUFFER.pop(key, [])
+        _MEDIA_GROUP_COMPLETED[key] = time.monotonic() + _MEDIA_GROUP_COMPLETE_TTL_SECONDS
 
-    grouped.sort(key=lambda m: m.message_id)
+    grouped.sort(key=lambda msg: msg.message_id)
     return grouped
 
 
@@ -133,32 +153,42 @@ def build_media_caption(
 async def preflight_media_request(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> tuple[list[Message] | None, str]:
+) -> MediaRequestContext | None:
     """Validate and normalize media batch request before specific media processing."""
     if not await should_respond_in_group(update, context):
-        return None, ""
+        return None
 
     grouped_messages = await collect_media_group_messages(update.message)
     if grouped_messages is None:
-        return None, ""
+        return None
 
     if any(message.forward_origin for message in grouped_messages):
-        return None, ""
+        return None
 
     user_id = update.effective_user.id
     if not has_api_key(user_id):
         await update.message.reply_text(build_api_key_required_message("/"))
-        return None, ""
+        return None
 
     persona_name = get_current_persona_name(user_id)
     remaining = get_remaining_tokens(user_id, persona_name)
     if remaining is not None and remaining <= 0:
         await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
-        return None, ""
+        return None
+
+    session_id = ensure_session(user_id, persona_name)
+    if session_id is None:
+        await update.message.reply_text(build_retry_message())
+        return None
 
     caption = build_media_caption(
         grouped_messages,
         bot_username=context.bot.username,
         reply_message=update.message.reply_to_message,
     )
-    return grouped_messages, caption
+    return MediaRequestContext(
+        grouped_messages=grouped_messages,
+        caption=caption,
+        persona_name=persona_name,
+        session_id=session_id,
+    )

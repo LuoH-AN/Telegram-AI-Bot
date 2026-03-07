@@ -29,14 +29,16 @@ def get_current_persona_name(user_id: int) -> str:
     return cache.get_current_persona_name(user_id)
 
 
-def get_system_prompt(user_id: int) -> str:
-    """Get the system prompt of the current persona (combined with global prompt)."""
+def get_system_prompt(user_id: int, persona_name: str | None = None) -> str:
+    """Get a persona's system prompt combined with the global prompt."""
     refresh_user_state_from_db(user_id)
-    persona = cache.get_current_persona(user_id)
+    if persona_name is None:
+        persona = cache.get_current_persona(user_id)
+    else:
+        persona = cache.get_persona(user_id, persona_name) or cache.get_current_persona(user_id)
     settings = cache.get_settings(user_id)
     global_prompt = settings.get("global_prompt", "") or ""
     persona_prompt = persona.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
-    # Combine global_prompt with persona's system_prompt
     if global_prompt:
         return f"{global_prompt}\n\n{persona_prompt}"
     return persona_prompt

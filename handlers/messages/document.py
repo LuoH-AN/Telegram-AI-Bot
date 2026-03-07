@@ -34,9 +34,14 @@ logger = logging.getLogger(__name__)
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle document/file uploads."""
-    grouped_messages, caption = await preflight_media_request(update, context)
-    if not grouped_messages:
+    media_ctx = await preflight_media_request(update, context)
+    if not media_ctx:
         return
+
+    grouped_messages = media_ctx.grouped_messages
+    caption = media_ctx.caption
+    persona_name = media_ctx.persona_name
+    session_id = media_ctx.session_id
 
     ctx = get_log_context(update)
 
@@ -141,9 +146,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if caption:
             save_msg += f" {caption}"
 
-        # Delegate to chat handler for full streaming, thinking display, and tool support
         from handlers.messages.text import chat
-        await chat(update, context, user_content=user_content, save_msg=save_msg, bot_message=bot_message)
+        await chat(
+            update,
+            context,
+            user_content=user_content,
+            save_msg=save_msg,
+            bot_message=bot_message,
+            frozen_persona_name=persona_name,
+            frozen_session_id=session_id,
+        )
 
     except Exception:
         logger.exception("%s error processing document", ctx)

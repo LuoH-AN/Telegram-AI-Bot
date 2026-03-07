@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 _JINA_READER_BASE_URL = "https://r.jina.ai/"
 _TIMEOUT = 30
+_RETRY_MESSAGE = "Error. Please retry."
+_URL_REJECTED_MESSAGE = "Error. Please retry with a valid public http(s) URL."
 
 
 class FetchTool(BaseTool):
@@ -64,8 +66,8 @@ class FetchTool(BaseTool):
             return "No URL provided."
         try:
             url = self._validate_external_url(raw_url)
-        except ValueError as e:
-            return f"Fetch rejected: {e}"
+        except ValueError:
+            return _URL_REJECTED_MESSAGE
 
         max_length = arguments.get("max_length", 10000)
         try:
@@ -80,9 +82,9 @@ class FetchTool(BaseTool):
                 tool_name="url_fetch",
             )
             text = self._fetch_via_jina(url)
-        except Exception as e:
+        except Exception:
             logger.exception("url_fetch failed for '%s'", url)
-            return f"Fetch failed: {e}"
+            return _RETRY_MESSAGE
 
         if len(text) > max_length:
             text = text[:max_length] + "\n...(truncated)"
@@ -93,7 +95,6 @@ class FetchTool(BaseTool):
         if self._jina_api_key:
             headers["Authorization"] = f"Bearer {self._jina_api_key}"
 
-        # Jina Reader expects the target URL appended after the base endpoint.
         reader_url = f"{_JINA_READER_BASE_URL}{url}"
         resp = requests.get(reader_url, headers=headers, timeout=_TIMEOUT)
 

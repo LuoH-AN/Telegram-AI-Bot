@@ -28,6 +28,9 @@ from .registry import BaseTool, emit_tool_progress
 
 logger = logging.getLogger(__name__)
 
+_SAFE_TOOL_RETRY_MESSAGE = "Error. Please retry."
+_SAFE_URL_REJECTED_MESSAGE = "Error. Please retry with a valid public http(s) URL."
+
 DEFAULT_CONTENT_LENGTH = 15000
 MAX_CONTENT_LENGTH = 80000
 PAGE_TIMEOUT_MS = 60_000
@@ -505,8 +508,8 @@ class PlaywrightTool(BaseTool):
             return "No URL provided."
         try:
             url = _validate_url(raw_url)
-        except ValueError as e:
-            return f"URL rejected: {e}"
+        except ValueError:
+            return _SAFE_URL_REJECTED_MESSAGE
 
         full_page = bool(arguments.get("full_page", False))
         wait = min(max(float(arguments.get("wait", DEFAULT_WAIT)), 0), MAX_WAIT)
@@ -536,9 +539,9 @@ class PlaywrightTool(BaseTool):
 
         try:
             result = _run_on_worker(_do, url, full_page, wait)
-        except Exception as e:
+        except Exception:
             logger.exception("page_screenshot failed for '%s'", url)
-            return f"Screenshot failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
         status = result[0]
         if status == "cf_blocked":
@@ -567,8 +570,8 @@ class PlaywrightTool(BaseTool):
             return "No URL provided."
         try:
             url = _validate_url(raw_url)
-        except ValueError as e:
-            return f"URL rejected: {e}"
+        except ValueError:
+            return _SAFE_URL_REJECTED_MESSAGE
 
         wait = min(max(float(arguments.get("wait", DEFAULT_WAIT)), 0), MAX_WAIT)
         max_length = arguments.get("max_length", DEFAULT_CONTENT_LENGTH)
@@ -616,9 +619,9 @@ class PlaywrightTool(BaseTool):
 
         try:
             result = _run_on_worker(_do, url, wait)
-        except Exception as e:
+        except Exception:
             logger.exception("page_content failed for '%s'", url)
-            return f"Content extraction failed: {e}"
+            return _SAFE_TOOL_RETRY_MESSAGE
 
         if result[0] == "cf_blocked":
             return result[1]

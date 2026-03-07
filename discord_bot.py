@@ -897,7 +897,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         if was_queued:
             await _status_update("Previous request is still running. Queued and starting soon...")
 
-        system_prompt = get_system_prompt(user_id)
+        system_prompt = get_system_prompt(user_id, persona_name)
         system_prompt += "\n\n" + get_datetime_prompt()
 
         if isinstance(user_content, str):
