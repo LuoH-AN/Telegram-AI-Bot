@@ -7,10 +7,9 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from config import JWT_SECRET, JWT_EXPIRY_HOURS
+from config import JWT_SECRET, JWT_EXPIRY_HOURS, JWT_SHORT_TOKEN_TTL_MINUTES
 
 _security = HTTPBearer(auto_error=False)
-SHORT_TOKEN_EXPIRY_MINUTES = 10
 
 # ── Legacy short token store ──
 # Backward compatibility for old in-memory hex short tokens.
@@ -41,7 +40,7 @@ def create_short_token(user_id: int) -> str:
             "user_id": int(user_id),
             "type": "short",
             "iat": now,
-            "exp": now + timedelta(minutes=SHORT_TOKEN_EXPIRY_MINUTES),
+            "exp": now + timedelta(minutes=JWT_SHORT_TOKEN_TTL_MINUTES),
         },
         JWT_SECRET,
         algorithm="HS256",

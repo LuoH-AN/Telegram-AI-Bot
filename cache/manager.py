@@ -4,7 +4,7 @@ import logging
 import threading
 from typing import Any
 
-from config import get_default_settings, get_default_persona, get_default_token_usage
+from config import get_default_settings, get_default_persona, get_default_token_usage, MAX_CRON_TASKS_PER_USER
 
 logger = logging.getLogger(__name__)
 
@@ -515,7 +515,7 @@ class CacheManager:
             self._cron_tasks_cache[user_id] = []
         tasks = self._cron_tasks_cache[user_id]
         # Check limit
-        if len(tasks) >= 10:
+        if len(tasks) >= MAX_CRON_TASKS_PER_USER:
             return None
         # Check duplicate name
         for t in tasks:

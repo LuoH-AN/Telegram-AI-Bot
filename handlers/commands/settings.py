@@ -7,7 +7,7 @@ import math
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from config import MODELS_PER_PAGE, DEFAULT_TTS_VOICE, DEFAULT_TTS_STYLE
+from config import MODELS_PER_PAGE, DEFAULT_TTS_VOICE, DEFAULT_TTS_STYLE, VALID_REASONING_EFFORTS
 from services import (
     get_user_settings,
     update_user_setting,
@@ -43,7 +43,6 @@ from utils.platform_parity import (
 )
 
 logger = logging.getLogger(__name__)
-VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

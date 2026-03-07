@@ -13,6 +13,26 @@ DB_SYNC_INTERVAL = 30
 # Models per page for pagination
 MODELS_PER_PAGE = 5
 
+# --- AI streaming timeouts --------------------------------------------------
+AI_STREAM_INIT_TIMEOUT = 25        # seconds waiting for stream object creation
+AI_STREAM_NO_OUTPUT_TIMEOUT = 45   # seconds while stream has produced no visible activity
+AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120  # seconds idle timeout once output has started
+
+# --- Tool dispatch -----------------------------------------------------------
+MAX_TOOL_ROUNDS = 3                # max tool-call / AI-response loops per request
+TOOL_TIMEOUT = 30                  # default per-round timeout for tool execution (s)
+MAX_TOOL_ERROR_SNIPPETS = 3        # max error snippets kept for empty-response fallback
+TOOL_EXECUTOR_WORKERS = 4          # max parallel workers for tool calls
+
+# --- Auth / JWT --------------------------------------------------------------
+JWT_SHORT_TOKEN_TTL_MINUTES = 10   # short-lived web login token TTL
+
+# --- Cron --------------------------------------------------------------------
+MAX_CRON_TASKS_PER_USER = 10       # per-user limit on scheduled tasks
+
+# --- Reasoning ---------------------------------------------------------------
+VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+
 # Supported file extensions for text-based processing
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".c", ".cpp",

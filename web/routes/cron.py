@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from cache.manager import cache
+from config import MAX_CRON_TASKS_PER_USER
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
@@ -54,7 +55,7 @@ async def create_cron_task(
 
     task = cache.add_cron_task(user_id, body.name.strip(), body.cron_expression.strip(), body.prompt.strip())
     if task is None:
-        raise HTTPException(status_code=409, detail="Task name already exists or limit (10) reached")
+        raise HTTPException(status_code=409, detail=f"Task name already exists or limit ({MAX_CRON_TASKS_PER_USER}) reached")
     return {"ok": True}
 
 

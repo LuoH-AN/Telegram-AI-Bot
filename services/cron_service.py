@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from cache.manager import cache
+from config import VALID_REASONING_EFFORTS, MAX_TOOL_ROUNDS
 from utils.tooling import resolve_cron_tools_csv
 from utils.provider import resolve_provider_model
 
@@ -14,8 +15,6 @@ logger = logging.getLogger(__name__)
 
 _CST = timezone(timedelta(hours=8))
 _POLL_INTERVAL = 30  # seconds
-_MAX_TOOL_ROUNDS = 5
-_VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 # Track currently running tasks to prevent duplicate execution
 _running_tasks: set[tuple[int, str]] = set()  # (user_id, task_name)
@@ -125,7 +124,7 @@ def _execute_cron_task(bot, task: dict) -> None:
             logger.warning("[user=%d] cron task '%s' skipped: no API key", user_id, task_name)
             return
         reasoning_effort = str(settings.get("reasoning_effort", "") or "").strip().lower()
-        if reasoning_effort not in _VALID_REASONING_EFFORTS:
+        if reasoning_effort not in VALID_REASONING_EFFORTS:
             reasoning_effort = ""
 
         # Resolve cron_model — same logic as title_model
@@ -185,7 +184,7 @@ def _execute_cron_task(bot, task: dict) -> None:
         full_response = ""
         last_text_response = ""
         tool_results_pending = False
-        for round_num in range(_MAX_TOOL_ROUNDS + 1):
+        for round_num in range(MAX_TOOL_ROUNDS + 1):
             _heartbeat_phase[0] = f"waiting for AI (round {round_num + 1})"
             chunks = list(client.chat_completion(
                 messages=messages,
@@ -193,7 +192,7 @@ def _execute_cron_task(bot, task: dict) -> None:
                 temperature=settings["temperature"],
                 reasoning_effort=reasoning_effort or None,
                 stream=False,
-                tools=tools if round_num < _MAX_TOOL_ROUNDS else None,
+                tools=tools if round_num < MAX_TOOL_ROUNDS else None,
             ))
 
             if not chunks:

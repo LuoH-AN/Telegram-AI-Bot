@@ -15,16 +15,15 @@ from config import (
     STREAM_FORCE_UPDATE_INTERVAL,
     STREAM_TIME_MODE_INTERVAL,
     STREAM_CHARS_MODE_INTERVAL,
+    AI_STREAM_INIT_TIMEOUT,
+    AI_STREAM_NO_OUTPUT_TIMEOUT,
+    AI_STREAM_OUTPUT_IDLE_TIMEOUT,
 )
 from utils import filter_thinking_content
 
 logger = logging.getLogger(__name__)
 
 # --- Streaming constants ---------------------------------------------------
-
-AI_STREAM_INIT_TIMEOUT = 25       # seconds waiting for stream object creation
-AI_STREAM_NO_OUTPUT_TIMEOUT = 45  # seconds while stream has produced no visible activity
-AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120  # seconds idle timeout once output has started
 
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 SENTENCE_END_CHARS = set(".!?;:。！？；：…\n")

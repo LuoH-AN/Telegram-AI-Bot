@@ -8,9 +8,10 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Any
 
+from config import TOOL_EXECUTOR_WORKERS
+
 logger = logging.getLogger(__name__)
 
-TOOL_CALL_MAX_WORKERS = 4
 # Tools with side effects/order sensitivity run serially within a batch.
 SERIAL_ONLY_TOOL_NAMES = {
     "save_memory",
@@ -273,7 +274,7 @@ class ToolRegistry:
                     idx, result = _execute_one(item)
                     results[idx] = result
             elif runnable:
-                workers = min(TOOL_CALL_MAX_WORKERS, len(runnable))
+                workers = min(TOOL_EXECUTOR_WORKERS, len(runnable))
                 logger.info(
                     "[user=%d] executing %d tool calls in parallel (workers=%d)",
                     user_id,

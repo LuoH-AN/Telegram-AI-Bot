@@ -13,6 +13,11 @@ import time
 from typing import TYPE_CHECKING
 
 from ai import ToolCall
+from config import (
+    MAX_TOOL_ROUNDS,
+    TOOL_TIMEOUT,
+    MAX_TOOL_ERROR_SNIPPETS,
+)
 from tools import process_tool_calls
 from utils.ai_helpers import (
     effective_tool_timeout,
@@ -24,12 +29,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
-
-# --- Tool dispatch constants -----------------------------------------------
-
-MAX_TOOL_ROUNDS = 3
-TOOL_TIMEOUT = 30  # seconds (default, may be extended by shell_exec)
-MAX_TOOL_ERROR_SNIPPETS = 3
 
 
 def get_effective_tool_timeout(tool_calls: list[ToolCall]) -> int:

@@ -19,6 +19,7 @@ from telegram.ext import ContextTypes
 from config import (
     MAX_MESSAGE_LENGTH,
     STREAM_UPDATE_MODE,
+    VALID_REASONING_EFFORTS,
 )
 from services import (
     get_user_settings,
@@ -79,8 +80,6 @@ from .tool_dispatch import (
 from .delivery import deliver_pending_voices, deliver_pending_screenshots
 
 logger = logging.getLogger(__name__)
-
-VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
 def _normalize_reasoning_effort(value: str | None) -> str:
