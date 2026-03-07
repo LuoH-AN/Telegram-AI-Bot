@@ -1,7 +1,9 @@
 """Session management service."""
 
+import asyncio
 import logging
 
+from ai.openai_client import create_openai_client
 from cache import cache
 from config import TITLE_GENERATION_PROMPT
 from .state_sync_service import refresh_user_state_from_db
@@ -113,7 +115,6 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
     Returns the generated title or None on failure.
     """
     try:
-        from ai.openai_client import create_openai_client
         from services.user_service import get_user_settings
 
         settings = get_user_settings(user_id)
@@ -153,7 +154,6 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
             log_context=f"[user={user_id}]",
         )
 
-        import asyncio
         loop = asyncio.get_event_loop()
         chunks = await loop.run_in_executor(
             None,
