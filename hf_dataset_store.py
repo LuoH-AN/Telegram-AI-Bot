@@ -327,6 +327,33 @@ class HFDatasetStore:
             return False
         return self.put_bytes(path, raw, commit_message=commit_message)
 
+    def delete(self, path: str, *, commit_message: str | None = None) -> bool:
+        if not self._ensure_client():
+            return False
+
+        try:
+            filename = self._prefixed_path(path)
+        except ValueError as exc:
+            logger.warning("HF store delete rejected path %r: %s", path, exc)
+            return False
+
+        message = (commit_message or f"Delete {filename}").strip()[:120]
+
+        try:
+            self._api.delete_file(
+                path_in_repo=filename,
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                revision=self.branch,
+                commit_message=message,
+            )
+            return True
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return True
+            logger.warning("HF store delete failed for %s: %s", filename, exc)
+            return False
+
 
 _store_lock = threading.Lock()
 _store: HFDatasetStore | None = None

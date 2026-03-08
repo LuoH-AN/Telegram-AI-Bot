@@ -197,7 +197,12 @@ python mcp_server.py
 启用后：
 
 - `browser_agent` 会自动保存/恢复 Playwright `storage_state`（cookie + localStorage 等登录态）
-- `shell` 会自动恢复并回传工作目录快照（默认不限制大小，可通过环境变量限制）
+- `browser_agent` 不会恢复重启前的标签页、下载文件、运行中的浏览器进程或内存会话
+- `shell` 默认会在每次命令结束后保存当前 `working_directory` 的完整快照，并在容器重启后按目录恢复
+- `shell` 还会额外保存常见用户运行时目录（默认包括 `~/.local`、`~/.nvm`、`~/.npm`、`~/.yarn` 等），尽量恢复 `npm` / `yarn` / `nvm` / `pip --user` 等安装结果
+- `shell` 会自动推断 `apt/apt-get install|remove|purge` 命令并维护系统包清单，不再依赖工具调用显式传 `persist_packages`
+- 若你想精确恢复某个项目目录，请优先传 `working_directory`，不要只在命令里写 `cd ... && ...`
+- 仍需注意：系统级运行时和外部服务能否 100% 恢复，还取决于底层镜像、HF Dataset 上传成功与否，以及目标环境是否允许重新安装对应包
 
 ## 开发建议
 
