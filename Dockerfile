@@ -1,12 +1,27 @@
 FROM python:3.12-slim
 
-WORKDIR /app
-ENV BROWSER_HEADLESS=0
+ARG BROWSER_HEADLESS=1
+ARG INSTALL_SHELL_UTILS=1
+ARG INSTALL_HEADFUL_SUPPORT=0
+ARG INSTALL_BROWSER=1
+ARG INSTALL_BROWSER_DEPS=1
+ARG INSTALL_CJK_FONTS=0
 
-# Install useful CLI tools for the shell tool
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl wget git jq vim-tiny net-tools procps dnsutils iputils-ping xvfb xauth \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+ENV BROWSER_HEADLESS=${BROWSER_HEADLESS}
+
+# Install runtime deps. Git is required for HF dataset git backend.
+RUN set -eux; \
+    apt-get update; \
+    packages="git"; \
+    if [ "$INSTALL_SHELL_UTILS" = "1" ]; then \
+        packages="$packages curl wget jq vim-tiny net-tools procps dnsutils iputils-ping"; \
+    fi; \
+    if [ "$INSTALL_HEADFUL_SUPPORT" = "1" ]; then \
+        packages="$packages xvfb xauth"; \
+    fi; \
+    apt-get install -y --no-install-recommends $packages; \
+    rm -rf /var/lib/apt/lists/*
 
 # Create shell working directory
 RUN mkdir -p /tmp/shell
@@ -15,10 +30,23 @@ RUN mkdir -p /tmp/shell
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright full Chromium browser + system dependencies + Chinese fonts
-RUN playwright install --with-deps chromium
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk \
-    && rm -rf /var/lib/apt/lists/*
+# Optional browser stack. This is the main image-size contributor.
+RUN set -eux; \
+    if [ "$INSTALL_BROWSER" = "1" ]; then \
+        if [ "$INSTALL_BROWSER_DEPS" = "1" ]; then \
+            playwright install --with-deps chromium; \
+        else \
+            playwright install chromium; \
+        fi; \
+    fi
+
+# Optional Chinese fonts for page rendering / screenshots.
+RUN set -eux; \
+    if [ "$INSTALL_CJK_FONTS" = "1" ]; then \
+        apt-get update; \
+        apt-get install -y --no-install-recommends fonts-noto-cjk; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Copy application code
 COPY bot.py .
