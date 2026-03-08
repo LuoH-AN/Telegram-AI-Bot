@@ -39,10 +39,7 @@ from config import (
     WEB_BASE_URL,
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_STYLE,
-    EXTRA_TOOL_CONTINUATION_ROUNDS,
-    MAX_TOOL_ROUNDS,
     TOOL_CONTINUE_OR_FINISH_PROMPT,
-    TOOL_LIMIT_FALLBACK_PROMPT,
 )
 from cache import init_database
 from web.app import create_app
@@ -938,9 +935,10 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         last_text_response = ""
         tool_results_pending = False
         truncated_prefix = ""
-        max_tool_round_index = MAX_TOOL_ROUNDS + EXTRA_TOOL_CONTINUATION_ROUNDS
 
-        for round_num in range(max_tool_round_index + 1):
+        round_num = 0
+        while True:
+            round_num += 1
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _run_stream_completion_round(
                 user_id,
                 messages,
@@ -976,7 +974,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 tool_results_pending = False
 
             if not tool_calls:
-                if finish_reason == "length" and round_num < MAX_TOOL_ROUNDS:
+                if finish_reason == "length":
                     logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
                     truncated_text = full_response or ""
                     truncated_prefix += truncated_text
@@ -1159,43 +1157,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             messages.extend(tool_results)
             tool_results_pending = True
 
-            if round_num >= MAX_TOOL_ROUNDS and round_num < max_tool_round_index:
-                logger.info(
-                    "%s tool results pending after round %d; asking model to finish or continue with tools",
-                    ctx,
-                    round_num + 1,
-                )
-                messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
-                continue
-
-            if round_num == max_tool_round_index:
-                break
-
-        if tool_results_pending:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": TOOL_LIMIT_FALLBACK_PROMPT,
-                }
-            )
-            full_response, usage_info, _, thinking_seconds, _ = await _run_stream_completion_round(
-                user_id,
-                messages,
-                settings["model"],
-                settings["temperature"],
-                user_reasoning_effort,
-                None,
-                _stream_update,
-                _status_update,
-                show_waiting=False,
-                stream_mode=user_stream_mode,
-            )
-            total_thinking_seconds += thinking_seconds
-            if usage_info:
-                total_prompt_tokens += usage_info.get("prompt_tokens") or 0
-                total_completion_tokens += usage_info.get("completion_tokens") or 0
-            if full_response.strip():
-                last_text_response = full_response
+            messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
 
         combined_response = truncated_prefix + last_text_response if truncated_prefix else last_text_response
         final_text = filter_thinking_content(combined_response).strip()

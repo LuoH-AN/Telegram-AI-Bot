@@ -9,10 +9,7 @@ from datetime import datetime, timezone, timedelta
 
 from cache.manager import cache
 from config import (
-    EXTRA_TOOL_CONTINUATION_ROUNDS,
-    MAX_TOOL_ROUNDS,
     TOOL_CONTINUE_OR_FINISH_PROMPT,
-    TOOL_LIMIT_FALLBACK_PROMPT,
     VALID_REASONING_EFFORTS,
 )
 from utils.tooling import resolve_cron_tools_csv
@@ -210,9 +207,10 @@ def _execute_cron_task(bot, task: dict) -> None:
             full_response = ""
             last_text_response = ""
             tool_results_pending = False
-            max_tool_round_index = MAX_TOOL_ROUNDS + EXTRA_TOOL_CONTINUATION_ROUNDS
-            for round_num in range(max_tool_round_index + 1):
-                phase[0] = f"waiting for AI (round {round_num + 1})"
+            round_num = 0
+            while True:
+                round_num += 1
+                phase[0] = f"waiting for AI (round {round_num})"
                 chunks = list(client.chat_completion(
                     messages=messages,
                     model=cron_model,
@@ -256,36 +254,10 @@ def _execute_cron_task(bot, task: dict) -> None:
                 messages.append(assistant_msg)
                 messages.extend(tool_results)
                 tool_results_pending = True
-
-                if round_num >= MAX_TOOL_ROUNDS and round_num < max_tool_round_index:
-                    phase[0] = f"waiting for AI (continue round {round_num + 2})"
-                    messages.append({
-                        "role": "user",
-                        "content": TOOL_CONTINUE_OR_FINISH_PROMPT,
-                    })
-                    continue
-
-                if round_num >= max_tool_round_index:
-                    break
-
-            # Hard fallback only after extended continuation rounds are exhausted
-            if tool_results_pending:
-                phase[0] = "waiting for AI (final)"
                 messages.append({
                     "role": "user",
-                    "content": TOOL_LIMIT_FALLBACK_PROMPT,
+                    "content": TOOL_CONTINUE_OR_FINISH_PROMPT,
                 })
-                chunks = list(client.chat_completion(
-                    messages=messages,
-                    model=cron_model,
-                    temperature=settings["temperature"],
-                    reasoning_effort=reasoning_effort or None,
-                    stream=False,
-                    tools=None,
-                ))
-                if chunks and chunks[0].content:
-                    full_response = chunks[0].content
-                    last_text_response = full_response
 
             # Clean response
             final_text = filter_thinking_content(full_response).strip()

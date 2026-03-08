@@ -19,22 +19,15 @@ AI_STREAM_NO_OUTPUT_TIMEOUT = 45   # seconds while stream has produced no visibl
 AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120  # seconds idle timeout once output has started
 
 # --- Tool dispatch -----------------------------------------------------------
-MAX_TOOL_ROUNDS = 3                # max tool-call / AI-response loops per request
-EXTRA_TOOL_CONTINUATION_ROUNDS = 2  # extra decision/continuation rounds after tool results are pending
 TOOL_TIMEOUT = 30                  # default per-round timeout for tool execution (s)
 MAX_TOOL_ERROR_SNIPPETS = 3        # max error snippets kept for empty-response fallback
 TOOL_EXECUTOR_WORKERS = 4          # max parallel workers for tool calls
 TOOL_CONTINUE_OR_FINISH_PROMPT = (
-    "Decide the next step based on your task completion status. "
-    "If the task is already complete, return the complete final answer to the user now. "
-    "If the task is not complete yet, continue calling the necessary tools and keep working until you can finish. "
-    "Do not stop mid-sentence."
-)
-TOOL_LIMIT_FALLBACK_PROMPT = (
-    "You have reached the tool-call safety limit for this turn. "
-    "If the task is complete, return the complete final answer now. "
-    "If the task is still incomplete, clearly tell the user what has already been completed, what remains unfinished, "
-    "and what blocked further tool execution."
+    "First decide internally whether the task is fully complete. "
+    "If it is already complete, immediately return the complete final answer to the user. "
+    "If it is not complete yet, immediately call the next necessary tools and continue working. "
+    "Do not tell the user that you are still working, that the task is incomplete, or that you will continue later. "
+    "If more work is needed, just continue with the tool calls."
 )
 
 # --- Auth / JWT --------------------------------------------------------------

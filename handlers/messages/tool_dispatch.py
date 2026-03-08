@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from ai import ToolCall
 from config import (
-    MAX_TOOL_ROUNDS,
     TOOL_TIMEOUT,
     MAX_TOOL_ERROR_SNIPPETS,
 )
