@@ -14,6 +14,8 @@ trim() {
     printf '%s' "$value"
 }
 
+BROWSER_HEADLESS="$(trim "${BROWSER_HEADLESS:-1}")"
+
 is_configured_token() {
     local token
     token="$(trim "${1:-}")"
@@ -33,11 +35,21 @@ start_bot() {
     local name="$1"
     local script="$2"
     local port="$3"
+    local headless_mode
+
+    headless_mode="${BROWSER_HEADLESS,,}"
 
     echo ">>> Starting ${name} bot on PORT=${port}"
-    if command -v xvfb-run >/dev/null 2>&1; then
+    if [[ "$headless_mode" =~ ^(0|false|no|off|headed)$ ]] \
+        && command -v xvfb-run >/dev/null 2>&1 \
+        && command -v xauth >/dev/null 2>&1; then
         PORT="$port" xvfb-run -a python "$script" &
     else
+        if [[ "$headless_mode" =~ ^(0|false|no|off|headed)$ ]] \
+            && command -v xvfb-run >/dev/null 2>&1 \
+            && ! command -v xauth >/dev/null 2>&1; then
+            echo ">>> xauth not found; falling back to direct python launch"
+        fi
         PORT="$port" python "$script" &
     fi
 
