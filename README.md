@@ -104,10 +104,10 @@ Docker 默认行为：会按 token 自动启用平台（可单开或双开）：
 现在 `Dockerfile` 支持按需裁剪：
 
 ```bash
-# 全功能（浏览器 + 依赖 + shell 工具）
+# 全功能默认版（有头浏览器 + 依赖 + CJK 字体 + shell 工具）
 docker build -t gemen .
 
-# 平衡版：保留浏览器，去掉 CJK 字体和 headful 支持
+# 平衡版：保留浏览器，改为 headless，并去掉 CJK 字体和 headful 支持
 docker build -t gemen-balanced \
   --build-arg BROWSER_HEADLESS=1 \
   --build-arg INSTALL_HEADFUL_SUPPORT=0 \
@@ -126,6 +126,7 @@ docker build -t gemen-slim \
 
 说明：
 
+- 默认 `docker build -t gemen .` 现在就是全功能有头配置
 - `INSTALL_BROWSER=0` 会明显减小体积，但 `browser_agent` / `crawl4ai` 等浏览器能力将不可用
 - `INSTALL_CJK_FONTS=0` 可再省一部分体积，但中文网页截图/渲染可能缺字
 - `INSTALL_HEADFUL_SUPPORT=0` 适合纯 headless 部署
