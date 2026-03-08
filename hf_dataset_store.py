@@ -7,11 +7,14 @@ This module provides a small optional persistence layer for ephemeral runtimes
 from __future__ import annotations
 
 import base64
-import io
+import hashlib
 import json
 import logging
 import os
+import shutil
+import subprocess
 import threading
+import tempfile
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -20,16 +23,6 @@ logger = logging.getLogger(__name__)
 _TRUTHY = {"1", "true", "yes", "on", "y"}
 _FALSY = {"0", "false", "no", "off", "n"}
 _ENC_MAGIC = b"HFENC1:"
-
-
-def _is_not_found_error(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return (
-        "404" in text
-        or "not found" in text
-        or "entry not found" in text
-        or "revision not found" in text
-    )
 
 
 def _clean_path(path: str) -> str:
@@ -63,15 +56,11 @@ class HFDatasetStore:
         if not self.repo_id or not self.token or not self.encryption_key:
             self._enabled = False
 
-        self._lock = threading.Lock()
-        self._client_ready = False
-        self._repo_ready = False
-        self._missing_dependency_logged = False
+        self._lock = threading.RLock()
         self._missing_crypto_logged = False
-        self._api = None
-        self._hf_hub_download = None
         self._aesgcm_cls = None
         self._aesgcm = None
+        self._git_repo_dir: str | None = None
 
     @staticmethod
     def _build_repo_id(username: str, dataset_name: str) -> str:
@@ -98,7 +87,7 @@ class HFDatasetStore:
             if not self.encryption_key:
                 return "disabled: missing HF_DATASET_ENCRYPTION_KEY"
             return "disabled"
-        return f"enabled: repo={self.repo_id} branch={self.branch}"
+        return f"enabled: repo={self.repo_id} branch={self.branch} backend=git"
 
     def _prefixed_path(self, path: str) -> str:
         clean = _clean_path(path)
@@ -106,31 +95,14 @@ class HFDatasetStore:
             return f"{self.prefix}/{clean}"
         return clean
 
-    def _ensure_client(self) -> bool:
+    def _ensure_git_backend(self) -> bool:
         if not self._enabled:
             return False
-        if self._client_ready:
-            return True
-
-        with self._lock:
-            if self._client_ready:
-                return True
-            try:
-                from huggingface_hub import HfApi, hf_hub_download
-            except Exception as exc:
-                if not self._missing_dependency_logged:
-                    self._missing_dependency_logged = True
-                    logger.warning(
-                        "HF dataset storage disabled: huggingface_hub is unavailable (%s).",
-                        exc,
-                    )
-                self._enabled = False
-                return False
-
-            self._api = HfApi(token=self.token)
-            self._hf_hub_download = hf_hub_download
-            self._client_ready = True
-            return True
+        if not shutil.which("git"):
+            logger.warning("HF dataset storage disabled: git is unavailable.")
+            self._enabled = False
+            return False
+        return True
 
     def _build_cipher(self) -> bool:
         if not self._enabled:
@@ -225,89 +197,173 @@ class HFDatasetStore:
             logger.warning("HF store decryption failed for %s: %s", filename, exc)
             return None
 
-    def _ensure_repo(self) -> bool:
-        if not self._ensure_client() or not self._build_cipher():
-            return False
-        if self._repo_ready:
-            return True
+    def _git_repo_url(self) -> str:
+        return f"https://huggingface.co/datasets/{self.repo_id}"
 
+    def _git_local_dir(self) -> str:
+        if self._git_repo_dir:
+            return self._git_repo_dir
+        digest = hashlib.sha256(f"{self.repo_id}:{self.branch}".encode("utf-8")).hexdigest()[:16]
+        path = os.path.join(tempfile.gettempdir(), "gemen_hf_git", digest)
+        self._git_repo_dir = path
+        return path
+
+    def _git_auth_header(self) -> str:
+        username = self.username or "__token__"
+        token = self.token
+        basic = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
+        return f"AUTHORIZATION: Basic {basic}"
+
+    def _run_git(
+        self,
+        args: list[str],
+        *,
+        cwd: str | None = None,
+        network: bool = False,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        cmd = ["git"]
+        if network:
+            cmd.extend(["-c", f"http.extraHeader={self._git_auth_header()}"])
+        cmd.extend(args)
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if check and result.returncode != 0:
+            stderr = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(f"git {' '.join(args)} failed: {stderr}")
+        return result
+
+    def _ensure_git_checkout(self) -> bool:
+        if not self._ensure_git_backend() or not self._build_cipher():
+            return False
+
+        repo_dir = self._git_local_dir()
         with self._lock:
-            if self._repo_ready:
-                return True
+            git_dir = os.path.join(repo_dir, ".git")
             try:
-                self._api.create_repo(
-                    repo_id=self.repo_id,
-                    repo_type="dataset",
-                    exist_ok=True,
-                )
-                self._repo_ready = True
+                if not os.path.isdir(git_dir):
+                    if os.path.exists(repo_dir):
+                        shutil.rmtree(repo_dir)
+                    os.makedirs(os.path.dirname(repo_dir), exist_ok=True)
+                    self._run_git(
+                        [
+                            "clone",
+                            "--branch",
+                            self.branch,
+                            "--single-branch",
+                            self._git_repo_url(),
+                            repo_dir,
+                        ],
+                        network=True,
+                    )
+                    if shutil.which("git-xet"):
+                        try:
+                            self._run_git(["xet", "install"], cwd=repo_dir, check=False)
+                        except Exception:
+                            pass
+                    self._run_git(["config", "user.name", self.username or "gemen-bot"], cwd=repo_dir)
+                    self._run_git(
+                        [
+                            "config",
+                            "user.email",
+                            f"{(self.username or 'gemen-bot')}@users.noreply.huggingface.co",
+                        ],
+                        cwd=repo_dir,
+                    )
+
+                self._run_git(["fetch", "origin", self.branch], cwd=repo_dir, network=True)
+                self._run_git(["checkout", self.branch], cwd=repo_dir)
+                self._run_git(["reset", "--hard", f"origin/{self.branch}"], cwd=repo_dir)
+                self._run_git(["clean", "-fd"], cwd=repo_dir)
                 return True
             except Exception as exc:
-                logger.warning("Failed to ensure HF dataset repo %s: %s", self.repo_id, exc)
+                logger.warning(
+                    "Failed to prepare HF git checkout for %s: %s. "
+                    "Make sure the dataset repo already exists and the token has write access.",
+                    self.repo_id,
+                    exc,
+                )
                 return False
 
+    def _commit_git_change(self, filename: str, commit_message: str) -> bool:
+        repo_dir = self._git_local_dir()
+        try:
+            diff = self._run_git(["diff", "--cached", "--quiet", "--", filename], cwd=repo_dir, check=False)
+            if diff.returncode == 0:
+                return True
+            if diff.returncode not in {0, 1}:
+                raise RuntimeError(diff.stderr or diff.stdout or "git diff failed")
+
+            self._run_git(["commit", "-m", commit_message], cwd=repo_dir)
+            push = self._run_git(["push", "origin", f"HEAD:{self.branch}"], cwd=repo_dir, network=True, check=False)
+            if push.returncode == 0:
+                return True
+
+            logger.warning("HF git push failed for %s: %s", self.repo_id, (push.stderr or push.stdout or "").strip())
+            return False
+        except Exception as exc:
+            logger.warning("HF git commit/push failed for %s: %s", self.repo_id, exc)
+            return False
+
     def get_bytes(self, path: str) -> bytes | None:
-        if not self._ensure_client():
-            return None
-
-        try:
-            filename = self._prefixed_path(path)
-        except ValueError as exc:
-            logger.warning("HF store get_bytes rejected path %r: %s", path, exc)
-            return None
-
-        try:
-            local_path = self._hf_hub_download(
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                filename=filename,
-                revision=self.branch,
-                token=self.token,
-            )
-        except Exception as exc:
-            if _is_not_found_error(exc):
+        with self._lock:
+            if not self._ensure_git_checkout():
                 return None
-            logger.warning("HF store get_bytes failed for %s: %s", filename, exc)
-            return None
 
-        try:
-            with open(local_path, "rb") as f:
-                raw = f.read()
-        except Exception as exc:
-            logger.warning("HF store read local cache failed for %s: %s", filename, exc)
-            return None
-        return self._decrypt_payload(raw, filename)
+            try:
+                filename = self._prefixed_path(path)
+            except ValueError as exc:
+                logger.warning("HF store get_bytes rejected path %r: %s", path, exc)
+                return None
+
+            abs_path = os.path.join(self._git_local_dir(), filename)
+            if not os.path.isfile(abs_path):
+                return None
+
+            try:
+                with open(abs_path, "rb") as f:
+                    raw = f.read()
+            except Exception as exc:
+                logger.warning("HF store read local git checkout failed for %s: %s", filename, exc)
+                return None
+            return self._decrypt_payload(raw, filename)
 
     def put_bytes(self, path: str, data: bytes, *, commit_message: str | None = None) -> bool:
-        if not self._ensure_repo():
-            return False
+        with self._lock:
+            if not self._ensure_git_checkout():
+                return False
 
-        try:
-            filename = self._prefixed_path(path)
-        except ValueError as exc:
-            logger.warning("HF store put_bytes rejected path %r: %s", path, exc)
-            return False
+            try:
+                filename = self._prefixed_path(path)
+            except ValueError as exc:
+                logger.warning("HF store put_bytes rejected path %r: %s", path, exc)
+                return False
 
-        encrypted = self._encrypt_payload(data, filename)
-        if encrypted is None:
-            return False
+            encrypted = self._encrypt_payload(data, filename)
+            if encrypted is None:
+                return False
 
-        payload = io.BytesIO(encrypted)
-        message = (commit_message or f"Update {filename}").strip()[:120]
+            message = (commit_message or f"Update {filename}").strip()[:120]
+            repo_dir = self._git_local_dir()
+            abs_path = os.path.join(repo_dir, filename)
 
-        try:
-            self._api.upload_file(
-                path_or_fileobj=payload,
-                path_in_repo=filename,
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                revision=self.branch,
-                commit_message=message,
-            )
-            return True
-        except Exception as exc:
-            logger.warning("HF store put_bytes failed for %s: %s", filename, exc)
-            return False
+            try:
+                os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                with open(abs_path, "wb") as f:
+                    f.write(encrypted)
+                self._run_git(["add", "--all", "--", filename], cwd=repo_dir)
+                return self._commit_git_change(filename, message)
+            except Exception as exc:
+                logger.warning("HF store put_bytes failed for %s: %s", filename, exc)
+                return False
 
     def get_json(self, path: str) -> Any | None:
         raw = self.get_bytes(path)
@@ -328,31 +384,31 @@ class HFDatasetStore:
         return self.put_bytes(path, raw, commit_message=commit_message)
 
     def delete(self, path: str, *, commit_message: str | None = None) -> bool:
-        if not self._ensure_client():
-            return False
+        with self._lock:
+            if not self._ensure_git_checkout():
+                return False
 
-        try:
-            filename = self._prefixed_path(path)
-        except ValueError as exc:
-            logger.warning("HF store delete rejected path %r: %s", path, exc)
-            return False
+            try:
+                filename = self._prefixed_path(path)
+            except ValueError as exc:
+                logger.warning("HF store delete rejected path %r: %s", path, exc)
+                return False
 
-        message = (commit_message or f"Delete {filename}").strip()[:120]
+            message = (commit_message or f"Delete {filename}").strip()[:120]
+            repo_dir = self._git_local_dir()
+            abs_path = os.path.join(repo_dir, filename)
 
-        try:
-            self._api.delete_file(
-                path_in_repo=filename,
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                revision=self.branch,
-                commit_message=message,
-            )
-            return True
-        except Exception as exc:
-            if _is_not_found_error(exc):
-                return True
-            logger.warning("HF store delete failed for %s: %s", filename, exc)
-            return False
+            try:
+                if os.path.lexists(abs_path):
+                    if os.path.isdir(abs_path) and not os.path.islink(abs_path):
+                        shutil.rmtree(abs_path)
+                    else:
+                        os.remove(abs_path)
+                self._run_git(["add", "--all", "--", filename], cwd=repo_dir)
+                return self._commit_git_change(filename, message)
+            except Exception as exc:
+                logger.warning("HF store delete failed for %s: %s", filename, exc)
+                return False
 
 
 _store_lock = threading.Lock()
