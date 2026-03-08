@@ -8,7 +8,13 @@ from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
 from cache.manager import cache
-from config import VALID_REASONING_EFFORTS, MAX_TOOL_ROUNDS
+from config import (
+    EXTRA_TOOL_CONTINUATION_ROUNDS,
+    MAX_TOOL_ROUNDS,
+    TOOL_CONTINUE_OR_FINISH_PROMPT,
+    TOOL_LIMIT_FALLBACK_PROMPT,
+    VALID_REASONING_EFFORTS,
+)
 from utils.tooling import resolve_cron_tools_csv
 from utils.provider import resolve_provider_model
 
@@ -204,7 +210,8 @@ def _execute_cron_task(bot, task: dict) -> None:
             full_response = ""
             last_text_response = ""
             tool_results_pending = False
-            for round_num in range(MAX_TOOL_ROUNDS + 1):
+            max_tool_round_index = MAX_TOOL_ROUNDS + EXTRA_TOOL_CONTINUATION_ROUNDS
+            for round_num in range(max_tool_round_index + 1):
                 phase[0] = f"waiting for AI (round {round_num + 1})"
                 chunks = list(client.chat_completion(
                     messages=messages,
@@ -212,7 +219,7 @@ def _execute_cron_task(bot, task: dict) -> None:
                     temperature=settings["temperature"],
                     reasoning_effort=reasoning_effort or None,
                     stream=False,
-                    tools=tools if round_num < MAX_TOOL_ROUNDS else None,
+                    tools=tools,
                 ))
 
                 if not chunks:
@@ -250,12 +257,23 @@ def _execute_cron_task(bot, task: dict) -> None:
                 messages.extend(tool_results)
                 tool_results_pending = True
 
-            # If loop ended with pending tool results, make one final call without tools
+                if round_num >= MAX_TOOL_ROUNDS and round_num < max_tool_round_index:
+                    phase[0] = f"waiting for AI (continue round {round_num + 2})"
+                    messages.append({
+                        "role": "user",
+                        "content": TOOL_CONTINUE_OR_FINISH_PROMPT,
+                    })
+                    continue
+
+                if round_num >= max_tool_round_index:
+                    break
+
+            # Hard fallback only after extended continuation rounds are exhausted
             if tool_results_pending:
                 phase[0] = "waiting for AI (final)"
                 messages.append({
                     "role": "user",
-                    "content": "Please respond based on the information you have gathered above. Do not attempt to call any more tools.",
+                    "content": TOOL_LIMIT_FALLBACK_PROMPT,
                 })
                 chunks = list(client.chat_completion(
                     messages=messages,

@@ -39,6 +39,10 @@ from config import (
     WEB_BASE_URL,
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_STYLE,
+    EXTRA_TOOL_CONTINUATION_ROUNDS,
+    MAX_TOOL_ROUNDS,
+    TOOL_CONTINUE_OR_FINISH_PROMPT,
+    TOOL_LIMIT_FALLBACK_PROMPT,
 )
 from cache import init_database
 from web.app import create_app
@@ -185,7 +189,6 @@ logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 DISCORD_MAX_MESSAGE_LENGTH = 2000
-MAX_TOOL_ROUNDS = 3
 TOOL_TIMEOUT = 30
 AI_STREAM_NO_OUTPUT_TIMEOUT = 45
 AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120
@@ -935,8 +938,9 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         last_text_response = ""
         tool_results_pending = False
         truncated_prefix = ""
+        max_tool_round_index = MAX_TOOL_ROUNDS + EXTRA_TOOL_CONTINUATION_ROUNDS
 
-        for round_num in range(MAX_TOOL_ROUNDS + 1):
+        for round_num in range(max_tool_round_index + 1):
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _run_stream_completion_round(
                 user_id,
                 messages,
@@ -1155,18 +1159,23 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             messages.extend(tool_results)
             tool_results_pending = True
 
-            if round_num == MAX_TOOL_ROUNDS:
+            if round_num >= MAX_TOOL_ROUNDS and round_num < max_tool_round_index:
+                logger.info(
+                    "%s tool results pending after round %d; asking model to finish or continue with tools",
+                    ctx,
+                    round_num + 1,
+                )
+                messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
+                continue
+
+            if round_num == max_tool_round_index:
                 break
 
         if tool_results_pending:
             messages.append(
                 {
                     "role": "user",
-                    "content": (
-                        "Please respond to the user based on the information above. "
-                        "Do not attempt to call any more tools. "
-                        "Provide a complete final answer and do not end mid-sentence."
-                    ),
+                    "content": TOOL_LIMIT_FALLBACK_PROMPT,
                 }
             )
             full_response, usage_info, _, thinking_seconds, _ = await _run_stream_completion_round(

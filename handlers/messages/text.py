@@ -17,8 +17,11 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from config import (
+    EXTRA_TOOL_CONTINUATION_ROUNDS,
     MAX_MESSAGE_LENGTH,
     STREAM_UPDATE_MODE,
+    TOOL_CONTINUE_OR_FINISH_PROMPT,
+    TOOL_LIMIT_FALLBACK_PROMPT,
     VALID_REASONING_EFFORTS,
 )
 from services import (
@@ -252,7 +255,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         tool_results_pending = False
         tool_error_snippets: list[str] = []
         truncated_prefix = ""
-        for round_num in range(MAX_TOOL_ROUNDS + 1):
+        max_tool_round_index = MAX_TOOL_ROUNDS + EXTRA_TOOL_CONTINUATION_ROUNDS
+        for round_num in range(max_tool_round_index + 1):
 
             full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
@@ -358,23 +362,36 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             messages.extend(tool_results)
             tool_results_pending = True
             if no_new_tool_calls:
+                if round_num < max_tool_round_index:
+                    logger.info(
+                        "%s no new executable tool calls in round %d; asking model to finish or continue with tools",
+                        ctx,
+                        round_num + 1,
+                    )
+                    messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
+                    continue
                 logger.info(
-                    "%s no new executable tool calls in round %d; forcing final response without tools",
+                    "%s no new executable tool calls in round %d; reached hard tool limit",
                     ctx,
                     round_num + 1,
                 )
                 break
 
-        # Force a final text response if tool results are still pending
+            if round_num >= MAX_TOOL_ROUNDS and round_num < max_tool_round_index:
+                logger.info(
+                    "%s tool results pending after round %d; asking model to finish or continue with tools",
+                    ctx,
+                    round_num + 1,
+                )
+                messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
+                continue
+
+        # Hard fallback only after extended tool continuation rounds are exhausted
         if tool_results_pending:
-            logger.info("%s tool results pending, retrying without tools", ctx)
+            logger.info("%s tool results still pending after extended rounds, requesting best-effort final response", ctx)
             messages.append({
                 "role": "user",
-                "content": (
-                    "Please respond to the user based on the information you have gathered above. "
-                    "Do not attempt to call any more tools. "
-                    "Provide a complete final answer and do not end mid-sentence."
-                ),
+                "content": TOOL_LIMIT_FALLBACK_PROMPT,
             })
             full_response, usage_info, _, thinking_seconds, _ = await stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
