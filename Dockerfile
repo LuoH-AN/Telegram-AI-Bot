@@ -13,7 +13,7 @@ ENV BROWSER_HEADLESS=${BROWSER_HEADLESS}
 # Install runtime deps. Git is required for HF dataset git backend.
 RUN set -eux; \
     apt-get update; \
-    packages="git"; \
+    packages="git git-lfs"; \
     if [ "$INSTALL_SHELL_UTILS" = "1" ]; then \
         packages="$packages curl wget jq vim-tiny net-tools procps dnsutils iputils-ping"; \
     fi; \

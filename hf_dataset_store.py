@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 _TRUTHY = {"1", "true", "yes", "on", "y"}
 _FALSY = {"0", "false", "no", "off", "n"}
 _ENC_MAGIC = b"HFENC1:"
+_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1\n"
 
 
 def _clean_path(path: str) -> str:
@@ -181,6 +182,12 @@ class HFDatasetStore:
 
     def _decrypt_payload(self, payload: bytes, filename: str) -> bytes | None:
         if not payload.startswith(_ENC_MAGIC):
+            if payload.startswith(_LFS_POINTER_PREFIX):
+                logger.warning(
+                    "HF store found a Git LFS/Xet pointer for %s. Install/configure git-lfs or git-xet so large files are materialized.",
+                    filename,
+                )
+                return None
             logger.warning(
                 "HF store rejected plaintext file %s (encryption is required).",
                 filename,
@@ -279,10 +286,15 @@ class HFDatasetStore:
                         cwd=repo_dir,
                     )
 
+                if shutil.which("git-lfs"):
+                    self._run_git(["lfs", "install", "--local"], cwd=repo_dir, check=False)
+
                 self._run_git(["fetch", "origin", self.branch], cwd=repo_dir, network=True)
                 self._run_git(["checkout", self.branch], cwd=repo_dir)
                 self._run_git(["reset", "--hard", f"origin/{self.branch}"], cwd=repo_dir)
                 self._run_git(["clean", "-fd"], cwd=repo_dir)
+                if shutil.which("git-lfs"):
+                    self._run_git(["lfs", "pull", "origin", self.branch], cwd=repo_dir, network=True, check=False)
                 return True
             except Exception as exc:
                 logger.warning(
@@ -404,7 +416,7 @@ class HFDatasetStore:
                         shutil.rmtree(abs_path)
                     else:
                         os.remove(abs_path)
-                self._run_git(["add", "--all", "--", filename], cwd=repo_dir)
+                self._run_git(["add", "-A", "--", "."], cwd=repo_dir)
                 return self._commit_git_change(filename, message)
             except Exception as exc:
                 logger.warning("HF store delete failed for %s: %s", filename, exc)
