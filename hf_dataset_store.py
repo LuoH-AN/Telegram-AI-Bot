@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import threading
 import tempfile
+import time
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -24,6 +25,12 @@ _TRUTHY = {"1", "true", "yes", "on", "y"}
 _FALSY = {"0", "false", "no", "off", "n"}
 _ENC_MAGIC = b"HFENC1:"
 _LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1\n"
+_LFS_PUSH_RETRIES = 3
+_LFS_PUSH_RETRY_BACKOFF_SECONDS = 2.0
+_LFS_CONCURRENT_TRANSFERS = 1
+_LFS_TRANSFER_MAX_RETRIES = 8
+_LFS_TRANSFER_MAX_RETRY_DELAY = 10
+_LFS_LOG_TAIL_LINES = 120
 
 
 def _clean_path(path: str) -> str:
@@ -221,6 +228,49 @@ class HFDatasetStore:
         basic = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
         return f"AUTHORIZATION: Basic {basic}"
 
+    def _read_lfs_log_excerpt(self, repo_dir: str) -> str:
+        log_dir = os.path.join(repo_dir, ".git", "lfs", "logs")
+        if not os.path.isdir(log_dir):
+            return ""
+        try:
+            entries = [
+                os.path.join(log_dir, name)
+                for name in os.listdir(log_dir)
+                if name.endswith(".log")
+            ]
+        except OSError:
+            return ""
+        if not entries:
+            return ""
+        entries.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+        latest = entries[0]
+        try:
+            with open(latest, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+        except OSError:
+            return ""
+        tail = lines[-_LFS_LOG_TAIL_LINES :]
+        interesting: list[str] = []
+        for line in tail:
+            lower = line.lower()
+            if "authorization" in lower or "token" in lower:
+                continue
+            if any(key in lower for key in ("error", "fatal", "status", "client error")):
+                interesting.append(line.rstrip())
+        if not interesting:
+            interesting = [line.rstrip() for line in tail if line.strip()]
+        excerpt = "\n".join(interesting[-20:])
+        return excerpt.strip()
+
+    @staticmethod
+    def _is_lfs_push_error(error_text: str) -> bool:
+        lowered = (error_text or "").lower()
+        if "lfs" not in lowered:
+            return False
+        if "lfs:" in lowered or "git-lfs" in lowered:
+            return True
+        return "lfs" in lowered and "error" in lowered
+
     def _run_git(
         self,
         args: list[str],
@@ -288,6 +338,21 @@ class HFDatasetStore:
 
                 if shutil.which("git-lfs"):
                     self._run_git(["lfs", "install", "--local"], cwd=repo_dir, check=False)
+                    self._run_git(
+                        ["config", "lfs.concurrenttransfers", str(_LFS_CONCURRENT_TRANSFERS)],
+                        cwd=repo_dir,
+                        check=False,
+                    )
+                    self._run_git(
+                        ["config", "lfs.transfer.maxretries", str(_LFS_TRANSFER_MAX_RETRIES)],
+                        cwd=repo_dir,
+                        check=False,
+                    )
+                    self._run_git(
+                        ["config", "lfs.transfer.maxretrydelay", str(_LFS_TRANSFER_MAX_RETRY_DELAY)],
+                        cwd=repo_dir,
+                        check=False,
+                    )
 
                 self._run_git(["fetch", "origin", self.branch], cwd=repo_dir, network=True)
                 self._run_git(["checkout", self.branch], cwd=repo_dir)
@@ -315,11 +380,40 @@ class HFDatasetStore:
                 raise RuntimeError(diff.stderr or diff.stdout or "git diff failed")
 
             self._run_git(["commit", "-m", commit_message], cwd=repo_dir)
-            push = self._run_git(["push", "origin", f"HEAD:{self.branch}"], cwd=repo_dir, network=True, check=False)
-            if push.returncode == 0:
-                return True
+            error_text = ""
+            for attempt in range(_LFS_PUSH_RETRIES):
+                push = self._run_git(
+                    ["push", "origin", f"HEAD:{self.branch}"],
+                    cwd=repo_dir,
+                    network=True,
+                    check=False,
+                )
+                if push.returncode == 0:
+                    return True
+                error_text = (push.stderr or push.stdout or "").strip()
+                if not self._is_lfs_push_error(error_text):
+                    break
+                if attempt < _LFS_PUSH_RETRIES - 1:
+                    time.sleep(_LFS_PUSH_RETRY_BACKOFF_SECONDS * (attempt + 1))
 
-            logger.warning("HF git push failed for %s: %s", self.repo_id, (push.stderr or push.stdout or "").strip())
+            size_hint = None
+            try:
+                size_hint = os.path.getsize(os.path.join(repo_dir, filename))
+            except OSError:
+                size_hint = None
+            if size_hint is not None:
+                logger.warning(
+                    "HF git push failed for %s (file=%s size=%d bytes): %s",
+                    self.repo_id,
+                    filename,
+                    size_hint,
+                    error_text,
+                )
+            else:
+                logger.warning("HF git push failed for %s: %s", self.repo_id, error_text)
+            lfs_excerpt = self._read_lfs_log_excerpt(repo_dir)
+            if lfs_excerpt:
+                logger.warning("HF git-lfs log excerpt for %s:\n%s", self.repo_id, lfs_excerpt)
             return False
         except Exception as exc:
             logger.warning("HF git commit/push failed for %s: %s", self.repo_id, exc)
