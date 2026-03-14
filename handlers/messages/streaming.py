@@ -19,7 +19,7 @@ from config import (
     AI_STREAM_NO_OUTPUT_TIMEOUT,
     AI_STREAM_OUTPUT_IDLE_TIMEOUT,
 )
-from utils import filter_thinking_content
+from utils import filter_thinking_content, extract_thinking_blocks, format_thinking_block
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,8 @@ async def stream_response(
     stream_mode="default",
     include_thought_prefix=True,
     stream_cursor=True,
+    show_thinking=False,
+    thinking_max_chars=1200,
 ):
     """Stream an AI response, updating output in real-time.
 
@@ -106,7 +108,7 @@ async def stream_response(
                      - "chars": update every 100 chars regardless of time
 
     Returns:
-        (full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason)
+        (full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason, reasoning_content)
     """
     loop = asyncio.get_event_loop()
     status_cb = status_update or stream_update
@@ -136,6 +138,7 @@ async def stream_response(
     last_update_length = 0
     usage_info = None
     all_tool_calls = []
+    full_reasoning = ""
     first_chunk = True
     finish_reason = None
     stream_start_time = loop.time()
@@ -146,9 +149,30 @@ async def stream_response(
     thinking_seconds = 0
     thinking_locked = False
 
-    # Generic waiting indicator ("Think for Xs" before content/reasoning arrives)
+    # Generic waiting indicator ("Thinking for Xs" before content/reasoning arrives)
     waiting_start_time = loop.time()
     waiting_active = show_waiting
+
+    def _build_thinking_block(seconds: int | None) -> str:
+        if not show_thinking:
+            return ""
+        tag_thinking, _ = extract_thinking_blocks(full_response)
+        combined = "\n\n".join(
+            part for part in (full_reasoning.strip(), tag_thinking.strip()) if part
+        ).strip()
+        if not combined:
+            return ""
+        return format_thinking_block(
+            combined,
+            seconds=seconds,
+            max_chars=thinking_max_chars,
+        )
+
+    def _build_thinking_status(seconds: int) -> str:
+        block = _build_thinking_block(seconds)
+        if block:
+            return block
+        return f"Thinking for {seconds}s"
 
     async def _update_waiting():
         try:
@@ -157,7 +181,7 @@ async def stream_response(
                 if not waiting_active:
                     break
                 elapsed = max(1, int(loop.time() - waiting_start_time))
-                await status_cb(f"Think for {elapsed}s")
+                await status_cb(_build_thinking_status(elapsed))
         except asyncio.CancelledError:
             pass
 
@@ -205,12 +229,14 @@ async def stream_response(
             if has_output_activity:
                 last_output_activity = current_time
 
+            if chunk.reasoning:
+                full_reasoning += chunk.reasoning
             # Detect thinking/reasoning (separate field, e.g. DeepSeek R1)
             if chunk.reasoning and thinking_start_time is None:
                 waiting_active = False
                 thinking_start_time = current_time
                 thinking_seconds = 1
-                await status_cb("Thought for 1s")
+                await status_cb(_build_thinking_status(1))
                 last_update_time = current_time
 
             # Update thinking counter while still in thinking phase
@@ -220,7 +246,7 @@ async def stream_response(
                 if not display_text_now and new_seconds > thinking_seconds:
                     thinking_seconds = new_seconds
                     if current_time - last_update_time >= 1.0:
-                        await status_cb(f"Thought for {thinking_seconds}s")
+                        await status_cb(_build_thinking_status(thinking_seconds))
                         last_update_time = current_time
 
             if chunk.content:
@@ -233,7 +259,7 @@ async def stream_response(
                     waiting_active = False
                     thinking_start_time = current_time
                     thinking_seconds = 1
-                    await status_cb("Thought for 1s")
+                    await status_cb(_build_thinking_status(1))
                     last_update_time = current_time
 
                 # Build thinking prefix for display
@@ -244,13 +270,15 @@ async def stream_response(
                     if not thinking_locked:
                         thinking_seconds = max(1, int(current_time - thinking_start_time))
                         thinking_locked = True
-                    thinking_prefix = f"_Thought for {thinking_seconds}s_\n\n"
+                    thinking_prefix = f"_Thinking for {thinking_seconds}s_\n\n"
+                thinking_block = _build_thinking_block(thinking_seconds if thinking_start_time else None)
+                leading_block = thinking_block or thinking_prefix
 
                 # First visible chunk: update immediately, skip throttle interval
                 if first_chunk and display_text:
                     waiting_active = False
                     cursor_suffix = " ▌" if stream_cursor else ""
-                    await stream_update(thinking_prefix + display_text + cursor_suffix)
+                    await stream_update(leading_block + display_text + cursor_suffix)
                     last_update_time = current_time
                     last_update_length = len(display_text)
                     first_chunk = False
@@ -266,7 +294,7 @@ async def stream_response(
 
                     if should_update:
                         cursor_suffix = " ▌" if stream_cursor else ""
-                        await stream_update(thinking_prefix + display_text + cursor_suffix)
+                        await stream_update(leading_block + display_text + cursor_suffix)
                         last_update_time = current_time
                         last_update_length = len(display_text)
 
@@ -285,4 +313,4 @@ async def stream_response(
     if thinking_start_time is not None and not thinking_locked:
         thinking_seconds = max(1, int(loop.time() - thinking_start_time))
 
-    return full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason
+    return full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason, full_reasoning

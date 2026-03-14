@@ -35,6 +35,7 @@ SETTINGS_BACKUP_KEYS = {
     "model",
     "temperature",
     "reasoning_effort",
+    "show_thinking",
     "stream_mode",
     "enabled_tools",
     "cron_enabled_tools",

@@ -18,6 +18,7 @@ from config import (
     DEFAULT_TTS_ENDPOINT,
     DEFAULT_ENABLED_TOOLS,
     DEFAULT_REASONING_EFFORT,
+    DEFAULT_SHOW_THINKING,
 )
 from utils.tooling import normalize_tools_csv, resolve_cron_tools_csv
 
@@ -38,6 +39,21 @@ def parse_settings_row(row: Mapping) -> dict:
         row.get("cron_enabled_tools")
         or resolve_cron_tools_csv({"enabled_tools": enabled_tools})
     )
+    show_thinking_raw = row.get("show_thinking")
+    if isinstance(show_thinking_raw, bool):
+        show_thinking = show_thinking_raw
+    elif show_thinking_raw is None:
+        show_thinking = DEFAULT_SHOW_THINKING
+    elif isinstance(show_thinking_raw, (int, float)):
+        show_thinking = bool(show_thinking_raw)
+    else:
+        text = str(show_thinking_raw).strip().lower()
+        if text in {"1", "true", "yes", "on", "y"}:
+            show_thinking = True
+        elif text in {"0", "false", "no", "off", "n"}:
+            show_thinking = False
+        else:
+            show_thinking = DEFAULT_SHOW_THINKING
 
     return {
         "api_key": row.get("api_key") or "",
@@ -45,6 +61,7 @@ def parse_settings_row(row: Mapping) -> dict:
         "model": row.get("model") or "gpt-4o",
         "temperature": row.get("temperature") or 0.7,
         "reasoning_effort": row.get("reasoning_effort") or DEFAULT_REASONING_EFFORT,
+        "show_thinking": show_thinking,
         "stream_mode": row.get("stream_mode") or "",
         "token_limit": row.get("token_limit") or 0,
         "current_persona": row.get("current_persona") or "default",

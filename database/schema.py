@@ -15,6 +15,7 @@ CREATE_USER_SETTINGS_TABLE = """
         model TEXT,
         temperature REAL,
         reasoning_effort TEXT,
+        show_thinking BOOLEAN DEFAULT FALSE,
         token_limit BIGINT DEFAULT 0,
         current_persona TEXT DEFAULT 'default',
         enabled_tools TEXT,
@@ -128,6 +129,11 @@ MIGRATE_SETTINGS_ADD_REASONING_EFFORT = """
     ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS reasoning_effort TEXT
 """
 
+# Migration: add show_thinking column to existing user_settings tables
+MIGRATE_SETTINGS_ADD_SHOW_THINKING = """
+    ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS show_thinking BOOLEAN DEFAULT FALSE
+"""
+
 # Memories (shared across personas)
 CREATE_USER_MEMORIES_TABLE = """
     CREATE TABLE IF NOT EXISTS user_memories (
@@ -206,6 +212,7 @@ SCHEMA_STATEMENTS = [
     MIGRATE_SETTINGS_ADD_STREAM_MODE,
     MIGRATE_SETTINGS_ADD_GLOBAL_PROMPT,
     MIGRATE_SETTINGS_ADD_REASONING_EFFORT,
+    MIGRATE_SETTINGS_ADD_SHOW_THINKING,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
     CREATE_USER_LOGS_TABLE,

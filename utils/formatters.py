@@ -346,6 +346,15 @@ def markdown_to_telegram_html(text: str) -> str:
 
     text = re.sub(r'`([^`]+)`', save_inline_code, text)
 
+    # Extract spoilers (||...||) after code to avoid altering code spans.
+    spoiler_placeholders = []
+
+    def save_spoiler(match):
+        spoiler_placeholders.append(match.group(1))
+        return f"\x02SPOILER{len(spoiler_placeholders) - 1}\x02"
+
+    text = re.sub(r'\|\|(.+?)\|\|', save_spoiler, text, flags=re.DOTALL)
+
     # Convert headers BEFORE escaping (# won't be escaped anyway).
     # We store them as placeholders and restore as plain bold HTML later.
     # This avoids malformed emphasis nesting for inputs like:
@@ -439,6 +448,11 @@ def markdown_to_telegram_html(text: str) -> str:
     # Restore blockquotes
     text = text.replace('\x02BQSTART\x02', '<blockquote>')
     text = text.replace('\x02BQEND\x02', '</blockquote>')
+
+    # Restore spoilers (Telegram <tg-spoiler> tag)
+    for i, spoiler in enumerate(spoiler_placeholders):
+        escaped = html.escape(spoiler)
+        text = text.replace(f"\x02SPOILER{i}\x02", f"<tg-spoiler>{escaped}</tg-spoiler>")
 
     return text
 

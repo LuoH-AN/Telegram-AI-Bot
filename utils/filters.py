@@ -19,6 +19,15 @@ _RAW_TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 _LIKELY_TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+_THINKING_BLOCK_PATTERNS = [
+    re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<thinking>(.*?)</thinking>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<reasoning>(.*?)</reasoning>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<reflection>(.*?)</reflection>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<internal>(.*?)</internal>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"\[thinking\](.*?)\[/thinking\]", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<\|think\|>(.*?)<\|/think\|>", re.DOTALL | re.IGNORECASE),
+]
 
 
 def filter_thinking_content(text: str, streaming: bool = False) -> str:
@@ -72,6 +81,68 @@ def filter_thinking_content(text: str, streaming: bool = False) -> str:
         filtered = filtered.strip()
 
     return filtered
+
+
+def extract_thinking_blocks(text: str) -> tuple[str, str]:
+    """Extract thinking/reasoning blocks and return (thinking_text, cleaned_text)."""
+    if not text:
+        return "", text
+
+    spans: list[tuple[int, int, str]] = []
+    for pattern in _THINKING_BLOCK_PATTERNS:
+        for match in pattern.finditer(text):
+            content = match.group(1) if match.lastindex else ""
+            spans.append((match.start(), match.end(), content))
+
+    if not spans:
+        return "", text
+
+    spans.sort(key=lambda item: item[0])
+    merged: list[tuple[int, int, str]] = []
+    last_end = -1
+    for start, end, content in spans:
+        if start < last_end:
+            continue
+        merged.append((start, end, content))
+        last_end = end
+
+    blocks: list[str] = []
+    cleaned_parts: list[str] = []
+    last_idx = 0
+    for start, end, content in merged:
+        cleaned_parts.append(text[last_idx:start])
+        last_idx = end
+        snippet = (content or "").strip()
+        if snippet:
+            blocks.append(snippet)
+    cleaned_parts.append(text[last_idx:])
+
+    thinking_text = "\n\n".join(blocks).strip()
+    cleaned_text = "".join(cleaned_parts)
+    return thinking_text, cleaned_text
+
+
+def format_thinking_block(thinking_text: str, *, seconds: int | float | None = None, max_chars: int = 1200) -> str:
+    """Format thinking content for display."""
+    raw = (thinking_text or "").strip()
+    if not raw:
+        return ""
+
+    if max_chars > 0 and len(raw) > max_chars:
+        trimmed = raw[:max_chars]
+        last_break = trimmed.rfind("\n")
+        if last_break >= max_chars * 0.6:
+            trimmed = trimmed[:last_break]
+        raw = trimmed.rstrip() + "\n... (truncated)"
+
+    title = "Thoughts"
+    if seconds is not None and seconds > 0:
+        title = f"{title} ({int(seconds)}s)"
+
+    # Prevent spoiler terminators from breaking markup.
+    safe_raw = raw.replace("||", "| |")
+
+    return f"**{title}**\n||{safe_raw}||\n\n"
 
 
 def parse_raw_tool_calls(text: str) -> tuple[list[dict], str]:

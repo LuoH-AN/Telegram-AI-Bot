@@ -12,6 +12,7 @@ from config import (
     DEFAULT_TTS_ENDPOINT,
     DEFAULT_CRON_ENABLED_TOOLS,
     DEFAULT_REASONING_EFFORT,
+    DEFAULT_SHOW_THINKING,
 )
 from database import get_connection, get_dict_cursor
 from database.loaders import (
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Settings upsert column definitions
 _SETTINGS_COLUMNS = [
-    "user_id", "api_key", "base_url", "model", "temperature", "reasoning_effort",
+    "user_id", "api_key", "base_url", "model", "temperature", "reasoning_effort", "show_thinking",
     "token_limit", "current_persona", "enabled_tools",
     "cron_enabled_tools", "stream_mode", "tts_voice", "tts_style", "tts_endpoint",
     "api_presets", "title_model", "cron_model", "global_prompt",
@@ -187,6 +188,7 @@ def sync_to_database() -> None:
                     cur.execute(_SETTINGS_UPSERT_SQL, (
                         user_id, s["api_key"], s["base_url"],
                         s["model"], s["temperature"], s.get("reasoning_effort", DEFAULT_REASONING_EFFORT),
+                        bool(s.get("show_thinking", DEFAULT_SHOW_THINKING)),
                         s["token_limit"], s["current_persona"],
                         s["enabled_tools"], s.get("cron_enabled_tools", DEFAULT_CRON_ENABLED_TOOLS),
                         s.get("stream_mode", ""),

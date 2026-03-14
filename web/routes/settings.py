@@ -16,6 +16,7 @@ ALLOWED_FIELDS = {
     "model",
     "temperature",
     "reasoning_effort",
+    "show_thinking",
     "stream_mode",
     "enabled_tools",
     "cron_enabled_tools",
@@ -45,6 +46,7 @@ class SettingsUpdate(BaseModel):
     model: str | None = None
     temperature: float | None = None
     reasoning_effort: str | None = None
+    show_thinking: bool | None = None
     stream_mode: str | None = None
     enabled_tools: str | None = None
     cron_enabled_tools: str | None = None

@@ -249,6 +249,7 @@ def build_set_usage_message(prefix: str) -> str:
         "- cron_model [provider:]model\n"
         "- cron_tools <tool1,tool2,...>\n"
         "- stream_mode (default/time/chars)\n"
+        "- show_thinking (on/off)\n"
         "- voice\n"
         "- style\n"
         "- endpoint\n"

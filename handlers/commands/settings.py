@@ -91,6 +91,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
     stream_mode = settings.get("stream_mode", "") or "default"
+    show_thinking = "on" if settings.get("show_thinking") else "off"
     presets = settings.get("api_presets", {})
     presets_info = ", ".join(presets.keys()) if presets else "(none)"
     title_model_display = _format_model_display(settings.get("title_model", ""))
@@ -103,6 +104,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"model: {settings['model']}\n"
         f"temperature: {settings['temperature']}\n"
         f"reasoning_effort: {settings.get('reasoning_effort', '') or '(provider/model default)'}\n"
+        f"show_thinking: {show_thinking}\n"
         f"stream_mode: {stream_mode}\n"
         f"title_model: {title_model_display}\n"
         f"cron_model: {cron_model_display}\n"
@@ -198,6 +200,13 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "- default: time + chars combined\n"
                 "- time: update by time interval\n"
                 "- chars: update by character interval"
+            )
+            return
+        if context.args and context.args[0].lower() == "show_thinking":
+            current = "on" if settings.get("show_thinking") else "off"
+            await update.message.reply_text(
+                f"Current show_thinking: {current}\n"
+                "Usage: /set show_thinking <on|off>"
             )
             return
         if context.args and context.args[0].lower() == "reasoning_effort":
@@ -473,6 +482,18 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "- time: update by time interval\n"
                 "- chars: update by character interval"
             )
+    elif key == "show_thinking":
+        val = value.strip().lower()
+        if val in {"on", "true", "1", "yes", "y"}:
+            update_user_setting(user_id, "show_thinking", True)
+            logger.info("%s set show_thinking = on", ctx)
+            await update.message.reply_text("show_thinking enabled.")
+        elif val in {"off", "false", "0", "no", "n", "clear"}:
+            update_user_setting(user_id, "show_thinking", False)
+            logger.info("%s set show_thinking = off", ctx)
+            await update.message.reply_text("show_thinking disabled.")
+        else:
+            await update.message.reply_text("Usage: /set show_thinking <on|off>")
     else:
         await update.message.reply_text(build_unknown_set_key_message(key))
 

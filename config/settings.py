@@ -57,6 +57,18 @@ def _normalize_reasoning_effort(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     return normalized if normalized in ALLOWED_REASONING_EFFORTS else ""
 
+
+def _normalize_bool(value: str | None, *, default: bool = False) -> bool:
+    """Normalize boolean-ish env values."""
+    if value is None:
+        return default
+    raw = str(value).strip().lower()
+    if raw in {"1", "true", "yes", "on", "y"}:
+        return True
+    if raw in {"0", "false", "no", "off", "n"}:
+        return False
+    return default
+
 # Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -131,6 +143,8 @@ DEFAULT_TTS_OUTPUT_FORMAT = os.getenv("TTS_OUTPUT_FORMAT", "ogg-24khz-16bit-mono
 DEFAULT_REASONING_EFFORT = _normalize_reasoning_effort(
     os.getenv("OPENAI_REASONING_EFFORT", "")
 )
+DEFAULT_SHOW_THINKING = _normalize_bool(os.getenv("SHOW_THINKING", "0"), default=False)
+SHOW_THINKING_MAX_CHARS = max(200, int(os.getenv("SHOW_THINKING_MAX_CHARS", "1200")))
 
 
 def get_default_settings() -> dict:
@@ -141,6 +155,7 @@ def get_default_settings() -> dict:
         "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
         "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
         "reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "show_thinking": DEFAULT_SHOW_THINKING,
         # Empty means "follow global default STREAM_UPDATE_MODE".
         "stream_mode": "",
         "token_limit": 0,

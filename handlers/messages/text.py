@@ -21,6 +21,7 @@ from config import (
     STREAM_UPDATE_MODE,
     TOOL_CONTINUE_OR_FINISH_PROMPT,
     VALID_REASONING_EFFORTS,
+    SHOW_THINKING_MAX_CHARS,
 )
 from services import (
     get_user_settings,
@@ -50,6 +51,8 @@ from cache import cache
 from utils import (
     filter_thinking_content,
     parse_raw_tool_calls,
+    extract_thinking_blocks,
+    format_thinking_block,
     send_message_safe,
     edit_message_safe,
     get_datetime_prompt,
@@ -85,7 +88,7 @@ logger = logging.getLogger(__name__)
 def _make_thinking_prefix(seconds: int | float) -> str:
     """Build a thinking duration prefix string, or empty if no thinking."""
     if seconds > 0:
-        return f"_Thought for {int(seconds)}s_\n\n"
+        return f"_Thinking for {int(seconds)}s_\n\n"
     return ""
 
 
@@ -160,7 +163,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
             return
         await update.message.chat.send_action(ChatAction.TYPING)
-        bot_message = await update.message.reply_text("…")
+        bot_message = await update.message.reply_text("Thinking...")
 
     # --- Set up streaming output plumbing ---
     async def _edit_placeholder(text: str) -> bool:
@@ -185,7 +188,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         edit_placeholder=_edit_placeholder,
         send_text=_send_text,
         delete_placeholder=_delete_placeholder,
-        empty_placeholder_text="…",
+        empty_placeholder_text="Thinking...",
     )
 
     async def _render_event(event) -> None:
@@ -245,6 +248,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
         user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
         user_reasoning_effort = _normalize_reasoning_effort(settings.get("reasoning_effort", ""))
+        show_thinking = bool(settings.get("show_thinking"))
 
         # --- Tool call loop ---
         last_text_response = ""
@@ -252,19 +256,31 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         tool_results_pending = False
         tool_error_snippets: list[str] = []
         truncated_prefix = ""
+        thinking_segments: list[str] = []
         round_num = 0
         while True:
             round_num += 1
 
-            full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await stream_response(
+            full_response, usage_info, tool_calls, thinking_seconds, finish_reason, reasoning_content = await stream_response(
                 client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
                 tools, _stream_update, _status_update,
-                show_waiting=(round_num == 0),
+                show_waiting=(round_num == 1),
                 stream_mode=user_stream_mode,
                 include_thought_prefix=True,
                 stream_cursor=True,
+                show_thinking=show_thinking,
+                thinking_max_chars=SHOW_THINKING_MAX_CHARS,
             )
             total_thinking_seconds += thinking_seconds
+            if show_thinking:
+                tag_thinking, _ = extract_thinking_blocks(full_response)
+                for segment in (reasoning_content, tag_thinking):
+                    cleaned = (segment or "").strip()
+                    if not cleaned:
+                        continue
+                    if thinking_segments and thinking_segments[-1] == cleaned:
+                        continue
+                    thinking_segments.append(cleaned)
 
             if usage_info:
                 total_prompt_tokens += usage_info.get("prompt_tokens") or 0
@@ -394,8 +410,20 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             )
             final_text = build_empty_response_fallback(tool_error_snippets)
 
-        thinking_prefix = _make_thinking_prefix(total_thinking_seconds)
-        display_final = thinking_prefix + final_text
+        thinking_block = ""
+        if show_thinking and thinking_segments:
+            thinking_text = "\n\n".join(thinking_segments).strip()
+            thinking_block = format_thinking_block(
+                thinking_text,
+                seconds=total_thinking_seconds,
+                max_chars=SHOW_THINKING_MAX_CHARS,
+            )
+
+        if thinking_block:
+            display_final = thinking_block + final_text
+        else:
+            thinking_prefix = _make_thinking_prefix(total_thinking_seconds)
+            display_final = thinking_prefix + final_text
 
         await render_pump.drain()
         await render_pump.stop()

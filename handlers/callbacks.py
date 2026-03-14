@@ -30,6 +30,7 @@ HELP_SECTIONS = {
         "/set model <name>\n"
         "/set temperature <0.0-2.0>\n"
         "/set reasoning_effort <none|minimal|low|medium|high|xhigh>\n"
+        "/set show_thinking <on|off>\n"
         "/set token_limit <number>\n"
         "/set voice <name>\n"
         "/set style <style>\n"

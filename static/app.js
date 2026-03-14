@@ -13,6 +13,9 @@
     "tts_style",
     "tts_endpoint",
   ];
+  const SETTINGS_BOOL_FIELDS = [
+    "show_thinking",
+  ];
 
   const state = {
     token: null,
@@ -272,6 +275,12 @@
         input.value = settings[field] == null ? "" : String(settings[field]);
       }
     });
+    SETTINGS_BOOL_FIELDS.forEach((field) => {
+      const input = $("cfg-" + field);
+      if (input) {
+        input.value = settings[field] ? "true" : "false";
+      }
+    });
 
     $("cfg-temperature").value = settings.temperature == null ? "" : String(settings.temperature);
     $("cfg-stream_mode").value = settings.stream_mode || "";
@@ -291,6 +300,12 @@
       enabled_tools: collectToolCsv("toolGrid"),
       cron_enabled_tools: collectToolCsv("cronToolGrid"),
     };
+    SETTINGS_BOOL_FIELDS.forEach((field) => {
+      const input = $("cfg-" + field);
+      if (input) {
+        body[field] = input.value === "true";
+      }
+    });
 
     SETTINGS_TEXT_FIELDS.forEach((field) => {
       body[field] = $("cfg-" + field).value.trim();

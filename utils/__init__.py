@@ -1,6 +1,11 @@
 """Utility functions module."""
 
-from .filters import filter_thinking_content, parse_raw_tool_calls
+from .filters import (
+    filter_thinking_content,
+    parse_raw_tool_calls,
+    extract_thinking_blocks,
+    format_thinking_block,
+)
 from .formatters import (
     markdown_to_telegram_html,
     split_message,
@@ -25,6 +30,8 @@ __all__ = [
     # Filters
     "filter_thinking_content",
     "parse_raw_tool_calls",
+    "extract_thinking_blocks",
+    "format_thinking_block",
     # Formatters
     "markdown_to_telegram_html",
     "split_message",
