@@ -139,10 +139,9 @@ def format_thinking_block(thinking_text: str, *, seconds: int | float | None = N
     if seconds is not None and seconds > 0:
         title = f"{title} ({int(seconds)}s)"
 
-    lines = raw.splitlines() or [raw]
-    quoted_lines = [f"> {line.rstrip()}" for line in lines]
-
-    return f"**{title}**\n" + "\n".join(quoted_lines) + "\n\n"
+    # Use expandable blockquote markers so Telegram can collapse it.
+    # The formatter will convert these placeholders into <blockquote expandable>.
+    return f"**{title}**\n\x02BQXSTART\x02{raw}\x02BQXEND\x02\n\n"
 
 
 def parse_raw_tool_calls(text: str) -> tuple[list[dict], str]:

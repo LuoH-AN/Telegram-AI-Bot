@@ -448,6 +448,8 @@ def markdown_to_telegram_html(text: str) -> str:
     # Restore blockquotes
     text = text.replace('\x02BQSTART\x02', '<blockquote>')
     text = text.replace('\x02BQEND\x02', '</blockquote>')
+    text = text.replace('\x02BQXSTART\x02', '<blockquote expandable>')
+    text = text.replace('\x02BQXEND\x02', '</blockquote>')
 
     # Restore spoilers (Telegram <tg-spoiler> tag)
     for i, spoiler in enumerate(spoiler_placeholders):
