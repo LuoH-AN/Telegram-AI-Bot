@@ -19,7 +19,7 @@ class StreamOutboundAdapter:
         edit_placeholder: Callable[[str], Awaitable[bool]],
         send_text: Callable[[str], Awaitable[bool]],
         delete_placeholder: Callable[[], Awaitable[None]],
-        empty_placeholder_text: str = "…",
+        empty_placeholder_text: str = "Thinking...",
     ):
         self.max_message_length = max_message_length
         self._has_placeholder = has_placeholder

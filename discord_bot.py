@@ -525,7 +525,7 @@ async def _run_stream_completion_round(
                 waiting_active = False
                 thinking_start_time = current_time
                 thinking_seconds = 1
-                await status_cb("Thought for 1s")
+                await status_cb("Thinking for 1s")
                 last_update_time = current_time
 
             if thinking_start_time is not None:
@@ -533,7 +533,7 @@ async def _run_stream_completion_round(
                 display_text_now = filter_thinking_content(full_response, streaming=True) if full_response else ""
                 if not display_text_now and new_seconds > thinking_seconds and current_time - last_update_time >= 1.0:
                     thinking_seconds = new_seconds
-                    await status_cb(f"Thought for {thinking_seconds}s")
+                    await status_cb(f"Thinking for {thinking_seconds}s")
                     last_update_time = current_time
 
             if chunk.content:
@@ -544,7 +544,7 @@ async def _run_stream_completion_round(
                     waiting_active = False
                     thinking_start_time = current_time
                     thinking_seconds = 1
-                    await status_cb("Thought for 1s")
+                    await status_cb("Thinking for 1s")
                     last_update_time = current_time
 
                 thinking_prefix = ""
@@ -552,7 +552,7 @@ async def _run_stream_completion_round(
                     if not thinking_locked:
                         thinking_seconds = max(1, int(current_time - thinking_start_time))
                         thinking_locked = True
-                    thinking_prefix = f"_Thought for {thinking_seconds}s_\n\n"
+                    thinking_prefix = f"_Thinking for {thinking_seconds}s_\n\n"
 
                 if first_visible_chunk and display_text:
                     waiting_active = False
@@ -990,7 +990,7 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
             status = _status_text(tool_calls)
             display_text = filter_thinking_content(full_response, streaming=True).strip()
-            thinking_prefix = f"_Thought for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
+            thinking_prefix = f"_Thinking for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
             if display_text:
                 status_text = _build_stream_preview(
                     f"{display_text}\n\n{status}",

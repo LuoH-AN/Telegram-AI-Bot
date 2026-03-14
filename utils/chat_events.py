@@ -68,7 +68,7 @@ class ChatEventPump:
                 break
             try:
                 # Deduplicate identical edits to reduce platform API pressure.
-                text = (event.text or "").rstrip() or "…"
+                text = (event.text or "").rstrip() or "Thinking..."
                 if text != self._last_rendered_text:
                     await self._render_func(ChatRenderEvent(kind=event.kind, text=text, created_at=event.created_at))
                     self._last_rendered_text = text

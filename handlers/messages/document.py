@@ -56,7 +56,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
     await update.message.chat.send_action(ChatAction.TYPING)
-    bot_message = await update.message.reply_text("…")
+    bot_message = await update.message.reply_text("Thinking...")
 
     try:
         text_blocks: list[str] = []

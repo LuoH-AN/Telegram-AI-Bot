@@ -96,3 +96,8 @@ When working alongside other AI coding agents (Claude Code or Codex):
 - **Do not modify files the other agent is actively working on.** Check git status first.
 - **Share findings via reports**: Write analysis reports to `reports/` directory (e.g., `reports/security.txt`, `reports/complexity.txt`).
 - **Follow the same quality standards**: Both agents should use the same linting/type checking tools defined in pyproject.toml.
+
+## 额外约束
+
+- **非代码性文本只能写入文件**：凡是面向用户的非代码文本（说明、结论、清单、分析、日志解读等），必须写入工作区文件并提示用户打开查看，禁止在终端输出展示。
+- **固定输出文件**：默认写入 `reports/agent_output.txt`。除非用户明确指定其他文件路径，否则所有非代码性文本都写入该文件。

@@ -40,7 +40,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     await update.message.chat.send_action(ChatAction.TYPING)
-    bot_message = await update.message.reply_text("…")
+    bot_message = await update.message.reply_text("Thinking...")
 
     try:
         image_parts = []
