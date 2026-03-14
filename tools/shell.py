@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import queue
 import re
 import shlex
 import shutil
@@ -12,6 +13,7 @@ import subprocess
 import tarfile
 import threading
 import time
+from dataclasses import dataclass
 
 from hf_dataset_store import get_hf_dataset_store
 from services.hf_backup_gate import should_backup_shell
@@ -39,12 +41,28 @@ def _parse_env_items(name: str, default: list[str] | None = None) -> list[str]:
     return items
 
 
+def _get_bool_env(name: str, default: bool) -> bool:
+    raw = (os.getenv(name, "1" if default else "0") or "").strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on", "y"}:
+        return True
+    if raw in {"0", "false", "no", "off", "n"}:
+        return False
+    return default
+
+
 _HF_SNAPSHOT_MAX_BYTES = int(os.getenv("SHELL_HF_SNAPSHOT_MAX_BYTES", "0"))
 _HF_SNAPSHOT_MAX_FILE_BYTES = int(os.getenv("SHELL_HF_SNAPSHOT_MAX_FILE_BYTES", "0"))
 _HF_SYNC_INTERVAL_SECONDS = max(0, int(os.getenv("SHELL_HF_SYNC_INTERVAL_SECONDS", "0")))
 _HF_MAX_FILES = int(os.getenv("SHELL_HF_MAX_FILES", "0"))
 _HF_SKIP_DIRS = set(_parse_env_items("SHELL_HF_SKIP_DIRS"))
 _HF_SKIP_SUFFIXES = set(_parse_env_items("SHELL_HF_SKIP_SUFFIXES"))
+_HF_SNAPSHOT_ASYNC = _get_bool_env("SHELL_HF_SNAPSHOT_ASYNC", True)
+_HF_SNAPSHOT_QUEUE_MAX = max(1, int(os.getenv("SHELL_HF_SNAPSHOT_QUEUE_MAX", "2")))
+_HF_RESTORE_PACKAGES_ENABLED = _get_bool_env("SHELL_HF_RESTORE_PACKAGES", True)
+_HF_RESTORE_PACKAGES_MAX_SECONDS = max(0, int(os.getenv("SHELL_HF_RESTORE_PACKAGES_MAX_SECONDS", "20")))
+_HF_AESGCM_MAX_BYTES = (1 << 31) - 1
 _DEFAULT_PERSISTENT_PATHS = [
     "~/.local",
     "~/.nvm",
@@ -63,6 +81,9 @@ _HF_STATE_LOCK = threading.Lock()
 _HF_RESTORED_WORKSPACES: set[tuple[int, str]] = set()
 _HF_LAST_SYNC_AT: dict[tuple[int, str], float] = {}
 _HF_RESTORED_PERSISTENT_PATHS: set[tuple[int, str]] = set()
+_SNAPSHOT_QUEUE: queue.Queue | None = None
+_SNAPSHOT_THREAD: threading.Thread | None = None
+_SNAPSHOT_LOCK = threading.Lock()
 
 _PKG_SINGLE_TIMEOUT = 120
 _PKG_RESTORED_USERS: set[int] = set()
@@ -364,6 +385,13 @@ def _build_snapshot_archive(
         return None, metadata
 
     metadata["archive_bytes"] = len(archive_bytes)
+    if len(archive_bytes) > _HF_AESGCM_MAX_BYTES:
+        logger.warning(
+            "Skip shell snapshot: archive exceeds AESGCM limit (%d > %d bytes).",
+            len(archive_bytes),
+            _HF_AESGCM_MAX_BYTES,
+        )
+        return None, metadata
     if _HF_SNAPSHOT_MAX_BYTES > 0 and len(archive_bytes) > _HF_SNAPSHOT_MAX_BYTES:
         logger.warning(
             "Skip shell snapshot: archive too large (%d > %d bytes).",
@@ -622,6 +650,68 @@ def _snapshot_persistent_paths_to_hf(user_id: int) -> None:
     )
 
 
+# ── Snapshot async worker ──────────────────────────────
+
+
+@dataclass
+class _SnapshotJob:
+    user_id: int
+    cwd: str
+    command: str
+    exec_env: dict[str, str]
+    exit_code: int | None
+
+
+def _run_snapshot_job(job: _SnapshotJob) -> None:
+    _snapshot_workspace_to_hf(job.user_id, job.cwd, job.command)
+    _snapshot_persistent_paths_to_hf(job.user_id)
+    if job.exit_code is not None:
+        _snapshot_packages_to_hf(job.user_id, job.exit_code, job.command, job.exec_env)
+
+
+def _snapshot_worker() -> None:
+    while True:
+        item = _SNAPSHOT_QUEUE.get() if _SNAPSHOT_QUEUE else None
+        if item is None:
+            if _SNAPSHOT_QUEUE:
+                _SNAPSHOT_QUEUE.task_done()
+            return
+        try:
+            _run_snapshot_job(item)
+        except Exception as e:
+            logger.warning("HF snapshot worker failed: %s", e)
+        finally:
+            if _SNAPSHOT_QUEUE:
+                _SNAPSHOT_QUEUE.task_done()
+
+
+def _ensure_snapshot_worker() -> queue.Queue | None:
+    if not _HF_SNAPSHOT_ASYNC:
+        return None
+    global _SNAPSHOT_QUEUE, _SNAPSHOT_THREAD
+    with _SNAPSHOT_LOCK:
+        if _SNAPSHOT_QUEUE is None:
+            _SNAPSHOT_QUEUE = queue.Queue(maxsize=_HF_SNAPSHOT_QUEUE_MAX)
+            _SNAPSHOT_THREAD = threading.Thread(
+                target=_snapshot_worker,
+                name="hf-snapshot-worker",
+                daemon=True,
+            )
+            _SNAPSHOT_THREAD.start()
+    return _SNAPSHOT_QUEUE
+
+
+def _schedule_snapshot(job: _SnapshotJob) -> None:
+    queue_ref = _ensure_snapshot_worker()
+    if queue_ref is None:
+        _run_snapshot_job(job)
+        return
+    try:
+        queue_ref.put_nowait(job)
+    except queue.Full:
+        logger.warning("Skip HF snapshot: snapshot queue is full.")
+
+
 # ── Package manifest backup / restore ──────────────────────────────
 
 
@@ -776,22 +866,36 @@ def _snapshot_packages_to_hf(user_id: int, exit_code: int, command: str, env: di
         len(manifest.get("apt", [])),
     )
 
+def _time_left(deadline: float | None) -> int | None:
+    if deadline is None:
+        return None
+    remaining = int(deadline - time.time())
+    if remaining <= 0:
+        return 0
+    return remaining
 
-def _restore_apt(user_id: int, packages: list[str], env: dict[str, str]) -> None:
+
+def _restore_apt(user_id: int, packages: list[str], env: dict[str, str], deadline: float | None) -> None:
     """Reinstall apt packages."""
     if not packages:
         return
     try:
+        timeout = _time_left(deadline)
+        if timeout == 0:
+            return
         subprocess.run(
             ["apt-get", "update"],
             capture_output=True,
-            timeout=_PKG_SINGLE_TIMEOUT,
+            timeout=timeout or _PKG_SINGLE_TIMEOUT,
             env=env,
         )
+        timeout = _time_left(deadline)
+        if timeout == 0:
+            return
         subprocess.run(
             ["apt-get", "install", "-y", "--no-install-recommends", *packages],
             capture_output=True,
-            timeout=_PKG_SINGLE_TIMEOUT,
+            timeout=timeout or _PKG_SINGLE_TIMEOUT,
             env=env,
         )
         logger.info("[user=%d] restored %d apt packages", user_id, len(packages))
@@ -799,15 +903,18 @@ def _restore_apt(user_id: int, packages: list[str], env: dict[str, str]) -> None
         logger.warning("[user=%d] apt restore failed: %s", user_id, e)
 
 
-def _restore_pip(user_id: int, packages: list[str], env: dict[str, str]) -> None:
+def _restore_pip(user_id: int, packages: list[str], env: dict[str, str], deadline: float | None) -> None:
     """Reinstall pip packages."""
     if not packages:
+        return
+    timeout = _time_left(deadline)
+    if timeout == 0:
         return
     try:
         subprocess.run(
             ["pip", "install", "--quiet", *packages],
             capture_output=True,
-            timeout=_PKG_SINGLE_TIMEOUT,
+            timeout=timeout or _PKG_SINGLE_TIMEOUT,
             env=env,
         )
         logger.info("[user=%d] restored %d pip packages", user_id, len(packages))
@@ -815,15 +922,18 @@ def _restore_pip(user_id: int, packages: list[str], env: dict[str, str]) -> None
         logger.warning("[user=%d] pip restore failed: %s", user_id, e)
 
 
-def _restore_npm(user_id: int, packages: list[str], env: dict[str, str]) -> None:
+def _restore_npm(user_id: int, packages: list[str], env: dict[str, str], deadline: float | None) -> None:
     """Reinstall global npm packages."""
     if not packages or not shutil.which("npm", path=env.get("PATH")):
+        return
+    timeout = _time_left(deadline)
+    if timeout == 0:
         return
     try:
         subprocess.run(
             ["npm", "install", "-g", "--silent", *packages],
             capture_output=True,
-            timeout=_PKG_SINGLE_TIMEOUT,
+            timeout=timeout or _PKG_SINGLE_TIMEOUT,
             env=env,
         )
         logger.info("[user=%d] restored %d npm packages", user_id, len(packages))
@@ -835,6 +945,10 @@ def _restore_packages_from_hf(user_id: int) -> None:
     """Load the package manifest from HF and reinstall everything."""
     store = get_hf_dataset_store()
     if not store.enabled:
+        return
+    if not _HF_RESTORE_PACKAGES_ENABLED:
+        return
+    if _HF_RESTORE_PACKAGES_MAX_SECONDS == 0:
         return
 
     with _HF_STATE_LOCK:
@@ -851,6 +965,7 @@ def _restore_packages_from_hf(user_id: int) -> None:
         return
 
     env = _clean_env()
+    deadline = time.time() + _HF_RESTORE_PACKAGES_MAX_SECONDS if _HF_RESTORE_PACKAGES_MAX_SECONDS > 0 else None
 
     logger.info(
         "[user=%d] restoring packages (apt=%d, pip=%d, npm=%d)",
@@ -861,9 +976,9 @@ def _restore_packages_from_hf(user_id: int) -> None:
     )
 
     # Restore order: apt → pip → npm
-    _restore_apt(user_id, apt_pkgs, env)
-    _restore_pip(user_id, pip_pkgs, env)
-    _restore_npm(user_id, npm_pkgs, env)
+    _restore_apt(user_id, apt_pkgs, env, deadline)
+    _restore_pip(user_id, pip_pkgs, env, deadline)
+    _restore_npm(user_id, npm_pkgs, env, deadline)
 
 
 class ShellTool(BaseTool):
@@ -981,10 +1096,14 @@ class ShellTool(BaseTool):
             logger.exception("[user=%d] shell exec error", user_id)
         finally:
             if snapshot_allowed:
-                _snapshot_workspace_to_hf(user_id, cwd, command)
-                _snapshot_persistent_paths_to_hf(user_id)
-                if result is not None:
-                    _snapshot_packages_to_hf(user_id, result.returncode, command, exec_env)
+                job = _SnapshotJob(
+                    user_id=user_id,
+                    cwd=cwd,
+                    command=command,
+                    exec_env=exec_env,
+                    exit_code=result.returncode if result is not None else None,
+                )
+                _schedule_snapshot(job)
 
         if timeout_error:
             return f"Error: Command timed out after {timeout} seconds."
