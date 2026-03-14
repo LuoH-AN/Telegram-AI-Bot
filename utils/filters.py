@@ -139,10 +139,10 @@ def format_thinking_block(thinking_text: str, *, seconds: int | float | None = N
     if seconds is not None and seconds > 0:
         title = f"{title} ({int(seconds)}s)"
 
-    # Prevent spoiler terminators from breaking markup.
-    safe_raw = raw.replace("||", "| |")
+    lines = raw.splitlines() or [raw]
+    quoted_lines = [f"> {line.rstrip()}" for line in lines]
 
-    return f"**{title}**\n||{safe_raw}||\n\n"
+    return f"**{title}**\n" + "\n".join(quoted_lines) + "\n\n"
 
 
 def parse_raw_tool_calls(text: str) -> tuple[list[dict], str]:
