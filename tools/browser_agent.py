@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from config import WEB_BASE_URL
 from hf_dataset_store import get_hf_dataset_store
+from services.hf_backup_gate import should_backup_browser
 from utils.browser_realism import (
     apply_context_realism,
     build_context_kwargs,
@@ -570,6 +571,8 @@ def _load_storage_state_for_user(user_id: int) -> tuple[dict | None, bool]:
 def _persist_storage_state_for_session(user_id: int, session_id: str, reason: str) -> None:
     store = get_hf_dataset_store()
     if not store.enabled:
+        return
+    if not should_backup_browser(user_id):
         return
 
     try:

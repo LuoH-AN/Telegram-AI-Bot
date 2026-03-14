@@ -14,6 +14,7 @@ import threading
 import time
 
 from hf_dataset_store import get_hf_dataset_store
+from services.hf_backup_gate import should_backup_shell
 
 from .registry import BaseTool
 
@@ -433,6 +434,11 @@ def _restore_workspace_from_hf(user_id: int, cwd: str) -> None:
 def _snapshot_workspace_to_hf(user_id: int, cwd: str, command: str) -> None:
     store = get_hf_dataset_store()
     if not store.enabled:
+        return
+
+    normalized_cwd = _normalize_workspace_path(cwd)
+    if normalized_cwd == "/tmp":
+        logger.warning("Skip shell snapshot: cwd is /tmp.")
         return
 
     paths = _workspace_store_paths(user_id, cwd)
@@ -949,6 +955,8 @@ class ShellTool(BaseTool):
         _restore_workspace_from_hf(user_id, cwd)
         _restore_packages_from_hf(user_id)
         exec_env = _clean_env()
+        store = get_hf_dataset_store()
+        snapshot_allowed = store.enabled and should_backup_shell(user_id)
 
         # Execute
         logger.info("[user=%d] shell_exec: %s (timeout=%ds, cwd=%s)", user_id, command[:200], timeout, cwd)
@@ -972,10 +980,11 @@ class ShellTool(BaseTool):
             runtime_error = e
             logger.exception("[user=%d] shell exec error", user_id)
         finally:
-            _snapshot_workspace_to_hf(user_id, cwd, command)
-            _snapshot_persistent_paths_to_hf(user_id)
-            if result is not None:
-                _snapshot_packages_to_hf(user_id, result.returncode, command, exec_env)
+            if snapshot_allowed:
+                _snapshot_workspace_to_hf(user_id, cwd, command)
+                _snapshot_persistent_paths_to_hf(user_id)
+                if result is not None:
+                    _snapshot_packages_to_hf(user_id, result.returncode, command, exec_env)
 
         if timeout_error:
             return f"Error: Command timed out after {timeout} seconds."
