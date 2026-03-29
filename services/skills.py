@@ -17,7 +17,7 @@ from hf_dataset_store import get_hf_dataset_store
 
 logger = logging.getLogger(__name__)
 
-SKILLS_ROOT = Path("/root/Telegram-AI-Bot/runtime_skills")
+SKILLS_ROOT = Path(__file__).resolve().parent.parent / "runtime_skills"
 SKILL_NAMESPACE = "skills"
 SKILL_TERMINAL_NAME = "skill_terminal"
 
