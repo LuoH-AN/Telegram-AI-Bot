@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .log import record_terminal_command
 
-REPO_ROOT = Path("/root/Telegram-AI-Bot").resolve()
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TIMEOUT_SECONDS = 120
 MAX_OUTPUT_CHARS = 12000
 

@@ -10,7 +10,7 @@ from .base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path("/root/Telegram-AI-Bot")
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class SkillTerminalTool(BaseTool):

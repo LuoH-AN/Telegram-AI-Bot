@@ -45,7 +45,7 @@ def _build_messages(goal: str, history: list[dict]) -> list[dict]:
             "content": (
                 "User goal:\n"
                 f"{goal.strip()}\n\n"
-                "Repository root: /root/Telegram-AI-Bot\n"
+                f"Repository root: {REPO_ROOT}\n"
                 "If you need to install or organize Skills, prioritize actions around runtime_skills, manifest.json, handler.py, and GitHub skill sources."
             ),
         },
