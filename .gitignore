@@ -16,6 +16,7 @@ docs/log
 reports/
 *.egg-info/
 
-# External cloned repositories
+# External/runtime directories
 claude-code-skill-scrapling/
-skills/claude-code-skill-scrapling/
+skills/
+runtime_skills/
