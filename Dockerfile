@@ -23,8 +23,8 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends $packages; \
     rm -rf /var/lib/apt/lists/*
 
-# Create shell working directory
-RUN mkdir -p /tmp/shell
+# Create shell working directory and runtime_skills directory
+RUN mkdir -p /tmp/shell /app/runtime_skills
 
 # Install dependencies
 COPY requirements.txt .
@@ -49,10 +49,7 @@ RUN set -eux; \
     fi
 
 # Copy application code
-COPY bot.py .
-COPY discord_bot.py .
-COPY start_bots.sh .
-COPY hf_dataset_store.py .
+COPY bot.py discord_bot.py start_bots.sh hf_dataset_store.py ./
 COPY config/ ./config/
 COPY database/ ./database/
 COPY cache/ ./cache/
