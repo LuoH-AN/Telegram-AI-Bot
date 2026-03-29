@@ -15,3 +15,7 @@ docs/log
 
 reports/
 *.egg-info/
+
+# External cloned repositories
+claude-code-skill-scrapling/
+skills/claude-code-skill-scrapling/
