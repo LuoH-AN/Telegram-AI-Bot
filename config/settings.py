@@ -133,12 +133,6 @@ DEFAULT_SYSTEM_PROMPT = os.getenv(
 DEFAULT_TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoMultilingualNeural")
 DEFAULT_TTS_STYLE = os.getenv("TTS_STYLE", "general")
 DEFAULT_TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "")
-DEFAULT_ENABLED_TOOLS = os.getenv(
-    "ENABLED_TOOLS", "memory,search,fetch,wikipedia,tts"
-)
-DEFAULT_CRON_ENABLED_TOOLS = os.getenv(
-    "CRON_ENABLED_TOOLS", "search,fetch,wikipedia,tts"
-)
 DEFAULT_TTS_OUTPUT_FORMAT = os.getenv("TTS_OUTPUT_FORMAT", "ogg-24khz-16bit-mono-opus")
 DEFAULT_REASONING_EFFORT = _normalize_reasoning_effort(
     os.getenv("OPENAI_REASONING_EFFORT", "")
@@ -160,8 +154,6 @@ def get_default_settings() -> dict:
         "stream_mode": "",
         "token_limit": 0,
         "current_persona": "default",
-        "enabled_tools": DEFAULT_ENABLED_TOOLS,
-        "cron_enabled_tools": DEFAULT_CRON_ENABLED_TOOLS,
         "tts_voice": DEFAULT_TTS_VOICE,
         "tts_style": DEFAULT_TTS_STYLE,
         "tts_endpoint": DEFAULT_TTS_ENDPOINT,

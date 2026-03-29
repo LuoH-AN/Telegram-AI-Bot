@@ -16,7 +16,10 @@ from database.loaders import (
     parse_session_row,
     parse_conversation_row,
     parse_token_row,
+    parse_skill_row,
+    parse_skill_state_row,
 )
+from services.skills import auto_restore_skills
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,10 @@ def _has_local_dirty_state(user_id: int) -> bool:
     if cache._new_sessions or cache._dirty_session_titles or cache._deleted_sessions:
         return True
     if cache._dirty_conversations or cache._cleared_conversations:
+        return True
+    if any(uid == user_id for uid, _ in cache._deleted_skills):
+        return True
+    if cache._new_skills or cache._updated_skills or cache._updated_skill_states:
         return True
     return False
 
@@ -137,7 +144,24 @@ def refresh_user_state_from_db(user_id: int, *, force: bool = False) -> None:
                 for token_row in token_rows:
                     usage_by_persona[token_row["persona_name"]] = parse_token_row(token_row)
                 cache.replace_user_token_usage(user_id, usage_by_persona)
+
+                cur.execute("SELECT * FROM user_skills WHERE user_id = %s ORDER BY id", (user_id,))
+                skills = [parse_skill_row(row) for row in (cur.fetchall() or [])]
+                cache.set_skills(user_id, skills)
+
+                cur.execute("SELECT * FROM user_skill_states WHERE user_id = %s ORDER BY id", (user_id,))
+                for row in cur.fetchall() or []:
+                    parsed = parse_skill_state_row(row)
+                    cache.set_skill_state(user_id, parsed["skill_name"], {
+                        "id": parsed["id"],
+                        "state": parsed["state"],
+                        "state_version": parsed["state_version"],
+                        "checkpoint_ref": parsed["checkpoint_ref"],
+                        "updated_at": parsed["updated_at"],
+                    })
         finally:
             conn.close()
+
+        auto_restore_skills(user_id)
     except Exception:
         logger.exception("Failed to refresh user state from DB (user=%s)", user_id)

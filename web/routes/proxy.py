@@ -234,14 +234,14 @@ async def proxy_http(port: int, path: str, request: Request):
         resp = await asyncio.to_thread(_do)
     except _requests.ConnectionError:
         return Response(
-            content="无法连接到内部服务，请确认服务是否已启动。",
+            content="Cannot connect to internal service, please confirm service is running.",
             status_code=502,
         )
     except _requests.Timeout:
-        return Response(content="内部服务响应超时。", status_code=504)
+        return Response(content="Internal service response timeout.", status_code=504)
     except Exception as exc:
         logger.warning("proxy error port=%d path=%s: %s", port, path, exc)
-        return Response(content="代理请求失败。", status_code=502)
+        return Response(content="Proxy request failed.", status_code=502)
 
     # Build response, drop hop-by-hop headers
     drop = {"transfer-encoding", "connection", "keep-alive"}

@@ -1,13 +1,12 @@
 """Streaming response engine for AI chat.
 
 Handles the real-time streaming of AI responses, updating output via
-callback functions as chunks arrive.  Tracks thinking/reasoning durations
+callback functions as chunks arrive. Tracks thinking/reasoning durations
 and supports multiple stream update modes.
 """
 
 import asyncio
 import logging
-import re
 
 from config import (
     STREAM_UPDATE_INTERVAL,
@@ -23,43 +22,7 @@ from utils import filter_thinking_content, extract_thinking_blocks, format_think
 
 logger = logging.getLogger(__name__)
 
-# --- Streaming constants ---------------------------------------------------
-
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
-SENTENCE_END_CHARS = set(".!?;:。！？；：…\n")
-
-
-def _find_last_sentence_break(text: str) -> int:
-    """Return the index of the last sentence-ending character, or -1 if none."""
-    for idx in range(len(text) - 1, -1, -1):
-        if text[idx] in SENTENCE_END_CHARS:
-            return idx
-    return -1
-
-
-def stable_text_before_tool_call(text: str) -> str:
-    """Return only stable/complete text before entering tool execution.
-
-    Some models emit a partial sentence and immediately switch to tool_calls.
-    This trims likely-incomplete tails so users don't see broken fragments.
-    """
-    candidate = (text or "").rstrip()
-    if not candidate:
-        return ""
-
-    if candidate[-1] in SENTENCE_END_CHARS:
-        return candidate
-
-    last_break = _find_last_sentence_break(candidate)
-    if last_break >= 0:
-        trimmed = candidate[: last_break + 1].rstrip()
-        if len(trimmed) >= max(8, len(candidate) // 3):
-            return trimmed
-
-    # Keep very short updates only if they look like a complete phrase.
-    if len(candidate) <= 12 and re.search(r"[。！？!?]$", candidate):
-        return candidate
-    return ""
 
 
 def _should_update_stream(
@@ -70,7 +33,6 @@ def _should_update_stream(
         return elapsed >= STREAM_TIME_MODE_INTERVAL
     if mode == "chars":
         return new_chars >= STREAM_CHARS_MODE_INTERVAL
-    # Default mode: time + chars OR boundary OR force
     return (
         (elapsed >= STREAM_UPDATE_INTERVAL and new_chars >= STREAM_MIN_UPDATE_CHARS)
         or (elapsed >= STREAM_UPDATE_INTERVAL and ends_with_boundary)
@@ -84,7 +46,6 @@ async def stream_response(
     model,
     temperature,
     reasoning_effort,
-    tools,
     stream_update,
     status_update=None,
     show_waiting=True,
@@ -93,27 +54,12 @@ async def stream_response(
     stream_cursor=True,
     show_thinking=False,
     thinking_max_chars=1200,
+    tools=None,
 ):
-    """Stream an AI response, updating output in real-time.
-
-    The synchronous OpenAI streaming iterator is wrapped with run_in_executor
-    so that waiting for each chunk does not block the async event loop.
-
-    Args:
-        show_waiting: Show "Think for Xs" waiting indicator.  Set to False
-                      on subsequent tool rounds to reduce Telegram message edits.
-        stream_mode: Update mode for streaming:
-                     - "default": original behavior (time + chars conditions)
-                     - "time": update every second regardless of chars
-                     - "chars": update every 100 chars regardless of time
-
-    Returns:
-        (full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason, reasoning_content)
-    """
+    """Stream an AI response, updating output in real-time."""
     loop = asyncio.get_event_loop()
     status_cb = status_update or stream_update
 
-    # Start the streaming request in a thread to avoid blocking
     try:
         stream = await asyncio.wait_for(
             loop.run_in_executor(
@@ -131,25 +77,23 @@ async def stream_response(
         )
     except asyncio.TimeoutError:
         logger.warning("AI stream initialization timed out after %ds", AI_STREAM_INIT_TIMEOUT)
-        return "", None, [], 0, "timeout"
+        return "", None, 0, "timeout", ""
 
     full_response = ""
     last_update_time = 0
     last_update_length = 0
     usage_info = None
-    all_tool_calls = []
     full_reasoning = ""
+    tool_calls = []
     first_chunk = True
     finish_reason = None
     stream_start_time = loop.time()
     last_output_activity: float | None = None
 
-    # Thinking/reasoning tracking
     thinking_start_time = None
     thinking_seconds = 0
     thinking_locked = False
 
-    # Generic waiting indicator ("Thinking for Xs" before content/reasoning arrives)
     waiting_start_time = loop.time()
     waiting_active = show_waiting
 
@@ -187,7 +131,6 @@ async def stream_response(
 
     waiting_task = asyncio.create_task(_update_waiting()) if show_waiting else None
 
-    # Use a sentinel to detect end of iterator without StopIteration
     _end = object()
     it = iter(stream)
 
@@ -224,14 +167,16 @@ async def stream_response(
             if chunk.usage is not None:
                 usage_info = chunk.usage
 
+            if chunk.tool_calls:
+                tool_calls.extend(chunk.tool_calls)
+
             current_time = loop.time()
-            has_output_activity = bool(chunk.content or chunk.reasoning or chunk.tool_calls)
+            has_output_activity = bool(chunk.content or chunk.reasoning)
             if has_output_activity:
                 last_output_activity = current_time
 
             if chunk.reasoning:
                 full_reasoning += chunk.reasoning
-            # Detect thinking/reasoning (separate field, e.g. DeepSeek R1)
             if chunk.reasoning and thinking_start_time is None:
                 waiting_active = False
                 thinking_start_time = current_time
@@ -239,7 +184,6 @@ async def stream_response(
                 await status_cb(_build_thinking_status(1))
                 last_update_time = current_time
 
-            # Update thinking counter while still in thinking phase
             if thinking_start_time is not None:
                 new_seconds = max(1, int(current_time - thinking_start_time))
                 display_text_now = filter_thinking_content(full_response, streaming=True) if full_response else ""
@@ -254,7 +198,6 @@ async def stream_response(
 
                 display_text = filter_thinking_content(full_response, streaming=True)
 
-                # Detect thinking via <think> tags in content
                 if not display_text and full_response.strip() and thinking_start_time is None:
                     waiting_active = False
                     thinking_start_time = current_time
@@ -262,11 +205,8 @@ async def stream_response(
                     await status_cb(_build_thinking_status(1))
                     last_update_time = current_time
 
-                # Build thinking prefix for display
                 thinking_prefix = ""
                 if include_thought_prefix and thinking_start_time is not None and display_text:
-                    # Lock thinking duration when visible content first appears.
-                    # Do not keep extending it while normal content continues streaming.
                     if not thinking_locked:
                         thinking_seconds = max(1, int(current_time - thinking_start_time))
                         thinking_locked = True
@@ -274,7 +214,6 @@ async def stream_response(
                 thinking_block = _build_thinking_block(thinking_seconds if thinking_start_time else None)
                 leading_block = thinking_block or thinking_prefix
 
-                # First visible chunk: update immediately, skip throttle interval
                 if first_chunk and display_text:
                     waiting_active = False
                     cursor_suffix = " ▌" if stream_cursor else ""
@@ -287,7 +226,6 @@ async def stream_response(
                     elapsed = current_time - last_update_time
                     ends_with_boundary = display_text[-1] in STREAM_BOUNDARY_CHARS
 
-                    # Determine if we should update based on stream_mode
                     should_update = _should_update_stream(
                         stream_mode, elapsed, new_chars, ends_with_boundary,
                     )
@@ -298,19 +236,14 @@ async def stream_response(
                         last_update_time = current_time
                         last_update_length = len(display_text)
 
-            if chunk.tool_calls:
-                all_tool_calls.extend(chunk.tool_calls)
-
             if chunk.finish_reason:
                 finish_reason = chunk.finish_reason
     finally:
-        # Clean up waiting indicator
         waiting_active = False
         if waiting_task and not waiting_task.done():
             waiting_task.cancel()
 
-    # Finalize thinking seconds at stream end only if no visible content ever appeared.
     if thinking_start_time is not None and not thinking_locked:
         thinking_seconds = max(1, int(loop.time() - thinking_start_time))
 
-    return full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason, full_reasoning
+    return full_response, usage_info, thinking_seconds, finish_reason, full_reasoning, tool_calls

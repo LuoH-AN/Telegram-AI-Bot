@@ -45,7 +45,7 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     completion_tokens = usage["completion_tokens"]
     total_tokens = usage["total_tokens"]
 
-    message = f"Token Usage (Persona: {persona_name}):\n\n"
+    message = f"Token usage (persona: {persona_name}):\n\n"
     message += f"Prompt tokens:     {prompt_tokens:,}\n"
     message += f"Completion tokens: {completion_tokens:,}\n"
     message += f"Total tokens:      {total_tokens:,}\n"
@@ -64,11 +64,11 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         bar = "[" + "#" * filled + "-" * empty + "]"
         message += f"{bar} {percentage:.1f}%"
     else:
-        message += f"\nLimit: Unlimited"
+        message += f"\nLimit: unlimited"
 
     # Show total across all personas
     total_all = get_total_tokens_all_personas(user_id)
-    message += f"\n\n--- All Personas ---\n"
+    message += f"\n\n--- All personas ---\n"
     message += f"Total tokens: {total_all:,}"
 
     await update.message.reply_text(message)
@@ -86,11 +86,11 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if file_buffer is None:
         await update.message.reply_text(
-            f"No conversation history to export in current session (persona: '{persona_name}')."
+            f"Current session (persona: '{persona_name}') has no conversation history to export."
         )
         return
 
-    caption = f"Chat history export (Persona: {persona_name})"
+    caption = f"Conversation history export (persona: {persona_name})"
     if session_id is not None:
         caption += f"\nSession ID: {session_id}"
 

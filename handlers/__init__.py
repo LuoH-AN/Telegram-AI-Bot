@@ -15,6 +15,7 @@ from .commands import (
     persona_command,
     chat_command,
     web_command,
+    skill_command,
 )
 
 # Messages
@@ -27,7 +28,6 @@ from .callbacks import model_callback, help_callback
 from .common import should_respond_in_group
 
 __all__ = [
-    # Commands
     "start",
     "help_command",
     "clear",
@@ -41,13 +41,11 @@ __all__ = [
     "persona_command",
     "chat_command",
     "web_command",
-    # Messages
+    "skill_command",
     "chat",
     "handle_photo",
     "handle_document",
-    # Callbacks
     "model_callback",
     "help_callback",
-    # Common
     "should_respond_in_group",
 ]

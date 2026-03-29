@@ -18,14 +18,14 @@ CREATE_USER_SETTINGS_TABLE = """
         show_thinking BOOLEAN DEFAULT FALSE,
         token_limit BIGINT DEFAULT 0,
         current_persona TEXT DEFAULT 'default',
-        enabled_tools TEXT,
         tts_voice TEXT,
         tts_style TEXT,
         tts_endpoint TEXT,
         api_presets TEXT,
         title_model TEXT,
         cron_model TEXT,
-        cron_enabled_tools TEXT
+        stream_mode TEXT,
+        global_prompt TEXT
     )
 """
 
@@ -109,11 +109,6 @@ MIGRATE_SETTINGS_ADD_CRON_MODEL = """
     ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS cron_model TEXT
 """
 
-# Migration: add cron_enabled_tools column to existing user_settings tables
-MIGRATE_SETTINGS_ADD_CRON_ENABLED_TOOLS = """
-    ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS cron_enabled_tools TEXT
-"""
-
 # Migration: add stream_mode column to existing user_settings tables
 MIGRATE_SETTINGS_ADD_STREAM_MODE = """
     ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS stream_mode TEXT
@@ -161,7 +156,6 @@ CREATE_USER_LOGS_TABLE = """
         prompt_tokens INTEGER DEFAULT 0,
         completion_tokens INTEGER DEFAULT 0,
         total_tokens INTEGER DEFAULT 0,
-        tool_calls TEXT,
         latency_ms INTEGER,
         persona_name TEXT,
         error_message TEXT,
@@ -195,6 +189,62 @@ CREATE_CRON_TASKS_INDEX = """
     ON user_cron_tasks(user_id)
 """
 
+CREATE_USER_SKILLS_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_skills (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        name TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        version TEXT DEFAULT '',
+        enabled BOOLEAN DEFAULT TRUE,
+        install_status TEXT NOT NULL DEFAULT 'installed',
+        entrypoint TEXT DEFAULT '',
+        manifest_json TEXT DEFAULT '{}',
+        capabilities_json TEXT DEFAULT '[]',
+        persist_mode TEXT NOT NULL DEFAULT 'none',
+        last_restore_at TIMESTAMP,
+        last_persist_at TIMESTAMP,
+        last_error TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+    )
+"""
+
+CREATE_USER_SKILLS_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_user_skills_user
+    ON user_skills(user_id)
+"""
+
+CREATE_USER_SKILL_STATES_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_skill_states (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        skill_name TEXT NOT NULL,
+        state_json TEXT DEFAULT '{}',
+        state_version TEXT DEFAULT '',
+        checkpoint_ref TEXT DEFAULT '',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, skill_name)
+    )
+"""
+
+CREATE_USER_SKILL_ARTIFACTS_TABLE = """
+    CREATE TABLE IF NOT EXISTS user_skill_artifacts (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        skill_name TEXT NOT NULL,
+        artifact_type TEXT NOT NULL,
+        storage_backend TEXT NOT NULL DEFAULT 'hf_dataset',
+        storage_path TEXT NOT NULL,
+        git_revision TEXT DEFAULT '',
+        meta_json TEXT DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
 # All schema creation statements in order
 SCHEMA_STATEMENTS = [
     CREATE_USER_SETTINGS_TABLE,
@@ -208,7 +258,6 @@ SCHEMA_STATEMENTS = [
     CREATE_USER_PERSONA_TOKENS_TABLE,
     MIGRATE_PERSONA_TOKENS_ADD_LIMIT,
     MIGRATE_SETTINGS_ADD_CRON_MODEL,
-    MIGRATE_SETTINGS_ADD_CRON_ENABLED_TOOLS,
     MIGRATE_SETTINGS_ADD_STREAM_MODE,
     MIGRATE_SETTINGS_ADD_GLOBAL_PROMPT,
     MIGRATE_SETTINGS_ADD_REASONING_EFFORT,
@@ -219,6 +268,10 @@ SCHEMA_STATEMENTS = [
     CREATE_USER_LOGS_INDEX,
     CREATE_USER_CRON_TASKS_TABLE,
     CREATE_CRON_TASKS_INDEX,
+    CREATE_USER_SKILLS_TABLE,
+    CREATE_USER_SKILLS_INDEX,
+    CREATE_USER_SKILL_STATES_TABLE,
+    CREATE_USER_SKILL_ARTIFACTS_TABLE,
 ]
 
 

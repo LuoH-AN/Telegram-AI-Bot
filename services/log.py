@@ -37,11 +37,10 @@ def record_ai_interaction(
     _execute_insert(
         """INSERT INTO user_logs
            (user_id, log_type, model, prompt_tokens, completion_tokens,
-            total_tokens, tool_calls, latency_ms, persona_name)
-           VALUES (%s, 'ai_interaction', %s, %s, %s, %s, %s, %s, %s)""",
+            total_tokens, latency_ms, persona_name)
+           VALUES (%s, 'ai_interaction', %s, %s, %s, %s, %s, %s)""",
         (
             user_id, model, prompt_tokens, completion_tokens, total_tokens,
-            json.dumps(tool_calls) if tool_calls else None,
             latency_ms, persona_name,
         ),
     )
@@ -78,6 +77,37 @@ def record_web_action(
             user_id, action,
             json.dumps(detail, ensure_ascii=False) if detail is not None else None,
             persona_name,
+        ),
+    )
+
+
+def record_terminal_command(
+    user_id: int,
+    *,
+    command: str,
+    exit_code: int,
+    cwd: str,
+    stdout: str,
+    stderr: str,
+    blocked: bool = False,
+):
+    """Record one terminal command execution."""
+    detail = {
+        "command": command,
+        "exit_code": exit_code,
+        "cwd": cwd,
+        "stdout": stdout,
+        "stderr": stderr,
+        "blocked": blocked,
+    }
+    _execute_insert(
+        """INSERT INTO user_logs
+           (user_id, log_type, error_message, error_context)
+           VALUES (%s, 'terminal_command', %s, %s)""",
+        (
+            user_id,
+            command,
+            json.dumps(detail, ensure_ascii=False),
         ),
     )
 

@@ -54,4 +54,4 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     session_id = ensure_session(user_id, persona_name)
     clear_conversation(session_id)
     reset_token_usage(user_id)
-    await update.message.reply_text(f"Conversation cleared and usage reset for persona '{persona_name}'.")
+    await update.message.reply_text(f"Cleared conversation history and reset usage for persona '{persona_name}'.")

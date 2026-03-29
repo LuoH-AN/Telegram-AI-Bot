@@ -16,11 +16,9 @@ from config import (
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_ENDPOINT,
-    DEFAULT_ENABLED_TOOLS,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SHOW_THINKING,
 )
-from utils.tooling import normalize_tools_csv, resolve_cron_tools_csv
 
 
 def parse_settings_row(row: Mapping) -> dict:
@@ -32,13 +30,6 @@ def parse_settings_row(row: Mapping) -> dict:
         except (json.JSONDecodeError, TypeError):
             pass
 
-    enabled_tools = normalize_tools_csv(
-        row.get("enabled_tools") or DEFAULT_ENABLED_TOOLS
-    )
-    cron_tools = normalize_tools_csv(
-        row.get("cron_enabled_tools")
-        or resolve_cron_tools_csv({"enabled_tools": enabled_tools})
-    )
     show_thinking_raw = row.get("show_thinking")
     if isinstance(show_thinking_raw, bool):
         show_thinking = show_thinking_raw
@@ -65,8 +56,6 @@ def parse_settings_row(row: Mapping) -> dict:
         "stream_mode": row.get("stream_mode") or "",
         "token_limit": row.get("token_limit") or 0,
         "current_persona": row.get("current_persona") or "default",
-        "enabled_tools": enabled_tools,
-        "cron_enabled_tools": cron_tools,
         "tts_voice": row.get("tts_voice") or DEFAULT_TTS_VOICE,
         "tts_style": row.get("tts_style") or DEFAULT_TTS_STYLE,
         "tts_endpoint": row.get("tts_endpoint") or DEFAULT_TTS_ENDPOINT,
@@ -137,14 +126,71 @@ def parse_memory_row(row: Mapping) -> dict:
     }
 
 
-def parse_cron_task_row(row: Mapping) -> dict:
-    """Convert a ``user_cron_tasks`` DB row into a cron-task dict."""
+def parse_skill_row(row: Mapping) -> dict:
+    """Convert a ``user_skills`` DB row into a cache-ready skill dict."""
+    manifest = {}
+    capabilities: list = []
+    if row.get("manifest_json"):
+        try:
+            manifest = json.loads(row["manifest_json"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if row.get("capabilities_json"):
+        try:
+            parsed = json.loads(row["capabilities_json"])
+            if isinstance(parsed, list):
+                capabilities = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
     return {
         "id": row["id"],
         "user_id": row["user_id"],
         "name": row["name"],
-        "cron_expression": row["cron_expression"],
-        "prompt": row["prompt"],
-        "enabled": row["enabled"],
-        "last_run_at": row["last_run_at"],
+        "display_name": row.get("display_name") or row["name"],
+        "source_type": row.get("source_type") or "builtin",
+        "source_ref": row.get("source_ref") or "",
+        "version": row.get("version") or "",
+        "enabled": bool(row.get("enabled", True)),
+        "install_status": row.get("install_status") or "installed",
+        "entrypoint": row.get("entrypoint") or "",
+        "manifest": manifest,
+        "capabilities": capabilities,
+        "persist_mode": row.get("persist_mode") or "none",
+        "last_restore_at": row.get("last_restore_at"),
+        "last_persist_at": row.get("last_persist_at"),
+        "last_error": row.get("last_error") or "",
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def parse_skill_state_row(row: Mapping) -> dict:
+    """Convert a ``user_skill_states`` DB row into a cache-ready state dict."""
+    state = {}
+    if row.get("state_json"):
+        try:
+            state = json.loads(row["state_json"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "skill_name": row["skill_name"],
+        "state": state,
+        "state_version": row.get("state_version") or "",
+        "checkpoint_ref": row.get("checkpoint_ref") or "",
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def parse_cron_task_row(row: Mapping) -> dict:
+    """Convert a ``user_cron_tasks`` DB row into a cache-ready cron task dict."""
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "name": row["name"],
+        "cron_expression": row.get("cron_expression") or "",
+        "prompt": row.get("prompt") or "",
+        "enabled": bool(row.get("enabled", True)),
+        "last_run_at": row.get("last_run_at"),
     }

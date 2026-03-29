@@ -86,7 +86,7 @@ async def forget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         index = int(arg)
         if delete_memory(user_id, index):
             logger.info("%s /forget #%d", ctx, index)
-            await update.message.reply_text(f"Memory #{index} deleted.")
+            await update.message.reply_text(f"Deleted memory #{index}.")
         else:
             await update.message.reply_text(build_invalid_memory_number_message(index, "/"))
     except ValueError:

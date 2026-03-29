@@ -95,14 +95,17 @@ class ToolRegistry:
 
     def _get_filtered_tools(self, enabled_tools: str | list[str] | None) -> list[BaseTool]:
         """Filter registered tools by enabled names."""
-        if enabled_tools is None:
+        if enabled_tools is None or enabled_tools == "all":
             return self._tools
-        
+
         if isinstance(enabled_tools, str):
             enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
         else:
             enabled_list = [t.lower() for t in enabled_tools]
-            
+
+        if "all" in enabled_list:
+            return self._tools
+
         return [t for t in self._tools if t.name.lower() in enabled_list]
 
     # -- public API --

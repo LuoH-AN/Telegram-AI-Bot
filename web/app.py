@@ -113,12 +113,4 @@ def create_app() -> FastAPI:
             status_code=500,
         )
 
-    # Mount MCP server (share same port with web dashboard).
-    # Keep this near the end because the MCP app is mounted on "", which acts like a catch-all.
-    try:
-        from tools.mcp_server import mount_mcp_to_app
-        mount_mcp_to_app(app)
-    except Exception as e:
-        logger.warning("Failed to mount MCP server: %s", e)
-
     return app

@@ -21,12 +21,6 @@ from services import (
 from services.refresh import ensure_user_state
 from ai import get_openai_client
 from handlers.common import get_log_context
-from utils.tooling import (
-    AVAILABLE_TOOLS,
-    normalize_tools_csv,
-    resolve_cron_tools_csv,
-    resolve_enabled_tools_csv,
-)
 from utils.platform_parity import (
     build_api_key_required_message,
     build_api_key_verify_failed_message,
@@ -85,8 +79,6 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     global_prompt = settings.get("global_prompt", "") or ""
     global_prompt_display = _truncate_display(global_prompt) if global_prompt else "(none)"
 
-    enabled_tools = resolve_enabled_tools_csv(settings)
-    cron_tools = resolve_cron_tools_csv(settings) or "(none)"
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
@@ -112,17 +104,15 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"token_limit({persona_name}): {token_limit if token_limit > 0 else 'unlimited'}\n"
         f"global_prompt: {global_prompt_display}\n"
         f"prompt: {prompt_display}\n"
-        f"tools: {enabled_tools}\n\n"
-        f"cron_tools: {cron_tools}\n\n"
         f"tts_voice: {tts_voice}\n"
         f"tts_style: {tts_style}\n"
         f"tts_endpoint: {tts_endpoint}\n\n"
         f"providers: {presets_info}\n\n"
         f"Use /persona to manage personas and prompts.\n"
         f"Use /chat to manage chat sessions.\n"
-        f"Use /set tool <name> <on|off> to manage tools.\n"
         f"Use /set provider to manage API providers."
     )
+
 
 
 async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -134,43 +124,8 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info("%s /set %s", ctx, " ".join(context.args)[:120] if context.args else "")
 
     if not context.args or len(context.args) < 2:
-        # Check if it's "/set model" without value
         if context.args and context.args[0].lower() == "model":
             await _show_model_list(update, context)
-            return
-        # Check if it's "/set tool" without value
-        if context.args and context.args[0].lower() == "tool":
-            enabled_tools = resolve_enabled_tools_csv(settings)
-            enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
-            status = []
-            for t in AVAILABLE_TOOLS:
-                icon = "[on]" if t in enabled_list else "[off]"
-                status.append(f"{icon} {t}")
-            await update.message.reply_text(
-                f"Tool Settings:\n\n" + "\n".join(status) + "\n\n"
-                "Usage: /set tool <name> <on|off>"
-            )
-            return
-        # Check if it's "/set cron_tool" without enough args
-        if context.args and context.args[0].lower() == "cron_tool":
-            cron_tools = resolve_cron_tools_csv(settings)
-            enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
-            status = []
-            for t in AVAILABLE_TOOLS:
-                icon = "[on]" if t in enabled_list else "[off]"
-                status.append(f"{icon} {t}")
-            await update.message.reply_text(
-                f"Cron Tool Settings:\n\n" + "\n".join(status) + "\n\n"
-                "Usage: /set cron_tool <name> <on|off>"
-            )
-            return
-        if context.args and context.args[0].lower() == "cron_tools":
-            cron_tools = settings.get("cron_enabled_tools", "") or "(auto: chat tools without memory)"
-            await update.message.reply_text(
-                f"Current cron_tools: {cron_tools}\n"
-                f"Usage: /set cron_tools <tool1,tool2,...>\n"
-                f"Use /set cron_tools clear to reset to auto."
-            )
             return
 
         if context.args and context.args[0].lower() in {"voice", "style", "endpoint"}:
@@ -361,98 +316,6 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         update_user_setting(user_id, "tts_endpoint", normalized)
         logger.info("%s set endpoint = %s", ctx, normalized)
         await update.message.reply_text(f"endpoint set to: {normalized}")
-    elif key == "tool":
-        if len(context.args) < 3:
-            await update.message.reply_text("Usage: /set tool <name> <on|off>")
-            return
-
-        tool_name = context.args[1].lower()
-        action = context.args[2].lower()
-
-        if tool_name not in AVAILABLE_TOOLS:
-            await update.message.reply_text(
-                f"Unknown/unsupported tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}"
-            )
-            return
-
-        enabled_tools = resolve_enabled_tools_csv(settings)
-        enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
-
-        if action == "on":
-            if tool_name not in enabled_list:
-                enabled_list.append(tool_name)
-        elif action == "off":
-            if tool_name in enabled_list:
-                enabled_list.remove(tool_name)
-        else:
-            await update.message.reply_text("Action must be 'on' or 'off'")
-            return
-
-        new_enabled = normalize_tools_csv(",".join(enabled_list))
-        update_user_setting(user_id, "enabled_tools", new_enabled)
-        logger.info("%s set tool %s = %s", ctx, tool_name, action)
-        await update.message.reply_text(f"Tool {tool_name} set to {action}")
-    elif key == "cron_tool":
-        if len(context.args) < 3:
-            await update.message.reply_text("Usage: /set cron_tool <name> <on|off>")
-            return
-
-        tool_name = context.args[1].lower()
-        action = context.args[2].lower()
-
-        if tool_name not in AVAILABLE_TOOLS:
-            await update.message.reply_text(
-                f"Unknown/unsupported tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}"
-            )
-            return
-
-        cron_tools = resolve_cron_tools_csv(settings)
-        enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
-
-        if action == "on":
-            if tool_name not in enabled_list:
-                enabled_list.append(tool_name)
-        elif action == "off":
-            if tool_name in enabled_list:
-                enabled_list.remove(tool_name)
-        else:
-            await update.message.reply_text("Action must be 'on' or 'off'")
-            return
-
-        new_enabled = normalize_tools_csv(",".join(enabled_list))
-        update_user_setting(user_id, "cron_enabled_tools", new_enabled)
-        logger.info("%s set cron_tool %s = %s", ctx, tool_name, action)
-        await update.message.reply_text(f"Cron tool {tool_name} set to {action}")
-    elif key == "cron_tools":
-        val = value.strip()
-        if not val or val.lower() in {"off", "clear", "none", "default"}:
-            update_user_setting(user_id, "cron_enabled_tools", "")
-            logger.info("%s cleared cron_enabled_tools (auto mode)", ctx)
-            await update.message.reply_text(
-                "cron_tools cleared.\n"
-                "Now cron tasks will auto-use chat tools without memory."
-            )
-            return
-
-        normalized = normalize_tools_csv(val)
-        if not normalized:
-            await update.message.reply_text(
-                "No valid tools provided.\n"
-                f"Available: {', '.join(AVAILABLE_TOOLS)}"
-            )
-            return
-
-        requested = [t.strip().lower() for t in val.split(",") if t.strip()]
-        unknown = [t for t in requested if t not in AVAILABLE_TOOLS]
-        update_user_setting(user_id, "cron_enabled_tools", normalized)
-        logger.info("%s set cron_enabled_tools = %s", ctx, normalized)
-        if unknown:
-            await update.message.reply_text(
-                f"cron_tools set to: {normalized}\n"
-                f"Ignored unknown tools: {', '.join(sorted(set(unknown)))}"
-            )
-        else:
-            await update.message.reply_text(f"cron_tools set to: {normalized}")
     elif key == "provider":
         await _handle_provider_command(update, context, user_id, settings, ctx)
     elif key in ("title_model", "cron_model"):

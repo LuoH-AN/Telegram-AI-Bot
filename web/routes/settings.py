@@ -5,7 +5,6 @@ from pydantic import BaseModel, field_validator
 
 from services import get_user_settings, update_user_setting, normalize_tts_endpoint
 from services.log import record_web_action
-from utils.tooling import AVAILABLE_TOOLS, normalize_tools_csv
 from web.auth import get_current_user
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -18,8 +17,6 @@ ALLOWED_FIELDS = {
     "reasoning_effort",
     "show_thinking",
     "stream_mode",
-    "enabled_tools",
-    "cron_enabled_tools",
     "tts_voice",
     "tts_style",
     "tts_endpoint",
@@ -48,8 +45,6 @@ class SettingsUpdate(BaseModel):
     reasoning_effort: str | None = None
     show_thinking: bool | None = None
     stream_mode: str | None = None
-    enabled_tools: str | None = None
-    cron_enabled_tools: str | None = None
     tts_voice: str | None = None
     tts_style: str | None = None
     tts_endpoint: str | None = None
@@ -91,13 +86,6 @@ class SettingsUpdate(BaseModel):
         if normalized not in ALLOWED_STREAM_MODES:
             raise ValueError("stream_mode must be one of: default, time, chars, clear")
         return normalized
-
-    @field_validator("enabled_tools", "cron_enabled_tools")
-    @classmethod
-    def validate_tools_csv(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        return normalize_tools_csv(value)
 
     @field_validator("tts_style")
     @classmethod
@@ -141,7 +129,6 @@ async def get_settings(user_id: int = Depends(get_current_user)):
     safe["has_api_key"] = bool(api_key)
     safe["api_key_masked"] = _mask_key(api_key)
     safe["stream_mode"] = safe.get("stream_mode", "") or ""
-    safe["available_tools"] = list(AVAILABLE_TOOLS)
     return safe
 
 

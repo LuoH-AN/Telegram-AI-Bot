@@ -1,15 +1,8 @@
-"""Text message handler with streaming output.
-
-This module is the main orchestrator for the AI chat loop.  The heavy
-lifting is delegated to sub-modules:
-
-- ``streaming``      – AI response streaming engine
-- ``tool_dispatch``  – tool call execution, dedup, status animation
-- ``delivery``       – pending voice / screenshot delivery
-"""
+"""Text message handler with streaming output."""
 
 import asyncio
 import logging
+import re
 import time
 
 from telegram import Update
@@ -19,7 +12,6 @@ from telegram.ext import ContextTypes
 from config import (
     MAX_MESSAGE_LENGTH,
     STREAM_UPDATE_MODE,
-    TOOL_CONTINUE_OR_FINISH_PROMPT,
     VALID_REASONING_EFFORTS,
     SHOW_THINKING_MAX_CHARS,
 )
@@ -37,20 +29,16 @@ from services import (
     get_session_message_count,
     generate_session_title,
     conversation_slot,
+    handle_skill_command,
+    ensure_skill_terminal,
+    call_skill,
 )
 from services.log import record_ai_interaction, record_error
 from services.refresh import ensure_user_state
-from tools import (
-    get_all_tools,
-    get_tool_instructions,
-    enrich_system_prompt,
-    post_process_response,
-)
-from ai import get_ai_client, ToolCall
+from ai import get_ai_client
 from cache import cache
 from utils import (
     filter_thinking_content,
-    parse_raw_tool_calls,
     extract_thinking_blocks,
     format_thinking_block,
     send_message_safe,
@@ -62,7 +50,6 @@ from utils import (
 from utils.ai_helpers import (
     estimate_tokens as _estimate_tokens,
     estimate_tokens_str as _estimate_tokens_str,
-    tool_dedup_key as _tool_dedup_key,
 )
 from handlers.common import should_respond_in_group, get_log_context
 from utils.platform_parity import (
@@ -73,20 +60,11 @@ from utils.platform_parity import (
     format_log_context,
 )
 
-from .streaming import stream_response, stable_text_before_tool_call
-from .tool_dispatch import (
-    build_tool_status_lines,
-    build_empty_response_fallback,
-    execute_tool_round,
-    collect_tool_error_snippets,
-)
-from .delivery import deliver_pending_voices, deliver_pending_screenshots
+from .streaming import stream_response
 
 logger = logging.getLogger(__name__)
 
-
 def _make_thinking_prefix(seconds: int | float) -> str:
-    """Build a thinking duration prefix string, or empty if no thinking."""
     if seconds > 0:
         return f"_Thinking for {int(seconds)}s_\n\n"
     return ""
@@ -101,13 +79,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                user_content=None, save_msg=None, bot_message=None,
                frozen_persona_name: str | None = None,
                frozen_session_id: int | None = None) -> None:
-    """Handle chat messages with streaming output.
-
-    Can be called from photo/document handlers with pre-processed content:
-      user_content: str or list[dict] to send to the AI
-      save_msg: text to store in conversation history
-      bot_message: existing placeholder message to update
-    """
     internal_call = user_content is not None
 
     if not internal_call:
@@ -142,14 +113,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         logger.info("%s media: %s", ctx, (save_msg or "")[:80])
 
     settings = get_user_settings(user_id)
-    enabled_tools = settings.get("enabled_tools", "memory,search,fetch,wikipedia,tts")
 
-    if not internal_call:
-        if not has_api_key(user_id):
-            await update.message.reply_text(build_api_key_required_message("/"))
-            return
+    if not internal_call and not has_api_key(user_id):
+        await update.message.reply_text(build_api_key_required_message("/"))
+        return
 
-    # Freeze persona/session snapshot for this request
     persona_name = frozen_persona_name or get_current_persona_name(user_id)
     session_id = frozen_session_id or ensure_session(user_id, persona_name)
     if session_id is None:
@@ -165,7 +133,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         await update.message.chat.send_action(ChatAction.TYPING)
         bot_message = await update.message.reply_text("Thinking...")
 
-    # --- Set up streaming output plumbing ---
     async def _edit_placeholder(text: str) -> bool:
         if bot_message is None:
             return False
@@ -215,63 +182,48 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         client = get_ai_client(user_id)
         request_start = time.monotonic()
 
-        # --- Build system prompt ---
         system_prompt = get_system_prompt(user_id, persona_name)
         system_prompt += "\n\n" + get_datetime_prompt()
-
-        if isinstance(user_content, str):
-            query_text = user_content
-        elif isinstance(user_content, list):
-            query_text = next(
-                (p["text"] for p in user_content if isinstance(p, dict) and p.get("type") == "text"),
-                save_msg or "",
-            )
-        else:
-            query_text = save_msg or ""
-
-        system_prompt = enrich_system_prompt(
-            user_id, system_prompt, enabled_tools=enabled_tools, query=query_text
-        )
-        system_prompt += get_tool_instructions(enabled_tools=enabled_tools)
         system_prompt += build_latex_guidance()
 
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(conversation)
         messages.append({"role": "user", "content": user_content})
 
-        tools = get_all_tools(enabled_tools=enabled_tools)
-
-        # --- Accumulate token usage across rounds ---
         total_prompt_tokens = 0
         total_completion_tokens = 0
         total_thinking_seconds = 0
+        truncated_prefix = ""
+        last_text_response = ""
+        thinking_segments: list[str] = []
 
         user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
         user_reasoning_effort = _normalize_reasoning_effort(settings.get("reasoning_effort", ""))
         show_thinking = bool(settings.get("show_thinking"))
 
-        # --- Tool call loop ---
-        last_text_response = ""
-        seen_tool_keys: set[str] = set()
-        tool_results_pending = False
-        tool_error_snippets: list[str] = []
-        truncated_prefix = ""
-        thinking_segments: list[str] = []
-        round_num = 0
-        while True:
-            round_num += 1
+        # Get tool definitions
+        from tools import get_all_tools, process_tool_calls
+        tool_definitions = get_all_tools(enabled_tools="all")
 
-            full_response, usage_info, tool_calls, thinking_seconds, finish_reason, reasoning_content = await stream_response(
-                client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
-                tools, _stream_update, _status_update,
-                show_waiting=(round_num == 1),
+        while True:
+            full_response, usage_info, thinking_seconds, finish_reason, reasoning_content, tool_calls = await stream_response(
+                client,
+                messages,
+                settings["model"],
+                settings["temperature"],
+                user_reasoning_effort,
+                _stream_update,
+                _status_update,
+                show_waiting=(not truncated_prefix),
                 stream_mode=user_stream_mode,
                 include_thought_prefix=True,
                 stream_cursor=True,
                 show_thinking=show_thinking,
                 thinking_max_chars=SHOW_THINKING_MAX_CHARS,
+                tools=tool_definitions,
             )
             total_thinking_seconds += thinking_seconds
+
             if show_thinking:
                 tag_thinking, _ = extract_thinking_blocks(full_response)
                 for segment in (reasoning_content, tag_thinking):
@@ -286,129 +238,93 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 total_prompt_tokens += usage_info.get("prompt_tokens") or 0
                 total_completion_tokens += usage_info.get("completion_tokens") or 0
 
-            # Parse raw tool call markup from content
-            if not tool_calls and full_response:
-                parsed_calls, cleaned = parse_raw_tool_calls(full_response)
-                if parsed_calls:
-                    tool_calls = [
-                        ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
-                        for tc in parsed_calls
-                    ]
-                    full_response = cleaned
-                    logger.info("%s parsed %d raw tool call(s) from content", ctx, len(tool_calls))
-
             if full_response.strip():
                 last_text_response = full_response
 
-            if filter_thinking_content(full_response).strip():
-                tool_results_pending = False
+            # Handle tool calls
+            if tool_calls:
+                logger.info("%s model requested %d tool calls", ctx, len(tool_calls))
 
-            if not tool_calls:
-                if finish_reason == "length":
-                    logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
-                    truncated_text = full_response or ""
-                    truncated_prefix += truncated_text
-                    messages.append({"role": "assistant", "content": truncated_text})
-                    messages.append({"role": "user", "content": "Please continue and complete your response concisely."})
-                    continue
-                break
+                # Deliver current response first (if any)
+                if full_response.strip():
+                    await render_pump.drain()
+                    await render_pump.stop()
+                    display_text = filter_thinking_content(full_response).strip()
+                    if display_text:
+                        await outbound.deliver_final(display_text)
 
-            # Show tool call status to user
-            raw_display_text = filter_thinking_content(full_response, streaming=True)
-            display_text = stable_text_before_tool_call(raw_display_text)
-            status_lines = build_tool_status_lines(tool_calls)
-            status_text = "\n".join(status_lines)
-            thinking_prefix = _make_thinking_prefix(total_thinking_seconds)
-            if display_text:
-                await _stream_update(thinking_prefix + display_text + "\n\n" + status_text)
-            else:
-                await _status_update(thinking_prefix + status_text if thinking_prefix else status_text)
+                # Execute tools
+                tool_results = process_tool_calls(user_id, tool_calls, enabled_tools="all")
 
-            # Deduplicate tool calls
-            new_tool_calls = []
-            dup_indices: set[int] = set()
-            for i, tc in enumerate(tool_calls):
-                key = _tool_dedup_key(tc)
-                if key in seen_tool_keys:
-                    dup_indices.add(i)
-                else:
-                    seen_tool_keys.add(key)
-                    new_tool_calls.append(tc)
-            no_new_tool_calls = not new_tool_calls and bool(tool_calls)
+                # Add assistant message with tool calls
+                messages.append({
+                    "role": "assistant",
+                    "content": full_response or "",
+                    "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}} for tc in tool_calls]
+                })
 
-            # Execute tool calls
-            tool_results = await execute_tool_round(
-                user_id=user_id,
-                tool_calls=tool_calls,
-                new_tool_calls=new_tool_calls,
-                dup_indices=dup_indices,
-                enabled_tools=enabled_tools,
-                display_text=display_text,
-                thinking_prefix=thinking_prefix,
-                stream_update=_stream_update,
-                ctx=ctx,
-            )
+                # Add tool results
+                for result in tool_results:
+                    messages.append(result)
 
-            if not tool_results:
-                logger.warning("%s tool calls produced no results", ctx)
-                break
+                # Create new message for final response
+                bot_message = await update.message.reply_text("Generating response...")
 
-            tool_error_snippets = collect_tool_error_snippets(tool_results, tool_error_snippets)
+                # Reset outbound adapter for new message
+                async def _edit_new_placeholder(text: str) -> bool:
+                    nonlocal bot_message
+                    if bot_message is None:
+                        return False
+                    return await edit_message_safe(bot_message, text)
 
-            # Build assistant message with tool_calls for the conversation
-            visible_content = filter_thinking_content(full_response).strip() or None
-            assistant_msg = {
-                "role": "assistant",
-                "content": visible_content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": tc.arguments,
-                        },
-                    }
-                    for tc in tool_calls
-                ],
-            }
-            messages.append(assistant_msg)
-            messages.extend(tool_results)
-            tool_results_pending = True
-            if no_new_tool_calls:
-                logger.info(
-                    "%s no new executable tool calls in round %d; asking model to finish or continue with tools",
-                    ctx,
-                    round_num,
+                async def _send_new_text(text: str) -> bool:
+                    sent_messages = await send_message_safe(update.message, text)
+                    return bool(sent_messages)
+
+                async def _delete_new_placeholder() -> None:
+                    nonlocal bot_message
+                    if bot_message is None:
+                        return
+                    await bot_message.delete()
+                    bot_message = None
+
+                outbound = StreamOutboundAdapter(
+                    max_message_length=MAX_MESSAGE_LENGTH,
+                    has_placeholder=lambda: bot_message is not None,
+                    edit_placeholder=_edit_new_placeholder,
+                    send_text=_send_new_text,
+                    delete_placeholder=_delete_new_placeholder,
+                    empty_placeholder_text="Generating response...",
                 )
-                messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
+
+                # Recreate render event handler with new outbound
+                async def _render_event_new(event) -> None:
+                    await outbound.stream_update(event.text)
+
+                render_pump = ChatEventPump(_render_event_new)
+                render_pump.start()
+
+                # Continue to get final response
                 continue
 
-            messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
+            if finish_reason == "length":
+                logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
+                truncated_text = full_response or ""
+                truncated_prefix += truncated_text
+                messages.append({"role": "assistant", "content": truncated_text})
+                messages.append({"role": "user", "content": "Please continue and complete your response concisely."})
+                continue
+            break
 
-        # --- Deliver pending media ---
-        await deliver_pending_voices(update, user_id)
-        await deliver_pending_screenshots(update, user_id)
-
-        # --- Build and deliver final response ---
         combined_response = truncated_prefix + full_response if truncated_prefix else full_response
-        final_text = filter_thinking_content(combined_response)
+        final_text = filter_thinking_content(combined_response).strip()
 
         if not final_text and last_text_response:
-            final_text = filter_thinking_content(last_text_response)
-
-        final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools).strip()
+            final_text = filter_thinking_content(last_text_response).strip()
 
         if not final_text:
-            logger.warning(
-                "%s model returned empty visible response (tool_calls=%d tool_errors=%d last_text_len=%d truncated_len=%d)",
-                ctx,
-                len(seen_tool_keys),
-                len(tool_error_snippets),
-                len(last_text_response),
-                len(truncated_prefix),
-            )
-            final_text = build_empty_response_fallback(tool_error_snippets)
+            logger.warning("%s model returned empty visible response", ctx)
+            final_text = "(Empty response)"
 
         thinking_block = ""
         if show_thinking and thinking_segments:
@@ -421,13 +337,23 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
         if thinking_block:
             display_final = thinking_block + final_text
-        else:
+        elif final_text and total_thinking_seconds > 0 and final_text != "(Empty response)":
             thinking_prefix = _make_thinking_prefix(total_thinking_seconds)
             display_final = thinking_prefix + final_text
+        else:
+            display_final = final_text
 
         await render_pump.drain()
         await render_pump.stop()
-        final_delivery_ok = await outbound.deliver_final(display_final)
+
+        # Skip delivery if only empty response with no thinking block
+        if display_final == "(Empty response)" and not thinking_block:
+            final_delivery_ok = True
+            if bot_message:
+                await bot_message.delete()
+                bot_message = None
+        else:
+            final_delivery_ok = await outbound.deliver_final(display_final)
         final_delivery_confirmed = final_delivery_ok
         if final_delivery_ok:
             add_user_message(session_id, save_msg)
@@ -443,7 +369,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 outbound.stream_attempts,
             )
 
-        # --- Record token usage ---
         if not total_prompt_tokens and not total_completion_tokens:
             total_prompt_tokens = _estimate_tokens(messages)
             total_completion_tokens = _estimate_tokens_str(final_text)
@@ -452,12 +377,16 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 user_id, total_prompt_tokens, total_completion_tokens, persona_name=persona_name
             )
 
-        # --- Record AI interaction log ---
         latency_ms = int((time.monotonic() - request_start) * 1000)
-        tool_name_list = list({k.split(":")[0] for k in seen_tool_keys}) if seen_tool_keys else None
         record_ai_interaction(
-            user_id, settings["model"], total_prompt_tokens, total_completion_tokens,
-            total_prompt_tokens + total_completion_tokens, tool_name_list, latency_ms, persona_name,
+            user_id,
+            settings["model"],
+            total_prompt_tokens,
+            total_completion_tokens,
+            total_prompt_tokens + total_completion_tokens,
+            None,
+            latency_ms,
+            persona_name,
         )
 
     except Exception as e:
@@ -478,7 +407,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
 
 async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
-    """Generate and set a title for a session (runs as background task)."""
     try:
         title = await generate_session_title(user_id, user_message, ai_response)
         if title:

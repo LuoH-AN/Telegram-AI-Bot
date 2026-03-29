@@ -39,7 +39,6 @@ from config import (
     WEB_BASE_URL,
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_STYLE,
-    TOOL_CONTINUE_OR_FINISH_PROMPT,
 )
 from cache import init_database
 from web.app import create_app
@@ -89,23 +88,13 @@ from services import (
     clear_conversation,
     generate_session_title,
     conversation_slot,
+    handle_skill_command,
 )
 from services.log import record_ai_interaction, record_error
 from services.cron import start_cron_scheduler, set_main_loop
-from tools import (
-    get_all_tools,
-    process_tool_calls,
-    get_tool_instructions,
-    enrich_system_prompt,
-    post_process_response,
-    drain_pending_voice_jobs,
-    drain_pending_screenshot_jobs,
-    prewarm_browser_tools,
-)
-from ai import get_ai_client, ToolCall
+from ai import get_ai_client
 from utils import (
     filter_thinking_content,
-    parse_raw_tool_calls,
     get_datetime_prompt,
     split_message,
     get_file_extension,
@@ -116,20 +105,11 @@ from utils import (
     ChatEventPump,
     StreamOutboundAdapter,
 )
-from utils.tooling import (
-    AVAILABLE_TOOLS,
-    normalize_tools_csv,
-    resolve_cron_tools_csv,
-    resolve_enabled_tools_csv,
-)
 from utils.ai_helpers import (
-    effective_tool_timeout,
     estimate_tokens as _estimate_tokens,
     estimate_tokens_str as _estimate_tokens_str,
-    tool_dedup_key as _tool_dedup_key,
 )
 from utils.platform_parity import (
-    SHARED_TOOL_STATUS_MAP,
     build_analyze_uploaded_files_message,
     build_api_key_required_message,
     build_api_key_verify_failed_message,
@@ -192,7 +172,6 @@ AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 STREAM_PREVIEW_PREFIX = "[...]\n"
 CRON_SCHEDULER_STARTED = False
-TOOL_STATUS_MAP = SHARED_TOOL_STATUS_MAP
 VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
@@ -387,10 +366,6 @@ def _build_stream_preview(display_text: str, *, thinking_prefix: str = "", curso
     return STREAM_PREVIEW_PREFIX + text[-keep:]
 
 
-def _effective_tool_timeout(tool_calls: Sequence[ToolCall]) -> int:
-    return effective_tool_timeout(tool_calls, default_timeout=TOOL_TIMEOUT)
-
-
 async def _safe_edit_message(message: discord.Message, text: str) -> bool:
     try:
         trimmed = text if text else "(Empty response)"
@@ -426,13 +401,12 @@ async def _run_stream_completion_round(
     model: str,
     temperature: float,
     reasoning_effort: str | None,
-    tools: list[dict] | None,
     stream_update,
     status_update=None,
     *,
     show_waiting: bool = True,
     stream_mode: str = "default",
-) -> tuple[str, dict | None, list[ToolCall], int, str | None]:
+) -> tuple[str, dict | None, int, str | None]:
     client = get_ai_client(user_id)
     loop = asyncio.get_running_loop()
     status_cb = status_update or stream_update
@@ -446,13 +420,11 @@ async def _run_stream_completion_round(
             temperature=temperature,
             reasoning_effort=reasoning_effort or None,
             stream=True,
-            tools=tools,
         ),
     )
 
     full_response = ""
     usage_info = None
-    all_tool_calls: list[ToolCall] = []
     finish_reason = None
     stream_start_time = loop.time()
     last_output_activity: float | None = None
@@ -517,7 +489,7 @@ async def _run_stream_completion_round(
                 usage_info = chunk.usage
 
             current_time = loop.time()
-            has_output_activity = bool(chunk.content or chunk.reasoning or chunk.tool_calls)
+            has_output_activity = bool(chunk.content or chunk.reasoning)
             if has_output_activity:
                 last_output_activity = current_time
 
@@ -581,9 +553,6 @@ async def _run_stream_completion_round(
                         last_update_time = current_time
                         last_update_length = len(display_text)
 
-            if chunk.tool_calls:
-                all_tool_calls.extend(chunk.tool_calls)
-
             if chunk.finish_reason:
                 finish_reason = chunk.finish_reason
     finally:
@@ -594,7 +563,7 @@ async def _run_stream_completion_round(
     if thinking_start_time is not None and not thinking_locked:
         thinking_seconds = max(1, int(loop.time() - thinking_start_time))
 
-    return full_response, usage_info, all_tool_calls, thinking_seconds, finish_reason
+    return full_response, usage_info, thinking_seconds, finish_reason
 
 
 async def _generate_and_set_title(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
@@ -774,29 +743,6 @@ def _strip_bot_mentions(text: str, bot_user_id: int | None) -> str:
     return stripped.strip()
 
 
-def _status_text(
-    tool_calls: Sequence[ToolCall],
-    *,
-    elapsed_seconds: int | None = None,
-    overrides: dict[str, str] | None = None,
-) -> str:
-    if not tool_calls:
-        return ""
-    counts: dict[str, int] = {}
-    order: list[str] = []
-    for tc in tool_calls:
-        name = (tc.name or "").strip() or "tool"
-        if name not in counts:
-            order.append(name)
-            counts[name] = 0
-        counts[name] += 1
-    lines = []
-    for name in order:
-        base = (overrides or {}).get(name) or TOOL_STATUS_MAP.get(name, f"Running {name}...")
-        count_suffix = f" ×{counts[name]}" if counts[name] > 1 else ""
-        elapsed_suffix = f" ({elapsed_seconds}s)" if elapsed_seconds is not None else ""
-        lines.append(f"{base}{count_suffix}{elapsed_suffix}")
-    return "\n".join(lines)
 
 
 async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> None:
@@ -828,7 +774,6 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         return
 
     settings = get_user_settings(user_id)
-    enabled_tools = resolve_enabled_tools_csv(settings)
     user_stream_mode = _normalize_stream_mode(settings.get("stream_mode", "") or STREAM_UPDATE_MODE)
     user_reasoning_effort = _normalize_reasoning_effort(settings.get("reasoning_effort", ""))
     session_id = ensure_session(user_id, persona_name)
@@ -899,56 +844,28 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
         system_prompt = get_system_prompt(user_id, persona_name)
         system_prompt += "\n\n" + get_datetime_prompt()
-
-        if isinstance(user_content, str):
-            query_text = user_content
-        elif isinstance(user_content, list):
-            query_text = next(
-                (
-                    part["text"]
-                    for part in user_content
-                    if isinstance(part, dict) and part.get("type") == "text"
-                ),
-                save_msg,
-            )
-        else:
-            query_text = save_msg
-
-        system_prompt = enrich_system_prompt(
-            user_id,
-            system_prompt,
-            enabled_tools=enabled_tools,
-            query=query_text,
-        )
-        system_prompt += get_tool_instructions(enabled_tools=enabled_tools)
         system_prompt += build_latex_guidance()
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         messages.extend(conversation)
         messages.append({"role": "user", "content": user_content})
 
-        tools = get_all_tools(enabled_tools=enabled_tools)
         total_prompt_tokens = 0
         total_completion_tokens = 0
         total_thinking_seconds = 0
-        seen_tool_keys: set[str] = set()
-        last_text_response = ""
-        tool_results_pending = False
         truncated_prefix = ""
+        last_text_response = ""
 
-        round_num = 0
         while True:
-            round_num += 1
-            full_response, usage_info, tool_calls, thinking_seconds, finish_reason = await _run_stream_completion_round(
+            full_response, usage_info, thinking_seconds, finish_reason = await _run_stream_completion_round(
                 user_id,
                 messages,
                 settings["model"],
                 settings["temperature"],
                 user_reasoning_effort,
-                tools,
                 _stream_update,
                 _status_update,
-                show_waiting=(round_num == 0),
+                show_waiting=(not truncated_prefix),
                 stream_mode=user_stream_mode,
             )
             total_thinking_seconds += thinking_seconds
@@ -957,251 +874,35 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 total_prompt_tokens += usage_info.get("prompt_tokens") or 0
                 total_completion_tokens += usage_info.get("completion_tokens") or 0
 
-            if not tool_calls and full_response:
-                parsed_calls, cleaned = parse_raw_tool_calls(full_response)
-                if parsed_calls:
-                    tool_calls = [
-                        ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
-                        for tc in parsed_calls
-                    ]
-                    full_response = cleaned
-                    logger.info("%s parsed %d raw tool call(s)", ctx, len(tool_calls))
-
             if full_response.strip():
                 last_text_response = full_response
 
-            if filter_thinking_content(full_response).strip():
-                tool_results_pending = False
-
-            if not tool_calls:
-                if finish_reason == "length":
-                    logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
-                    truncated_text = full_response or ""
-                    truncated_prefix += truncated_text
-                    messages.append({"role": "assistant", "content": truncated_text})
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": "Please continue and complete your response concisely.",
-                        }
-                    )
-                    continue
-                break
-
-            status = _status_text(tool_calls)
-            display_text = filter_thinking_content(full_response, streaming=True).strip()
-            thinking_prefix = f"_Thinking for {total_thinking_seconds}s_\n\n" if total_thinking_seconds > 0 else ""
-            if display_text:
-                status_text = _build_stream_preview(
-                    f"{display_text}\n\n{status}",
-                    thinking_prefix=thinking_prefix,
-                    cursor=False,
-                )
-            else:
-                status_text = _build_stream_preview(status, thinking_prefix=thinking_prefix, cursor=False)
-            await _status_update(status_text)
-
-            new_tool_calls: list[ToolCall] = []
-            dup_indices: set[int] = set()
-            for i, tc in enumerate(tool_calls):
-                key = _tool_dedup_key(tc)
-                if key in seen_tool_keys:
-                    dup_indices.add(i)
-                else:
-                    seen_tool_keys.add(key)
-                    new_tool_calls.append(tc)
-
-            if new_tool_calls:
-                effective_timeout = _effective_tool_timeout(new_tool_calls)
-                status_overrides: dict[str, str] = {}
-                status_dirty = asyncio.Event()
-                tool_started_at = time.monotonic()
-                activity_lock = threading.Lock()
-                last_activity = time.monotonic()
-                loop = asyncio.get_running_loop()
-                anim_active = True
-
-                def _touch_activity() -> None:
-                    nonlocal last_activity
-                    with activity_lock:
-                        last_activity = time.monotonic()
-
-                def _activity_age() -> float:
-                    with activity_lock:
-                        return time.monotonic() - last_activity
-
-                def _on_tool_event(event: dict) -> None:
-                    event_type = str(event.get("type") or "").strip().lower()
-                    name = str(event.get("tool_name") or "tool").strip() or "tool"
-                    _touch_activity()
-                    if event_type == "tool_start":
-                        status_overrides[name] = TOOL_STATUS_MAP.get(name, f"Running {name}...")
-                    elif event_type == "tool_progress":
-                        message_text = str(event.get("message") or "").strip()
-                        if message_text:
-                            status_overrides[name] = message_text
-                    elif event_type == "tool_end" and not bool(event.get("ok", True)):
-                        status_overrides[name] = f"{name} failed"
-                    try:
-                        loop.call_soon_threadsafe(status_dirty.set)
-                    except RuntimeError:
-                        pass
-
-                async def _animate_tool_status() -> None:
-                    try:
-                        while anim_active:
-                            try:
-                                await asyncio.wait_for(status_dirty.wait(), timeout=2.0)
-                                status_dirty.clear()
-                            except asyncio.TimeoutError:
-                                pass
-                            if not anim_active:
-                                break
-                            elapsed = max(1, int(time.monotonic() - tool_started_at))
-                            animated = _status_text(
-                                tool_calls,
-                                elapsed_seconds=elapsed,
-                                overrides=status_overrides,
-                            )
-                            if display_text:
-                                animated_text = _build_stream_preview(
-                                    f"{display_text}\n\n{animated}",
-                                    thinking_prefix=thinking_prefix,
-                                    cursor=False,
-                                )
-                            else:
-                                animated_text = _build_stream_preview(
-                                    animated,
-                                    thinking_prefix=thinking_prefix,
-                                    cursor=False,
-                                )
-                            await _status_update(animated_text)
-                    except asyncio.CancelledError:
-                        pass
-
-                status_dirty.set()
-                anim_task = asyncio.create_task(_animate_tool_status())
-                try:
-                    tool_future = loop.run_in_executor(
-                        None,
-                        lambda: process_tool_calls(
-                            user_id,
-                            new_tool_calls,
-                            enabled_tools=enabled_tools,
-                            event_callback=_on_tool_event,
-                        ),
-                    )
-                    while True:
-                        try:
-                            executed_results = await asyncio.wait_for(asyncio.shield(tool_future), timeout=1.0)
-                            break
-                        except asyncio.TimeoutError:
-                            if _activity_age() > effective_timeout:
-                                raise asyncio.TimeoutError
-                except asyncio.TimeoutError:
-                    logger.warning("%s tool timeout after %ds", ctx, effective_timeout)
-                    executed_results = [
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": f"Error: Tool execution timed out after {effective_timeout}s.",
-                        }
-                        for tc in new_tool_calls
-                    ]
-                finally:
-                    anim_active = False
-                    anim_task.cancel()
-            else:
-                executed_results = []
-
-            tool_results: list[dict] = []
-            exec_idx = 0
-            for i, tc in enumerate(tool_calls):
-                if i in dup_indices:
-                    tool_results.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": (
-                                "Already called with the same target. "
-                                "The result is in the conversation above."
-                            ),
-                        }
-                    )
-                else:
-                    tool_results.append(executed_results[exec_idx])
-                    exec_idx += 1
-
-            if not tool_results:
-                logger.warning("%s tool calls produced no results", ctx)
-                break
-
-            visible_content = filter_thinking_content(full_response).strip() or None
-            assistant_msg = {
-                "role": "assistant",
-                "content": visible_content,
-                "tool_calls": [
+            if finish_reason == "length":
+                logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
+                truncated_text = full_response or ""
+                truncated_prefix += truncated_text
+                messages.append({"role": "assistant", "content": truncated_text})
+                messages.append(
                     {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": tc.arguments,
-                        },
+                        "role": "user",
+                        "content": "Please continue and complete your response concisely.",
                     }
-                    for tc in tool_calls
-                ],
-            }
-
-            messages.append(assistant_msg)
-            messages.extend(tool_results)
-            tool_results_pending = True
-
-            messages.append({"role": "user", "content": TOOL_CONTINUE_OR_FINISH_PROMPT})
+                )
+                continue
+            break
 
         combined_response = truncated_prefix + last_text_response if truncated_prefix else last_text_response
         final_text = filter_thinking_content(combined_response).strip()
         if not final_text and last_text_response:
             final_text = filter_thinking_content(last_text_response).strip()
-        final_text = post_process_response(user_id, final_text, enabled_tools=enabled_tools).strip()
         if not final_text:
-            logger.warning(
-                "%s model returned empty visible response (tool_calls=%d last_text_len=%d truncated_len=%d)",
-                ctx,
-                len(seen_tool_keys),
-                len(last_text_response),
-                len(truncated_prefix),
-            )
+            logger.warning("%s model returned empty visible response", ctx)
             final_text = "(Empty response)"
 
         await render_pump.drain()
         await render_pump.stop()
         final_delivery_ok = await outbound.deliver_final(final_text)
         final_delivery_confirmed = final_delivery_ok
-
-        pending_voices = drain_pending_voice_jobs(user_id)
-        for idx, job in enumerate(pending_voices, 1):
-            audio_data = job.get("audio")
-            if not audio_data:
-                continue
-
-            file_obj = io.BytesIO(audio_data)
-            filename = job.get("filename") or f"tts_{idx}.ogg"
-            discord_file = discord.File(file_obj, filename=filename)
-            caption = job.get("caption") or None
-            await message.reply(content=caption, file=discord_file, mention_author=False)
-
-        pending_screenshots = drain_pending_screenshot_jobs(user_id)
-        for idx, job in enumerate(pending_screenshots, 1):
-            image_data = job.get("image")
-            if not image_data:
-                continue
-
-            file_obj = io.BytesIO(image_data)
-            filename = job.get("filename") or f"screenshot_{idx}.png"
-            discord_file = discord.File(file_obj, filename=filename)
-            caption = job.get("caption") or None
-            await message.reply(content=caption, file=discord_file, mention_author=False)
 
         if final_delivery_ok:
             add_user_message(session_id, save_msg)
@@ -1229,14 +930,13 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             )
 
         latency_ms = int((time.monotonic() - request_start) * 1000)
-        tool_name_list = list({k.split(":")[0] for k in seen_tool_keys}) if seen_tool_keys else None
         record_ai_interaction(
             user_id,
             settings["model"],
             total_prompt_tokens,
             total_completion_tokens,
             total_prompt_tokens + total_completion_tokens,
-            tool_name_list,
+            None,
             latency_ms,
             persona_name,
         )
@@ -1361,8 +1061,6 @@ async def settings_command(ctx: commands.Context) -> None:
     global_prompt = settings.get("global_prompt", "") or ""
     global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
 
-    enabled_tools = resolve_enabled_tools_csv(settings) or "(none)"
-    cron_tools = resolve_cron_tools_csv(settings) or "(none)"
     tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
     tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
     tts_endpoint = settings.get("tts_endpoint", "") or "auto"
@@ -1389,15 +1087,12 @@ async def settings_command(ctx: commands.Context) -> None:
         f"token_limit({persona_name}): {token_limit if token_limit > 0 else 'unlimited'}\n"
         f"global_prompt: {global_prompt_display}\n"
         f"prompt: {prompt_display}\n"
-        f"tools: {enabled_tools}\n\n"
-        f"cron_tools: {cron_tools}\n\n"
         f"tts_voice: {tts_voice}\n"
         f"tts_style: {tts_style}\n"
         f"tts_endpoint: {tts_endpoint}\n\n"
         f"providers: {presets_info}\n\n"
         f"Use {DISCORD_COMMAND_PREFIX}persona to manage personas and prompts.\n"
         f"Use {DISCORD_COMMAND_PREFIX}chat to manage chat sessions.\n"
-        f"Use {DISCORD_COMMAND_PREFIX}set tool <name> <on|off> to manage tools.\n"
         f"Use {DISCORD_COMMAND_PREFIX}set provider to manage API providers."
     )
 
@@ -1437,47 +1132,6 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         return
 
     if len(args) < 2:
-        if key == "tool":
-            enabled_tools = resolve_enabled_tools_csv(settings)
-            enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
-            status = []
-            for tool in AVAILABLE_TOOLS:
-                icon = "[on]" if tool in enabled_list else "[off]"
-                status.append(f"{icon} {tool}")
-            await _send_ctx_reply(
-                ctx,
-                "Tool Settings:\n\n"
-                + "\n".join(status)
-                + f"\n\nUsage: {p}set tool <name> <on|off>",
-            )
-            return
-
-        if key == "cron_tool":
-            cron_tools = resolve_cron_tools_csv(settings)
-            enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
-            status = []
-            for tool in AVAILABLE_TOOLS:
-                icon = "[on]" if tool in enabled_list else "[off]"
-                status.append(f"{icon} {tool}")
-            await _send_ctx_reply(
-                ctx,
-                "Cron Tool Settings:\n\n"
-                + "\n".join(status)
-                + f"\n\nUsage: {p}set cron_tool <name> <on|off>",
-            )
-            return
-
-        if key == "cron_tools":
-            current = settings.get("cron_enabled_tools", "") or "(auto: chat tools without memory)"
-            await _send_ctx_reply(
-                ctx,
-                "Current cron_tools: "
-                + current
-                + f"\nUsage: {p}set cron_tools <tool1,tool2,...>\n"
-                + f"Use {p}set cron_tools clear to reset to auto.",
-            )
-            return
-
         if key in {"voice", "style", "endpoint"}:
             setting_key = {
                 "voice": "tts_voice",
@@ -1688,108 +1342,6 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         update_user_setting(user_id, "tts_endpoint", normalized)
         logger.info("%s set endpoint = %s", ctx_log, normalized)
         await _send_ctx_reply(ctx, f"endpoint set to: {normalized}")
-        return
-
-    if key == "tool":
-        if len(args) < 3:
-            await _send_ctx_reply(ctx, f"Usage: {p}set tool <name> <on|off>")
-            return
-
-        tool_name = args[1].lower()
-        action = args[2].lower()
-
-        if tool_name not in AVAILABLE_TOOLS:
-            await _send_ctx_reply(
-                ctx,
-                f"Unknown/unsupported tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}",
-            )
-            return
-
-        enabled_tools = resolve_enabled_tools_csv(settings)
-        enabled_list = [t.strip().lower() for t in enabled_tools.split(",") if t.strip()]
-
-        if action == "on":
-            if tool_name not in enabled_list:
-                enabled_list.append(tool_name)
-        elif action == "off":
-            if tool_name in enabled_list:
-                enabled_list.remove(tool_name)
-        else:
-            await _send_ctx_reply(ctx, "Action must be 'on' or 'off'")
-            return
-
-        update_user_setting(user_id, "enabled_tools", normalize_tools_csv(",".join(enabled_list)))
-        logger.info("%s set tool %s = %s", ctx_log, tool_name, action)
-        await _send_ctx_reply(ctx, f"Tool {tool_name} set to {action}")
-        return
-
-    if key == "cron_tool":
-        if len(args) < 3:
-            await _send_ctx_reply(ctx, f"Usage: {p}set cron_tool <name> <on|off>")
-            return
-
-        tool_name = args[1].lower()
-        action = args[2].lower()
-
-        if tool_name not in AVAILABLE_TOOLS:
-            await _send_ctx_reply(
-                ctx,
-                f"Unknown/unsupported tool: {tool_name}. Available: {', '.join(AVAILABLE_TOOLS)}",
-            )
-            return
-
-        cron_tools = resolve_cron_tools_csv(settings)
-        enabled_list = [t.strip().lower() for t in cron_tools.split(",") if t.strip()]
-
-        if action == "on":
-            if tool_name not in enabled_list:
-                enabled_list.append(tool_name)
-        elif action == "off":
-            if tool_name in enabled_list:
-                enabled_list.remove(tool_name)
-        else:
-            await _send_ctx_reply(ctx, "Action must be 'on' or 'off'")
-            return
-
-        new_enabled = normalize_tools_csv(",".join(enabled_list))
-        update_user_setting(user_id, "cron_enabled_tools", new_enabled)
-        logger.info("%s set cron_tool %s = %s", ctx_log, tool_name, action)
-        await _send_ctx_reply(ctx, f"Cron tool {tool_name} set to {action}")
-        return
-
-    if key == "cron_tools":
-        val = value.strip()
-        if not val or val.lower() in {"off", "clear", "none", "default"}:
-            update_user_setting(user_id, "cron_enabled_tools", "")
-            logger.info("%s cleared cron_enabled_tools (auto mode)", ctx_log)
-            await _send_ctx_reply(
-                ctx,
-                "cron_tools cleared.\n"
-                "Now cron tasks will auto-use chat tools without memory.",
-            )
-            return
-
-        normalized = normalize_tools_csv(val)
-        if not normalized:
-            await _send_ctx_reply(
-                ctx,
-                "No valid tools provided.\n"
-                f"Available: {', '.join(AVAILABLE_TOOLS)}",
-            )
-            return
-
-        requested = [t.strip().lower() for t in val.split(",") if t.strip()]
-        unknown = [t for t in requested if t not in AVAILABLE_TOOLS]
-        update_user_setting(user_id, "cron_enabled_tools", normalized)
-        logger.info("%s set cron_enabled_tools = %s", ctx_log, normalized)
-        if unknown:
-            await _send_ctx_reply(
-                ctx,
-                f"cron_tools set to: {normalized}\n"
-                f"Ignored unknown tools: {', '.join(sorted(set(unknown)))}",
-            )
-        else:
-            await _send_ctx_reply(ctx, f"cron_tools set to: {normalized}")
         return
 
     if key == "provider":
@@ -2264,6 +1816,14 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
     )
 
 
+@bot.command(name="skill")
+async def skill_command(ctx: commands.Context, *args: str) -> None:
+    user_id = int(ctx.author.id)
+    ensure_user_state(user_id)
+    result = handle_skill_command(user_id, list(args), command_prefix="!skill")
+    await _send_ctx_reply(ctx, result)
+
+
 @bot.command(name="chat")
 async def chat_command(ctx: commands.Context, *args: str) -> None:
     ctx_log = _discord_cmd_ctx(ctx)
@@ -2391,7 +1951,6 @@ def main() -> None:
         return
 
     init_database()
-    prewarm_browser_tools()
 
     web_thread = threading.Thread(target=start_web_server, daemon=True)
     web_thread.start()

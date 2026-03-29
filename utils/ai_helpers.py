@@ -1,33 +1,8 @@
-"""Shared helpers for token estimation and tool-call handling."""
+"""Shared helpers for prompt token estimation."""
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
-from typing import Protocol
-
-_SLOW_WEB_TOOL_NAMES = {
-    "page_screenshot",
-    "page_content",
-    "crawl4ai_fetch",
-    "browser_start_session",
-    "browser_list_sessions",
-    "browser_close_session",
-    "browser_goto",
-    "browser_click",
-    "browser_type",
-    "browser_press",
-    "browser_wait_for",
-    "browser_get_state",
-}
-
-
-class ToolCallLike(Protocol):
-    """Structural type for tool call objects from different AI clients."""
-
-    name: str
-    arguments: str
-    id: str | None
 
 
 def estimate_tokens_str(text: str) -> int:
@@ -52,71 +27,3 @@ def estimate_tokens(messages: Sequence[Mapping[str, object]]) -> int:
             )
         total += estimate_tokens_str(str(content)) + 4
     return total
-
-
-# Dispatch table for tool dedup keys: tool_name -> arg_key to use
-_DEDUP_ARG_KEYS = {
-    "url_fetch": "url",
-    "crawl4ai_fetch": "url",
-    "web_search": "query",
-}
-
-
-def tool_dedup_key(tool_call: ToolCallLike) -> str:
-    """Extract dedup key from a tool call (name + primary argument)."""
-    try:
-        args = json.loads(tool_call.arguments)
-    except Exception:
-        return f"{tool_call.name}:{tool_call.arguments}"
-
-    if tool_call.name.startswith("browser_"):
-        # Stateful browser actions may legitimately repeat with same args.
-        return f"{tool_call.name}:{tool_call.id}"
-
-    arg_key = _DEDUP_ARG_KEYS.get(tool_call.name)
-    if arg_key:
-        return f"{tool_call.name}:{args.get(arg_key, '')}"
-
-    return f"{tool_call.name}:{tool_call.arguments}"
-
-
-def _parse_timeout_args(tool_call: ToolCallLike) -> dict | None:
-    """Parse JSON arguments from a tool call, returning None on failure."""
-    try:
-        return json.loads(tool_call.arguments)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-
-
-def effective_tool_timeout(tool_calls: Sequence[ToolCallLike], *, default_timeout: int) -> int:
-    """Compute timeout for awaiting tool processing from observed tool calls."""
-    timeout = default_timeout
-    for tool_call in tool_calls:
-        if tool_call.name == "shell_exec":
-            args = _parse_timeout_args(tool_call)
-            if args:
-                requested = int(args.get("timeout", 0))
-                if requested > timeout:
-                    timeout = min(requested + 5, 125)
-        elif tool_call.name == "crawl4ai_fetch":
-            timeout = max(timeout, 60)
-            args = _parse_timeout_args(tool_call)
-            if args:
-                requested_ms = int(args.get("timeout_ms", 60000))
-                requested_sec = max(5, min(requested_ms, 180000)) // 1000
-                timeout = max(timeout, min(requested_sec + 15, 210))
-        elif tool_call.name.startswith("browser_"):
-            timeout = max(timeout, 90)
-            args = _parse_timeout_args(tool_call)
-            if args:
-                requested_ms = 0
-                if tool_call.name == "browser_wait_for":
-                    requested_ms = int(args.get("timeout_ms", 10000)) + int(args.get("wait_ms", 0))
-                else:
-                    requested_ms = int(args.get("timeout_ms", 10000))
-                requested_wait = float(args.get("wait", 0))
-                requested_sec = int(max(0, min(requested_ms, 180000)) / 1000 + max(0.0, min(requested_wait, 30.0)))
-                timeout = max(timeout, min(requested_sec + 15, 210))
-        elif tool_call.name in _SLOW_WEB_TOOL_NAMES:
-            timeout = max(timeout, 60)
-    return timeout

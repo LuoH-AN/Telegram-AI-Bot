@@ -1,7 +1,6 @@
 (function () {
   "use strict";
 
-  const DEFAULT_TOOLS = ["memory", "search", "fetch", "wikipedia", "tts", "shell", "cron", "playwright", "crawl4ai", "browser_agent"];
   const SETTINGS_TEXT_FIELDS = [
     "base_url",
     "model",
@@ -26,7 +25,6 @@
     logsPage: 1,
     logsPages: 1,
     selectedModel: "",
-    availableTools: DEFAULT_TOOLS.slice(),
   };
 
   function $(id) {
@@ -194,80 +192,8 @@
     return true;
   }
 
-  function getAvailableTools() {
-    if (!Array.isArray(state.availableTools) || !state.availableTools.length) {
-      return DEFAULT_TOOLS.slice();
-    }
-
-    const seen = new Set();
-    const tools = [];
-    state.availableTools.forEach((tool) => {
-      const name = String(tool || "").trim().toLowerCase();
-      if (!name || seen.has(name)) {
-        return;
-      }
-      seen.add(name);
-      tools.push(name);
-    });
-    return tools.length ? tools : DEFAULT_TOOLS.slice();
-  }
-
-  function normalizeToolsCsv(csv) {
-    const available = getAvailableTools();
-    const seen = new Set();
-    const list = [];
-    String(csv || "")
-      .split(",")
-      .map((x) => x.trim().toLowerCase())
-      .forEach((tool) => {
-        if (!tool || !available.includes(tool) || seen.has(tool)) {
-          return;
-        }
-        seen.add(tool);
-        list.push(tool);
-      });
-    return list.join(",");
-  }
-
-  function renderToolGrid(containerId, toolsCsv) {
-    const selected = new Set(normalizeToolsCsv(toolsCsv).split(",").filter(Boolean));
-    const node = $(containerId);
-    node.innerHTML = "";
-
-    getAvailableTools().forEach((tool) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "tool-item";
-      button.dataset.tool = tool;
-      button.textContent = tool;
-
-      const active = selected.has(tool);
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
-
-      button.addEventListener("click", () => {
-        const next = !button.classList.contains("is-active");
-        button.classList.toggle("is-active", next);
-        button.setAttribute("aria-pressed", next ? "true" : "false");
-      });
-
-      node.appendChild(button);
-    });
-  }
-
-  function collectToolCsv(containerId) {
-    const values = [];
-    document.querySelectorAll("#" + containerId + " .tool-item.is-active").forEach((button) => {
-      values.push(button.dataset.tool || "");
-    });
-    return normalizeToolsCsv(values.join(","));
-  }
-
   async function loadSettings() {
     const settings = await apiGet("/api/settings");
-    if (Array.isArray(settings.available_tools) && settings.available_tools.length) {
-      state.availableTools = settings.available_tools;
-    }
 
     SETTINGS_TEXT_FIELDS.forEach((field) => {
       const input = $("cfg-" + field);
@@ -288,17 +214,12 @@
     $("cfg-api_key-mask").textContent = settings.has_api_key
       ? "Current key: " + (settings.api_key_masked || "***")
       : "Not set";
-
-    renderToolGrid("toolGrid", settings.enabled_tools || "");
-    renderToolGrid("cronToolGrid", settings.cron_enabled_tools || "");
   }
 
   async function saveSettings() {
     const body = {
       temperature: Number($("cfg-temperature").value || 0.7),
       stream_mode: $("cfg-stream_mode").value.trim(),
-      enabled_tools: collectToolCsv("toolGrid"),
-      cron_enabled_tools: collectToolCsv("cronToolGrid"),
     };
     SETTINGS_BOOL_FIELDS.forEach((field) => {
       const input = $("cfg-" + field);

@@ -37,15 +37,12 @@ def format_log_context(*, platform: str, user_id: int, scope: str, chat_id: int)
 
 def build_start_message_missing_api(prefix: str) -> str:
     return (
-        "Welcome to AI Bot! 👋\n\n"
-        "To get started, set your API key:\n"
+        "Welcome to AI Bot!\n\n"
+        "First, set your API key:\n"
         f"{prefix}set api_key YOUR_API_KEY\n\n"
-        "Optionally configure:\n"
-        f"{prefix}set base_url <url> - Custom API endpoint\n"
-        f"{prefix}set model <name> - Choose a model\n\n"
-        "Voice options:\n"
-        f"{prefix}set voice <name> - Default TTS voice\n"
-        f"{prefix}set style <style> - Default TTS style\n\n"
+        "Optional configuration:\n"
+        f"{prefix}set base_url <url> - API endpoint\n"
+        f"{prefix}set model <name> - choose model\n\n"
         f"Type {prefix}help for all commands."
     )
 
@@ -53,7 +50,7 @@ def build_start_message_missing_api(prefix: str) -> str:
 def build_start_message_returning(persona: str, prefix: str) -> str:
     return (
         f"Welcome back! Current persona: {persona}\n\n"
-        f"Send a text/image/file to chat, or use {prefix}help."
+        f"Send a message to chat, or use {prefix}help for commands."
     )
 
 
@@ -61,41 +58,41 @@ def build_help_message(prefix: str) -> str:
     return (
         "AI Bot Help\n\n"
         "Send text, image, or file to chat with AI.\n"
-        "In groups/servers: mention the bot or reply to a bot message.\n"
-        "In private chats/DMs: direct chat works.\n\n"
-        f"Commands ({prefix}):\n"
-        f"{prefix}start\n"
-        f"{prefix}help\n"
-        f"{prefix}clear\n"
-        f"{prefix}persona ...\n"
-        f"{prefix}chat ...\n"
-        f"{prefix}settings\n"
-        f"{prefix}set <key> <value>\n"
-        f"{prefix}export\n"
-        f"{prefix}usage\n"
-        f"{prefix}remember <text>\n"
-        f"{prefix}memories\n"
-        f"{prefix}forget <num|all>\n"
-        f"{prefix}web"
+        "AI can automatically execute commands, install dependencies, and manage files through tools.\n\n"
+        "In groups/servers: mention the bot or reply to a bot message\n"
+        "In private chats/DMs: direct chat works\n\n"
+        f"Commands:\n"
+        f"{prefix}persona - manage personas\n"
+        f"{prefix}chat - manage sessions\n"
+        f"{prefix}settings - view settings\n"
+        f"{prefix}set <key> <value> - modify settings\n"
+        f"{prefix}skill - manage skills\n"
+        f"{prefix}remember <text> - add memory\n"
+        f"{prefix}memories - view memories\n"
+        f"{prefix}forget <num|all> - delete memory\n"
+        f"{prefix}usage - view usage\n"
+        f"{prefix}export - export conversation\n"
+        f"{prefix}clear - clear conversation\n"
+        f"{prefix}web - open dashboard"
     )
 
 
 def build_api_key_required_message(prefix: str) -> str:
-    return f"Please set your OpenAI API key first:\n{prefix}set api_key YOUR_API_KEY"
+    return f"Please set your API key first:\n{prefix}set api_key YOUR_API_KEY"
 
 
 def build_token_limit_reached_message(prefix: str, persona_name: str) -> str:
     return (
-        f"Persona '{persona_name}' reached its token limit.\n"
-        f"Use {prefix}usage to check usage, or "
-        f"{prefix}set token_limit <number> to adjust."
+        f"Persona '{persona_name}' has reached token limit.\n"
+        f"Use {prefix}usage to view usage, or "
+        f"{prefix}set token_limit <number> to adjust limit."
     )
 
 
 def build_latex_guidance() -> str:
     return (
-        "\n\nIMPORTANT: Avoid LaTeX delimiters ($...$ / $$...$$). "
-        "Use plain text and Unicode math symbols instead (e.g., × ÷ √ π ≤ ≥)."
+        "\n\nImportant: Avoid using LaTeX delimiters ($...$ / $$...$$). "
+        "Use plain text and Unicode math symbols (like × ÷ √ π ≤ ≥)."
     )
 
 
@@ -103,21 +100,21 @@ def build_memory_empty_message(prefix: str) -> str:
     return (
         "No memories yet.\n\n"
         f"Use {prefix}remember <content> to add a memory.\n"
-        "AI can also add memories during conversations."
+        "AI can also automatically add memories during conversation."
     )
 
 
 def build_forget_usage_message(prefix: str) -> str:
     return (
         "Usage:\n"
-        f"{prefix}forget <number> - Delete specific memory\n"
-        f"{prefix}forget all - Clear all memories\n\n"
-        f"Use {prefix}memories to see the list with numbers."
+        f"{prefix}forget <number> - delete specific memory\n"
+        f"{prefix}forget all - clear all memories\n\n"
+        f"Use {prefix}memories to view numbered list."
     )
 
 
 def build_usage_reset_message(persona_name: str) -> str:
-    return f"Usage reset for persona '{persona_name}'."
+    return f"Usage for persona '{persona_name}' has been reset."
 
 
 def build_persona_new_usage_message(prefix: str) -> str:
@@ -131,7 +128,7 @@ def build_persona_new_usage_message(prefix: str) -> str:
 def build_persona_created_message(name: str, prefix: str) -> str:
     return (
         f"Created and switched to persona: {name}\n\n"
-        f"Use {prefix}persona prompt <text> to set its system prompt."
+        f"Use {prefix}persona prompt <text> to set system prompt."
     )
 
 
@@ -144,7 +141,7 @@ def build_persona_prompt_overview_message(name: str, prompt: str, prefix: str) -
 
 
 def build_persona_not_found_message(name: str, prefix: str) -> str:
-    return f"Persona '{name}' not found. Use {prefix}persona new {name} to create it."
+    return f"Persona '{name}' does not exist. Use {prefix}persona new {name} to create."
 
 
 def build_persona_commands_message(prefix: str) -> str:
@@ -159,8 +156,8 @@ def build_persona_commands_message(prefix: str) -> str:
 
 def build_chat_no_sessions_message(persona_name: str, prefix: str) -> str:
     return (
-        f"No sessions for persona '{persona_name}'.\n"
-        f"Send a message to create one automatically, or use {prefix}chat new"
+        f"Persona '{persona_name}' has no sessions yet.\n"
+        f"Send a message to auto-create, or use {prefix}chat new"
     )
 
 
@@ -168,40 +165,40 @@ def build_chat_unknown_subcommand_message(prefix: str) -> str:
     return (
         "Unknown subcommand. Usage:\n\n"
         f"{prefix}chat - list sessions\n"
-        f"{prefix}chat new [title] - new session\n"
-        f"{prefix}chat <num> - switch session\n"
+        f"{prefix}chat new [title] - create session\n"
+        f"{prefix}chat <number> - switch session\n"
         f"{prefix}chat rename <title> - rename\n"
-        f"{prefix}chat delete <num> - delete"
+        f"{prefix}chat delete <number> - delete"
     )
 
 
 def build_chat_commands_message(prefix: str) -> str:
     return (
-        f"{prefix}chat <num> - switch\n"
-        f"{prefix}chat new [title] - new session\n"
+        f"{prefix}chat <number> - switch\n"
+        f"{prefix}chat new [title] - create session\n"
         f"{prefix}chat rename <title> - rename\n"
-        f"{prefix}chat delete <num> - delete"
+        f"{prefix}chat delete <number> - delete"
     )
 
 
 def build_web_dashboard_message(url: str) -> str:
     return (
-        "Open the Gemen dashboard:\n"
+        "Open Gemen dashboard:\n"
         f"{url}\n\n"
         "This link expires in 10 minutes."
     )
 
 
 def build_web_dm_sent_message() -> str:
-    return "Dashboard link sent to your DM."
+    return "Dashboard link sent to DM."
 
 
 def build_web_dm_failed_message() -> str:
-    return "Could not send DM. Please open a private chat and allow DMs, then retry."
+    return "Cannot send DM. Please enable DMs and try again."
 
 
 def build_retry_message() -> str:
-    return "Error. Please retry."
+    return "An error occurred. Please try again."
 
 
 def build_remember_usage_message(prefix: str) -> str:
@@ -230,7 +227,7 @@ def build_forget_invalid_target_message(prefix: str) -> str:
 def build_invalid_memory_number_message(index: int, prefix: str) -> str:
     return (
         f"Invalid memory number: {index}\n"
-        f"Use {prefix}memories to see the list."
+        f"Use {prefix}memories to view list."
     )
 
 
@@ -238,32 +235,32 @@ def build_set_usage_message(prefix: str) -> str:
     return (
         f"Usage: {prefix}set <key> <value>\n\n"
         "Available keys:\n"
-        "- base_url\n"
-        "- api_key\n"
-        "- model (no value to browse list)\n"
-        "- temperature\n"
-        "- reasoning_effort (none/minimal/low/medium/high/xhigh)\n"
-        "- token_limit (current persona)\n"
-        "- global_prompt <text|clear>\n"
-        "- title_model [provider:]model\n"
-        "- cron_model [provider:]model\n"
-        "- cron_tools <tool1,tool2,...>\n"
-        "- stream_mode (default/time/chars)\n"
-        "- show_thinking (on/off)\n"
-        "- voice\n"
-        "- style\n"
-        "- endpoint\n"
-        "- tool <name> <on|off>\n"
-        "- cron_tool <name> <on|off>\n"
-        "- provider save/load/delete/list\n\n"
-        f"For prompt, use {prefix}persona prompt <text>"
+        "- base_url - API endpoint\n"
+        "- api_key - API key\n"
+        "- model - model (no value to browse list)\n"
+        "- temperature - temperature parameter\n"
+        "- reasoning_effort - reasoning effort (none/minimal/low/medium/high/xhigh)\n"
+        "- token_limit - token limit (current persona)\n"
+        "- global_prompt - global prompt (<text|clear>)\n"
+        "- title_model - title generation model [provider:]model\n"
+        "- cron_model - cron task model [provider:]model\n"
+        "- cron_tools - cron task tools <tool1,tool2,...>\n"
+        "- stream_mode - stream mode (default/time/chars)\n"
+        "- show_thinking - show thinking process (on/off)\n"
+        "- voice - TTS voice\n"
+        "- style - TTS style\n"
+        "- endpoint - TTS endpoint\n"
+        "- tool - tool toggle <name> <on|off>\n"
+        "- cron_tool - cron task tool toggle <name> <on|off>\n"
+        "- provider - provider management save/load/delete/list\n\n"
+        f"To set prompt use {prefix}persona prompt <text>"
     )
 
 
 def build_prompt_per_persona_message(prefix: str) -> str:
     return (
-        "Prompts are now per-persona.\n"
-        f"Use {prefix}persona prompt <text> to set the prompt for current persona."
+        "Prompts are now managed per persona.\n"
+        f"Use {prefix}persona prompt <text> to set prompt for current persona."
     )
 
 
@@ -278,28 +275,28 @@ def build_endpoint_invalid_message(prefix: str) -> str:
 def build_api_key_verify_no_models_message(masked_key: str) -> str:
     return (
         f"api_key set to: {masked_key}\n"
-        "Could not verify key (no models returned). Check your base_url."
+        "Cannot verify key (no model list returned). Please check base_url."
     )
 
 
 def build_api_key_verify_failed_message(masked_key: str) -> str:
     return (
         f"api_key set to: {masked_key}\n"
-        "Could not verify key. Check your base_url and api_key."
+        "Cannot verify key. Please check base_url and api_key."
     )
 
 
 def build_provider_save_hint_message(prefix: str) -> str:
-    return f"Use {prefix}set provider save <name> to save one first."
+    return f"Use {prefix}set provider save <name> to save a configuration first."
 
 
 def build_provider_no_saved_message(prefix: str) -> str:
     return (
-        "No saved providers.\n\n"
+        "No saved provider configurations.\n\n"
         "Usage:\n"
-        f"{prefix}set provider save <name> - Save current API config\n"
-        f"{prefix}set provider load <name> - Load a saved config\n"
-        f"{prefix}set provider delete <name> - Delete a saved config"
+        f"{prefix}set provider save <name> - save current API config\n"
+        f"{prefix}set provider load <name> - load saved config\n"
+        f"{prefix}set provider delete <name> - delete saved config"
     )
 
 
@@ -324,7 +321,7 @@ def build_provider_list_usage_message(prefix: str) -> str:
 
 def build_provider_not_found_available_message(name: str, available: str) -> str:
     return (
-        f"Provider '{name}' not found.\n"
+        f"Provider '{name}' does not exist.\n"
         f"Available: {available}"
     )
 
@@ -338,4 +335,4 @@ def build_unknown_set_key_message(key: str) -> str:
 
 
 def build_analyze_uploaded_files_message() -> str:
-    return "Please analyze the uploaded file(s)."
+    return "Please analyze the uploaded files."

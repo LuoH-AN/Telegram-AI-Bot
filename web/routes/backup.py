@@ -37,8 +37,6 @@ SETTINGS_BACKUP_KEYS = {
     "reasoning_effort",
     "show_thinking",
     "stream_mode",
-    "enabled_tools",
-    "cron_enabled_tools",
     "tts_voice",
     "tts_style",
     "tts_endpoint",

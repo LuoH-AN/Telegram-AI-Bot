@@ -132,12 +132,12 @@ async def _list_sessions(update: Update, user_id: int, persona_name: str) -> Non
         await update.message.reply_text(build_chat_no_sessions_message(persona_name, "/"))
         return
 
-    lines = [f"Sessions (persona: {persona_name})\n"]
+    lines = [f"Session list (persona: {persona_name})\n"]
     for i, session in enumerate(sessions, 1):
         marker = "> " if session["id"] == current_id else "  "
         title = session.get("title") or "New Chat"
         msg_count = get_session_message_count(session["id"])
-        lines.append(f"{marker}{i}. {title} ({msg_count} msgs)")
+        lines.append(f"{marker}{i}. {title} ({msg_count} messages)")
 
     lines.append("")
     lines.append(build_chat_commands_message("/"))

@@ -10,7 +10,6 @@ from config import (
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_ENDPOINT,
-    DEFAULT_CRON_ENABLED_TOOLS,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SHOW_THINKING,
 )
@@ -23,6 +22,8 @@ from database.loaders import (
     parse_token_row,
     parse_memory_row,
     parse_cron_task_row,
+    parse_skill_row,
+    parse_skill_state_row,
 )
 from database.schema import create_tables
 from .manager import cache
@@ -32,8 +33,7 @@ logger = logging.getLogger(__name__)
 # Settings upsert column definitions
 _SETTINGS_COLUMNS = [
     "user_id", "api_key", "base_url", "model", "temperature", "reasoning_effort", "show_thinking",
-    "token_limit", "current_persona", "enabled_tools",
-    "cron_enabled_tools", "stream_mode", "tts_voice", "tts_style", "tts_endpoint",
+    "token_limit", "current_persona", "stream_mode", "tts_voice", "tts_style", "tts_endpoint",
     "api_presets", "title_model", "cron_model", "global_prompt",
 ]
 _SETTINGS_PLACEHOLDERS = ", ".join(["%s"] * len(_SETTINGS_COLUMNS))
@@ -61,6 +61,10 @@ _SYNC_LOG_LABELS = {
     "new_cron_tasks": "new cron tasks",
     "updated_cron_tasks": "updated cron tasks",
     "deleted_cron_tasks": "deleted cron tasks",
+    "new_skills": "new skills",
+    "updated_skills": "updated skills",
+    "deleted_skills": "deleted skills",
+    "updated_skill_states": "updated skill states",
 }
 
 
@@ -167,6 +171,26 @@ def load_from_database() -> None:
                 for uid, task_list in cron_tasks.items():
                     cache.set_cron_tasks(uid, task_list)
 
+                # Load skills
+                cur.execute("SELECT * FROM user_skills ORDER BY id")
+                skills: dict[int, list] = {}
+                for row in cur.fetchall():
+                    uid = row["user_id"]
+                    skills.setdefault(uid, []).append(parse_skill_row(row))
+                for uid, skill_list in skills.items():
+                    cache.set_skills(uid, skill_list)
+
+                cur.execute("SELECT * FROM user_skill_states ORDER BY id")
+                for row in cur.fetchall():
+                    parsed = parse_skill_state_row(row)
+                    cache.set_skill_state(parsed["user_id"], parsed["skill_name"], {
+                        "id": parsed["id"],
+                        "state": parsed["state"],
+                        "state_version": parsed["state_version"],
+                        "checkpoint_ref": parsed["checkpoint_ref"],
+                        "updated_at": parsed["updated_at"],
+                    })
+
     except Exception as e:
         logger.exception("Failed to load from database")
 
@@ -190,7 +214,6 @@ def sync_to_database() -> None:
                         s["model"], s["temperature"], s.get("reasoning_effort", DEFAULT_REASONING_EFFORT),
                         bool(s.get("show_thinking", DEFAULT_SHOW_THINKING)),
                         s["token_limit"], s["current_persona"],
-                        s["enabled_tools"], s.get("cron_enabled_tools", DEFAULT_CRON_ENABLED_TOOLS),
                         s.get("stream_mode", ""),
                         s.get("tts_voice", DEFAULT_TTS_VOICE),
                         s.get("tts_style", DEFAULT_TTS_STYLE),
@@ -363,6 +386,90 @@ def sync_to_database() -> None:
                     cur.execute(
                         "UPDATE user_cron_tasks SET cron_expression = %s, prompt = %s, enabled = %s, last_run_at = %s WHERE user_id = %s AND name = %s",
                         (task["cron_expression"], task["prompt"], task["enabled"], task["last_run_at"], task["user_id"], task["name"])
+                    )
+
+                for user_id, name in dirty["deleted_skills"]:
+                    cur.execute("DELETE FROM user_skill_states WHERE user_id = %s AND skill_name = %s", (user_id, name))
+                    cur.execute("DELETE FROM user_skill_artifacts WHERE user_id = %s AND skill_name = %s", (user_id, name))
+                    cur.execute("DELETE FROM user_skills WHERE user_id = %s AND name = %s", (user_id, name))
+
+                for skill in dirty["new_skills"]:
+                    cur.execute(
+                        """
+                        INSERT INTO user_skills (user_id, name, display_name, source_type, source_ref, version, enabled, install_status, entrypoint, manifest_json, capabilities_json, persist_mode, last_restore_at, last_persist_at, last_error)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (user_id, name) DO UPDATE SET
+                            display_name = EXCLUDED.display_name,
+                            source_type = EXCLUDED.source_type,
+                            source_ref = EXCLUDED.source_ref,
+                            version = EXCLUDED.version,
+                            enabled = EXCLUDED.enabled,
+                            install_status = EXCLUDED.install_status,
+                            entrypoint = EXCLUDED.entrypoint,
+                            manifest_json = EXCLUDED.manifest_json,
+                            capabilities_json = EXCLUDED.capabilities_json,
+                            persist_mode = EXCLUDED.persist_mode,
+                            last_restore_at = EXCLUDED.last_restore_at,
+                            last_persist_at = EXCLUDED.last_persist_at,
+                            last_error = EXCLUDED.last_error,
+                            updated_at = CURRENT_TIMESTAMP
+                        RETURNING id
+                        """,
+                        (
+                            skill["user_id"], skill["name"], skill.get("display_name", skill["name"]), skill.get("source_type", "builtin"), skill.get("source_ref", ""),
+                            skill.get("version", ""), bool(skill.get("enabled", True)), skill.get("install_status", "installed"), skill.get("entrypoint", ""),
+                            json.dumps(skill.get("manifest", {}), ensure_ascii=False), json.dumps(skill.get("capabilities", []), ensure_ascii=False),
+                            skill.get("persist_mode", "none"), skill.get("last_restore_at"), skill.get("last_persist_at"), skill.get("last_error", ""),
+                        ),
+                    )
+                    returned = cur.fetchone()
+                    if returned and skill.get("id") is None:
+                        skill["id"] = returned[0]
+
+                for skill in dirty["updated_skills"]:
+                    cur.execute(
+                        """
+                        UPDATE user_skills SET
+                            display_name = %s,
+                            source_type = %s,
+                            source_ref = %s,
+                            version = %s,
+                            enabled = %s,
+                            install_status = %s,
+                            entrypoint = %s,
+                            manifest_json = %s,
+                            capabilities_json = %s,
+                            persist_mode = %s,
+                            last_restore_at = %s,
+                            last_persist_at = %s,
+                            last_error = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE user_id = %s AND name = %s
+                        """,
+                        (
+                            skill.get("display_name", skill["name"]), skill.get("source_type", "builtin"), skill.get("source_ref", ""), skill.get("version", ""),
+                            bool(skill.get("enabled", True)), skill.get("install_status", "installed"), skill.get("entrypoint", ""),
+                            json.dumps(skill.get("manifest", {}), ensure_ascii=False), json.dumps(skill.get("capabilities", []), ensure_ascii=False),
+                            skill.get("persist_mode", "none"), skill.get("last_restore_at"), skill.get("last_persist_at"), skill.get("last_error", ""),
+                            skill["user_id"], skill["name"],
+                        ),
+                    )
+
+                for state in dirty["updated_skill_states"]:
+                    cur.execute(
+                        """
+                        INSERT INTO user_skill_states (user_id, skill_name, state_json, state_version, checkpoint_ref, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (user_id, skill_name) DO UPDATE SET
+                            state_json = EXCLUDED.state_json,
+                            state_version = EXCLUDED.state_version,
+                            checkpoint_ref = EXCLUDED.checkpoint_ref,
+                            updated_at = CURRENT_TIMESTAMP
+                        """,
+                        (
+                            state["user_id"], state["skill_name"], json.dumps(state.get("state", {}), ensure_ascii=False),
+                            state.get("state_version", ""), state.get("checkpoint_ref", ""),
+                        ),
                     )
 
             conn.commit()

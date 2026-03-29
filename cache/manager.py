@@ -27,6 +27,10 @@ class CacheManager:
         self._memories_cache: dict[int, list[dict]] = {}
         # Cron tasks per user: {user_id: [task_dict, ...]}
         self._cron_tasks_cache: dict[int, list[dict]] = {}
+        # Skills per user: {user_id: [skill_dict, ...]}
+        self._skills_cache: dict[int, list[dict]] = {}
+        # Skill states per user: {user_id: {skill_name: state_dict}}
+        self._skill_states_cache: dict[int, dict[str, dict]] = {}
 
         # Dirty flags for tracking what needs syncing
         self._dirty_settings: set[int] = set()
@@ -41,6 +45,10 @@ class CacheManager:
         self._new_cron_tasks: list[dict] = []
         self._updated_cron_tasks: list[dict] = []  # tasks with updated last_run_at
         self._deleted_cron_tasks: list[tuple[int, str]] = []  # (user_id, name)
+        self._new_skills: list[dict] = []
+        self._updated_skills: list[dict] = []
+        self._deleted_skills: list[tuple[int, str]] = []
+        self._updated_skill_states: list[dict] = []
 
         # Session dirty flags
         self._new_sessions: list[dict] = []
@@ -558,6 +566,66 @@ class CacheManager:
         """Set cron tasks for a user (used during loading)."""
         self._cron_tasks_cache[user_id] = tasks
 
+    def get_skills(self, user_id: int) -> list[dict]:
+        return self._skills_cache.get(user_id, [])
+
+    def get_skill(self, user_id: int, name: str) -> dict | None:
+        for skill in self._skills_cache.get(user_id, []):
+            if skill.get("name") == name:
+                return skill
+        return None
+
+    def set_skills(self, user_id: int, skills: list[dict]) -> None:
+        self._skills_cache[user_id] = [dict(skill) for skill in skills]
+
+    def add_skill(self, user_id: int, **skill_data) -> dict | None:
+        if self.get_skill(user_id, skill_data["name"]):
+            return None
+        skill = {
+            "id": None,
+            "user_id": user_id,
+            **skill_data,
+        }
+        self._skills_cache.setdefault(user_id, []).append(skill)
+        with self._lock:
+            self._new_skills.append(skill)
+        return skill
+
+    def update_skill(self, user_id: int, name: str, **kwargs) -> bool:
+        skill = self.get_skill(user_id, name)
+        if not skill:
+            return False
+        skill.update(kwargs)
+        with self._lock:
+            self._updated_skills.append(skill)
+        return True
+
+    def delete_skill(self, user_id: int, name: str) -> bool:
+        skills = self._skills_cache.get(user_id, [])
+        for i, skill in enumerate(skills):
+            if skill.get("name") == name:
+                skills.pop(i)
+                with self._lock:
+                    self._deleted_skills.append((user_id, name))
+                return True
+        return False
+
+    def get_skill_state(self, user_id: int, name: str) -> dict | None:
+        return self._skill_states_cache.get(user_id, {}).get(name)
+
+    def set_skill_state(self, user_id: int, name: str, state: dict) -> None:
+        self._skill_states_cache.setdefault(user_id, {})[name] = {
+            "user_id": user_id,
+            "skill_name": name,
+            **state,
+        }
+        with self._lock:
+            self._updated_skill_states.append(self._skill_states_cache[user_id][name])
+
+    def delete_skill_state(self, user_id: int, name: str) -> None:
+        if user_id in self._skill_states_cache:
+            self._skill_states_cache[user_id].pop(name, None)
+
     # Map from dirty dict key → (attribute name, type: 'set'|'list'|'dict')
     _DIRTY_ATTRS = {
         "settings": ("_dirty_settings", "set"),
@@ -574,6 +642,10 @@ class CacheManager:
         "new_cron_tasks": ("_new_cron_tasks", "list"),
         "updated_cron_tasks": ("_updated_cron_tasks", "list"),
         "deleted_cron_tasks": ("_deleted_cron_tasks", "list"),
+        "new_skills": ("_new_skills", "list"),
+        "updated_skills": ("_updated_skills", "list"),
+        "deleted_skills": ("_deleted_skills", "list"),
+        "updated_skill_states": ("_updated_skill_states", "list"),
         "dirty_session_titles": ("_dirty_session_titles", "dict"),
     }
 

@@ -78,13 +78,13 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         name = args[1]
         if name == "default":
-            await update.message.reply_text("Cannot delete the default persona.")
+            await update.message.reply_text("Cannot delete default persona.")
             return
         if delete_persona(user_id, name):
             logger.info("%s /persona delete %s", ctx, name)
             await update.message.reply_text(f"Deleted persona: {name}")
         else:
-            await update.message.reply_text(f"Persona '{name}' not found.")
+            await update.message.reply_text(f"Persona '{name}' does not exist.")
 
     elif subcmd == "prompt":
         # Set current persona's prompt
@@ -102,7 +102,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         update_current_prompt(user_id, prompt)
         name = get_current_persona_name(user_id)
         logger.info("%s /persona prompt (persona=%s)", ctx, name)
-        await update.message.reply_text(f"Updated prompt for '{name}'.")
+        await update.message.reply_text(f"Updated prompt for persona '{name}'.")
 
     else:
         # Switch to existing persona (do NOT auto-create)
@@ -127,7 +127,7 @@ async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"Messages: {msg_count}\n"
             f"Sessions: {session_ct}\n"
             f"Current session: {session_title}\n"
-            f"Tokens: {usage['total_tokens']:,}\n\n"
+            f"Token usage: {usage['total_tokens']:,}\n\n"
             f"Prompt: {prompt_text}"
         )
 
@@ -138,7 +138,7 @@ async def _list_personas(update: Update, user_id: int) -> None:
     current = get_current_persona_name(user_id)
 
     if not personas:
-        await update.message.reply_text("No personas found.")
+        await update.message.reply_text("No personas yet.")
         return
 
     lines = ["Your personas:\n"]

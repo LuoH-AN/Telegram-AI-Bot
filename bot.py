@@ -30,7 +30,6 @@ from config import (
     HEALTH_CHECK_PORT,
 )
 from cache import init_database
-from tools import prewarm_browser_tools
 from web.app import create_app
 from utils.rate_limiter import QueuedRateLimiter
 from handlers import (
@@ -52,16 +51,15 @@ from handlers import (
     persona_command,
     chat_command,
     web_command,
+    skill_command,
 )
 
-# Configure logging
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# Suppress noisy loggers
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
@@ -72,7 +70,6 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
 def start_web_server():
-    """Start the FastAPI web server (runs in a daemon thread)."""
     app = create_app()
     config = uvicorn.Config(
         app, host="0.0.0.0", port=HEALTH_CHECK_PORT,
@@ -84,7 +81,6 @@ def start_web_server():
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle errors from the Telegram API and bot handlers."""
     error = context.error
     if isinstance(error, TelegramError) and "Invalid server response" in str(error):
         logger.warning("Telegram API returned invalid response (likely proxy issue), will retry automatically")
@@ -104,20 +100,15 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def main() -> None:
-    """Start the bot."""
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not found in environment variables")
         return
 
-    # Initialize database
     init_database()
-    prewarm_browser_tools()
 
-    # Start web server (FastAPI + uvicorn) in background thread
     web_thread = threading.Thread(target=start_web_server, daemon=True)
     web_thread.start()
 
-    # Create application with custom Telegram API base URL if provided
     builder = (
         Application.builder()
         .token(TELEGRAM_BOT_TOKEN)
@@ -143,7 +134,6 @@ def main() -> None:
         logger.info(f"Using custom Telegram API: {TELEGRAM_API_BASE}")
 
     async def _post_init(application: Application) -> None:
-        """Capture the running event loop for cron service to use."""
         import asyncio
         from services.cron import set_main_loop
         set_main_loop(asyncio.get_running_loop())
@@ -151,7 +141,6 @@ def main() -> None:
     builder = builder.post_init(_post_init)
     application = builder.build()
 
-    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("clear", clear))
@@ -159,6 +148,7 @@ def main() -> None:
     application.add_handler(CommandHandler("chat", chat_command))
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("set", set_command))
+    application.add_handler(CommandHandler("skill", skill_command))
     application.add_handler(CommandHandler("export", export_command))
     application.add_handler(CommandHandler("usage", usage_command))
     application.add_handler(CommandHandler("remember", remember_command))
@@ -171,10 +161,8 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    # Register error handler
     application.add_error_handler(error_handler)
 
-    # Start the bot
     logger.info("Starting bot...")
     from services.cron import start_cron_scheduler
     start_cron_scheduler(application.bot)

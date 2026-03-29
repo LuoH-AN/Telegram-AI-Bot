@@ -1,0 +1,14 @@
+{
+  "name": "skill_terminal",
+  "display_name": "技能终端",
+  "source_type": "builtin",
+  "source_ref": "skill_terminal",
+  "persist_mode": "hf_git",
+  "restore_on_boot": true,
+  "entrypoint": "handler.py",
+  "capabilities": [
+    "skill_terminal",
+    "skill"
+  ],
+  "snapshots": []
+}

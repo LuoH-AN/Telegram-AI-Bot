@@ -54,7 +54,6 @@ def _load_dotenv_fallback() -> None:
 _load_dotenv_fallback()
 
 DEFAULT_SYSTEM_PROMPT = os.getenv("OPENAI_SYSTEM_PROMPT", "You are a helpful assistant.")
-DEFAULT_ENABLED_TOOLS = os.getenv("ENABLED_TOOLS", "memory,search,fetch,wikipedia,tts")
 DEFAULT_TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoMultilingualNeural")
 DEFAULT_TTS_STYLE = os.getenv("TTS_STYLE", "general")
 DEFAULT_TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "")
@@ -68,12 +67,16 @@ CREATE_USER_SETTINGS_TABLE = """
         temperature REAL,
         token_limit BIGINT DEFAULT 0,
         current_persona TEXT DEFAULT 'default',
-        enabled_tools TEXT,
         tts_voice TEXT,
         tts_style TEXT,
         tts_endpoint TEXT,
         api_presets TEXT,
-        title_model TEXT
+        title_model TEXT,
+        cron_model TEXT,
+        stream_mode TEXT,
+        reasoning_effort TEXT,
+        show_thinking BOOLEAN DEFAULT FALSE,
+        global_prompt TEXT
     )
 """
 
@@ -228,12 +231,16 @@ def _ensure_schema(cur) -> None:
     # Additive compatibility: if old tables already exist, ensure new columns are present.
     cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS token_limit BIGINT DEFAULT 0")
     cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS current_persona TEXT DEFAULT 'default'")
-    cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS enabled_tools TEXT")
     cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS tts_voice TEXT")
     cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS tts_style TEXT")
     cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS tts_endpoint TEXT")
     cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS api_presets TEXT")
     cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS title_model TEXT")
+    cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS cron_model TEXT")
+    cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS stream_mode TEXT")
+    cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS reasoning_effort TEXT")
+    cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS show_thinking BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS global_prompt TEXT")
 
     cur.execute("ALTER TABLE user_personas ADD COLUMN IF NOT EXISTS current_session_id INTEGER")
 
@@ -248,15 +255,18 @@ def _ensure_schema(cur) -> None:
         UPDATE user_settings
         SET token_limit = COALESCE(token_limit, 0),
             current_persona = COALESCE(NULLIF(current_persona, ''), 'default'),
-            enabled_tools = COALESCE(NULLIF(enabled_tools, ''), %s),
             tts_voice = COALESCE(NULLIF(tts_voice, ''), %s),
             tts_style = COALESCE(NULLIF(tts_style, ''), %s),
             tts_endpoint = COALESCE(tts_endpoint, %s),
             api_presets = COALESCE(api_presets, '{}'),
-            title_model = COALESCE(title_model, '')
+            title_model = COALESCE(title_model, ''),
+            cron_model = COALESCE(cron_model, ''),
+            stream_mode = COALESCE(stream_mode, ''),
+            reasoning_effort = COALESCE(reasoning_effort, ''),
+            show_thinking = COALESCE(show_thinking, FALSE),
+            global_prompt = COALESCE(global_prompt, '')
         """,
         (
-            DEFAULT_ENABLED_TOOLS,
             DEFAULT_TTS_VOICE,
             DEFAULT_TTS_STYLE,
             DEFAULT_TTS_ENDPOINT,

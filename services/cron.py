@@ -8,11 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
 from cache.manager import cache
-from config import (
-    TOOL_CONTINUE_OR_FINISH_PROMPT,
-    VALID_REASONING_EFFORTS,
-)
-from utils.tooling import resolve_cron_tools_csv
+from config import VALID_REASONING_EFFORTS
 from utils.provider import resolve_provider_model
 
 logger = logging.getLogger(__name__)
@@ -165,7 +161,6 @@ def _execute_cron_task(bot, task: dict) -> None:
 
     try:
         from services import get_user_settings, get_system_prompt
-        from tools import get_all_tools, process_tool_calls
         from utils import get_datetime_prompt, filter_thinking_content
 
         settings = get_user_settings(user_id)
@@ -180,44 +175,31 @@ def _execute_cron_task(bot, task: dict) -> None:
             user_id, settings.get("cron_model", ""), settings
         )
 
-        enabled_tools = resolve_cron_tools_csv(settings)
-        logger.info("[user=%d] cron task tools: %s", user_id, enabled_tools or "(none)")
-
-        # Build system prompt
         system_prompt = get_system_prompt(user_id)
         system_prompt += "\n\n" + get_datetime_prompt()
         platform_hint = _detect_platform(bot)
-
         system_prompt += (
-            "\n\nYou are executing a scheduled task. Provide a concise, useful response. "
-            "Use available tools (search, fetch, etc.) as needed to fulfill the task."
+            "\n\nYou are executing a scheduled task. Provide a concise, useful response."
         )
         system_prompt += f"\n\nScheduled task results are delivered via {platform_hint}."
-        system_prompt += f"\n\nAllowed tools for this scheduled task: {enabled_tools or '(none)'}"
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ]
 
-        tools = get_all_tools(enabled_tools=enabled_tools)
-
         with _heartbeat_monitor(user_id, task_name) as phase:
-            # Non-streaming AI call with tool loop
             full_response = ""
             last_text_response = ""
-            tool_results_pending = False
-            round_num = 0
+
             while True:
-                round_num += 1
-                phase[0] = f"waiting for AI (round {round_num})"
+                phase[0] = "waiting for AI"
                 chunks = list(client.chat_completion(
                     messages=messages,
                     model=cron_model,
                     temperature=settings["temperature"],
                     reasoning_effort=reasoning_effort or None,
                     stream=False,
-                    tools=tools,
                 ))
 
                 if not chunks:
@@ -229,37 +211,13 @@ def _execute_cron_task(bot, task: dict) -> None:
 
                 if content.strip():
                     last_text_response = content
-                    tool_results_pending = False
 
-                if not chunk.tool_calls:
-                    break
+                if chunk.finish_reason == "length":
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": "Please continue and complete your response concisely."})
+                    continue
+                break
 
-                # Process tool calls
-                tool_names = [tc.name for tc in chunk.tool_calls]
-                phase[0] = f"running tools: {', '.join(tool_names)}"
-                tool_results = process_tool_calls(user_id, chunk.tool_calls, enabled_tools=enabled_tools)
-
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": content or None,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {"name": tc.name, "arguments": tc.arguments},
-                        }
-                        for tc in chunk.tool_calls
-                    ],
-                }
-                messages.append(assistant_msg)
-                messages.extend(tool_results)
-                tool_results_pending = True
-                messages.append({
-                    "role": "user",
-                    "content": TOOL_CONTINUE_OR_FINISH_PROMPT,
-                })
-
-            # Clean response
             final_text = filter_thinking_content(full_response).strip()
             if not final_text and last_text_response:
                 final_text = filter_thinking_content(last_text_response).strip()

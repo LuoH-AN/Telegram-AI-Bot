@@ -58,6 +58,24 @@ from .session import (
     generate_session_title,
 )
 from .runtime_queue import conversation_slot
+from .skills import (
+    list_skills,
+    get_skill,
+    install_skill,
+    install_skill_from_github,
+    enable_skill,
+    remove_skill,
+    call_skill,
+    persist_skill_state,
+    persist_skill_snapshot,
+    list_skill_snapshots,
+    restore_skill,
+    restore_skill_snapshot,
+    auto_restore_skills,
+)
+from .skill_manager import handle_skill_command, ensure_skill_terminal
+from .skill_terminal import run_skill_terminal
+from .terminal_exec import execute_terminal_command
 
 
 # Conversation functions — thin wrappers over cache, no longer in a
@@ -157,6 +175,20 @@ __all__ = [
     "get_session_count",
     "get_session_message_count",
     "generate_session_title",
+    # Skill service
+    "list_skills",
+    "get_skill",
+    "install_skill",
+    "enable_skill",
+    "remove_skill",
+    "call_skill",
+    "persist_skill_state",
+    "restore_skill",
+    "auto_restore_skills",
+    "handle_skill_command",
+    "ensure_skill_terminal",
+    "run_skill_terminal",
+    "execute_terminal_command",
     # Runtime queue
     "conversation_slot",
 ]
