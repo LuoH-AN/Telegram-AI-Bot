@@ -7,7 +7,6 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from utils import edit_message_safe
 from handlers.common import (
     get_log_context,
     preflight_media_request,
@@ -40,7 +39,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     await update.message.chat.send_action(ChatAction.TYPING)
-    bot_message = await update.message.reply_text("Thinking...")
 
     try:
         image_parts = []
@@ -59,7 +57,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
 
         if not image_parts:
-            await edit_message_safe(bot_message, build_retry_message())
+            await update.message.reply_text(build_retry_message())
             return
 
         user_content = list(image_parts)
@@ -76,11 +74,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             context,
             user_content=user_content,
             save_msg=save_msg,
-            bot_message=bot_message,
             frozen_persona_name=persona_name,
             frozen_session_id=session_id,
         )
 
     except Exception:
         logger.exception("%s error processing image", ctx)
-        await edit_message_safe(bot_message, build_retry_message())
+        await update.message.reply_text(build_retry_message())

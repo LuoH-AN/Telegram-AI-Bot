@@ -13,7 +13,6 @@ from config import (
     MAX_TEXT_CONTENT_LENGTH,
 )
 from utils import (
-    edit_message_safe,
     get_file_extension,
     is_text_file,
     is_image_file,
@@ -56,7 +55,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
     await update.message.chat.send_action(ChatAction.TYPING)
-    bot_message = await update.message.reply_text("Thinking...")
 
     try:
         text_blocks: list[str] = []
@@ -152,11 +150,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             context,
             user_content=user_content,
             save_msg=save_msg,
-            bot_message=bot_message,
             frozen_persona_name=persona_name,
             frozen_session_id=session_id,
         )
 
     except Exception:
         logger.exception("%s error processing document", ctx)
-        await edit_message_safe(bot_message, build_retry_message())
+        await update.message.reply_text(build_retry_message())

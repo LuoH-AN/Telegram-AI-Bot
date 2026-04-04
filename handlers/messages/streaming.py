@@ -47,12 +47,26 @@ async def _non_stream_response(
     temperature,
     reasoning_effort,
     stream_update,
+    status_update,
+    show_waiting,
     show_thinking,
     thinking_max_chars,
     tools,
 ):
     """Non-streaming response: wait for full response, deliver once."""
     loop = asyncio.get_event_loop()
+    status_cb = status_update or stream_update
+    waiting_active = show_waiting
+
+    async def _emit_waiting_notice() -> None:
+        try:
+            await asyncio.sleep(3)
+            if waiting_active:
+                await status_cb("Working...")
+        except asyncio.CancelledError:
+            pass
+
+    waiting_task = asyncio.create_task(_emit_waiting_notice()) if show_waiting else None
 
     try:
         stream = await asyncio.wait_for(
@@ -72,6 +86,10 @@ async def _non_stream_response(
     except asyncio.TimeoutError:
         logger.warning("AI non-stream request timed out after %ds", AI_STREAM_INIT_TIMEOUT)
         return "", None, 0, "timeout", "", []
+    finally:
+        waiting_active = False
+        if waiting_task and not waiting_task.done():
+            waiting_task.cancel()
 
     # Non-streaming returns a single chunk
     full_response = ""
@@ -123,8 +141,17 @@ async def stream_response(
     # Non-streaming path: single request, deliver full response at once
     if stream_mode == "off":
         return await _non_stream_response(
-            client, messages, model, temperature, reasoning_effort,
-            stream_update, show_thinking, thinking_max_chars, tools,
+            client,
+            messages,
+            model,
+            temperature,
+            reasoning_effort,
+            stream_update,
+            status_update,
+            show_waiting,
+            show_thinking,
+            thinking_max_chars,
+            tools,
         )
 
     loop = asyncio.get_event_loop()

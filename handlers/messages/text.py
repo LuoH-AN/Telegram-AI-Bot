@@ -131,13 +131,12 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         if remaining is not None and remaining <= 0:
             await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
             return
-        await update.message.chat.send_action(ChatAction.TYPING)
-        # Set reaction to indicate processing
-        try:
-            await update.message.set_reaction("👁️")
-        except Exception:
-            pass
-        bot_message = None
+
+    await update.message.chat.send_action(ChatAction.TYPING)
+    try:
+        await update.message.set_reaction("👁️")
+    except Exception:
+        pass
 
     async def _edit_placeholder(text: str) -> bool:
         nonlocal bot_message
@@ -173,12 +172,19 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
     )
 
     async def _render_event(event) -> None:
-        if event.kind != "stream":
+        if event.kind not in {"stream", "status"}:
             return
         await outbound.stream_update(event.text)
 
     render_pump = ChatEventPump(_render_event)
     render_pump.start()
+    loop = asyncio.get_running_loop()
+
+    def _tool_event_callback(event: dict) -> None:
+        if event.get("type") != "tool_start":
+            return
+        tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
+        render_pump.emit_threadsafe(loop, "status", f"Running {tool_name}...")
 
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
@@ -266,75 +272,29 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             if tool_calls:
                 logger.info("%s model requested %d tool calls", ctx, len(tool_calls))
 
-                # Deliver current response first (if any)
                 if full_response.strip():
                     await render_pump.drain()
-                    await render_pump.stop()
                     display_text = filter_thinking_content(full_response).strip()
                     if display_text:
                         await outbound.deliver_final(display_text)
+                        bot_message = None
 
-                # Execute tools
-                tool_results = process_tool_calls(user_id, tool_calls, enabled_tools="all")
+                tool_results = process_tool_calls(
+                    user_id,
+                    tool_calls,
+                    enabled_tools="all",
+                    event_callback=_tool_event_callback,
+                )
 
-                # Add assistant message with tool calls
                 messages.append({
                     "role": "assistant",
                     "content": full_response or "",
-                    "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}} for tc in tool_calls]
+                    "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}} for tc in tool_calls],
                 })
 
-                # Add tool results
                 for result in tool_results:
                     messages.append(result)
 
-                # Reset current streaming message so the next visible output lazily creates a new one
-                bot_message = None
-
-                # Reset outbound adapter for new message
-                async def _edit_new_placeholder(text: str) -> bool:
-                    nonlocal bot_message
-                    if bot_message is None:
-                        sent_messages = await send_message_safe(update.message, text)
-                        if not sent_messages:
-                            return False
-                        bot_message = sent_messages[-1]
-                        return True
-                    return await edit_message_safe(bot_message, text)
-
-                async def _send_new_text(text: str) -> bool:
-                    sent_messages = await send_message_safe(update.message, text)
-                    return bool(sent_messages)
-
-                async def _delete_new_placeholder() -> None:
-                    nonlocal bot_message
-                    if bot_message is None:
-                        return
-                    try:
-                        await bot_message.delete()
-                    except Exception:
-                        pass
-                    bot_message = None
-
-                outbound = StreamOutboundAdapter(
-                    max_message_length=MAX_MESSAGE_LENGTH,
-                    has_placeholder=lambda: True,
-                    edit_placeholder=_edit_new_placeholder,
-                    send_text=_send_new_text,
-                    delete_placeholder=_delete_new_placeholder,
-                    empty_placeholder_text="",
-                )
-
-                # Recreate render event handler with new outbound
-                async def _render_event_new(event) -> None:
-                    if event.kind != "stream":
-                        return
-                    await outbound.stream_update(event.text)
-
-                render_pump = ChatEventPump(_render_event_new)
-                render_pump.start()
-
-                # Continue to get final response
                 continue
 
             if finish_reason == "length":
@@ -430,11 +390,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 await bot_message.edit_text("(Response stopped)")
             except Exception:
                 pass
-        if not internal_call:
-            try:
-                await update.message.set_reaction(None)
-            except Exception:
-                pass
     except Exception as e:
         logger.exception("%s AI API error", ctx)
         try:
@@ -450,11 +405,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             await render_pump.stop()
         except Exception:
             logger.debug("%s failed to stop render pump in finally", ctx, exc_info=True)
-        if not internal_call:
-            try:
-                await update.message.set_reaction(None)
-            except Exception:
-                pass
         await slot_cm.__aexit__(None, None, None)
 
 

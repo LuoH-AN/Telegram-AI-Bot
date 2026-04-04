@@ -805,11 +805,10 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     conversation = list(get_conversation(session_id))
     request_start = time.monotonic()
     bot_message: discord.Message | None = None
-    if message.guild and isinstance(message.channel, discord.abc.Messageable):
-        try:
-            await message.add_reaction("👁️")
-        except Exception:
-            pass
+    try:
+        await message.add_reaction("👁️")
+    except Exception:
+        pass
 
     async def _edit_placeholder(text: str) -> bool:
         nonlocal bot_message
@@ -856,12 +855,19 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     )
 
     async def _render_event(event) -> None:
-        if event.kind != "stream":
+        if event.kind not in {"stream", "status"}:
             return
         await outbound.stream_update(event.text)
 
     render_pump = ChatEventPump(_render_event)
     render_pump.start()
+    loop = asyncio.get_running_loop()
+
+    def _tool_event_callback(event: dict) -> None:
+        if event.get("type") != "tool_start":
+            return
+        tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
+        render_pump.emit_threadsafe(loop, "status", f"Running {tool_name}...")
 
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
@@ -940,12 +946,17 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 logger.info("%s model requested %d tool calls", ctx, len(tool_calls))
                 if full_response.strip():
                     await render_pump.drain()
-                    await render_pump.stop()
                     display_text = filter_thinking_content(full_response).strip()
                     if display_text:
                         await outbound.deliver_final(display_text)
+                        bot_message = None
 
-                tool_results = process_tool_calls(user_id, tool_calls, enabled_tools="all")
+                tool_results = process_tool_calls(
+                    user_id,
+                    tool_calls,
+                    enabled_tools="all",
+                    event_callback=_tool_event_callback,
+                )
                 messages.append({
                     "role": "assistant",
                     "content": full_response or "",
@@ -956,10 +967,6 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 })
                 for result in tool_results:
                     messages.append(result)
-
-                bot_message = None
-                render_pump = ChatEventPump(_render_event)
-                render_pump.start()
                 continue
 
             if finish_reason == "length":
@@ -1061,10 +1068,6 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         unregister_response(slot_key)
         try:
             await render_pump.stop()
-        except Exception:
-            pass
-        try:
-            await message.remove_reaction("👁️", bot.user)  # type: ignore[arg-type]
         except Exception:
             pass
         await slot_cm.__aexit__(None, None, None)
