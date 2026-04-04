@@ -274,6 +274,12 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                     messages.append(result)
 
                 # Create new message for final response
+                # Delete old placeholder message if exists (from previous tool call iteration)
+                if bot_message:
+                    try:
+                        await bot_message.delete()
+                    except Exception:
+                        pass
                 bot_message = await update.message.reply_text("Generating response...")
 
                 # Reset outbound adapter for new message
