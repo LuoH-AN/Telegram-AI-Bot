@@ -154,7 +154,8 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "Available modes:\n"
                 "- default: time + chars combined\n"
                 "- time: update by time interval\n"
-                "- chars: update by character interval"
+                "- chars: update by character interval\n"
+                "- off: non-streaming, wait for full response (reduces rate limits)"
             )
             return
         if context.args and context.args[0].lower() == "show_thinking":
@@ -322,11 +323,17 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _handle_specialized_model_set(update, user_id, settings, ctx, key, value)
     elif key == "stream_mode":
         val = value.strip().lower()
-        if val in {"default", "time", "chars"}:
+        if val in {"default", "time", "chars", "off"}:
             update_user_setting(user_id, "stream_mode", val)
             logger.info("%s set stream_mode = %s", ctx, val)
+            mode_desc = {
+                "default": "time + chars combined",
+                "time": "update by time interval",
+                "chars": "update by character interval",
+                "off": "non-streaming (full response at once)",
+            }
             await update.message.reply_text(
-                f"stream_mode set to: {val}\n"
+                f"stream_mode set to: {val} ({mode_desc.get(val, '')})\n"
                 "Applies to both Telegram and Discord streaming output."
             )
         elif not val or val in {"off", "clear", "none"}:
@@ -343,7 +350,8 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "Available modes:\n"
                 "- default: time + chars combined\n"
                 "- time: update by time interval\n"
-                "- chars: update by character interval"
+                "- chars: update by character interval\n"
+                "- off: non-streaming, wait for full response (reduces rate limits)"
             )
     elif key == "show_thinking":
         val = value.strip().lower()

@@ -25,7 +25,7 @@ ALLOWED_FIELDS = {
     "global_prompt",
 }
 ALLOWED_REASONING_EFFORTS = {"", "none", "minimal", "low", "medium", "high", "xhigh"}
-ALLOWED_STREAM_MODES = {"", "default", "time", "chars"}
+ALLOWED_STREAM_MODES = {"", "default", "time", "chars", "off"}
 CLEARABLE_VALUES = {"off", "clear", "none"}
 
 

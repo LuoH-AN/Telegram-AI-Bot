@@ -73,7 +73,7 @@ from .skills import (
     restore_skill_snapshot,
     auto_restore_skills,
 )
-from .skill_manager import handle_skill_command, ensure_skill_terminal
+from .skill_manager import handle_skill_command, ensure_skill_terminal, ensure_hf_sync_skill
 from .skill_terminal import run_skill_terminal
 from .terminal_exec import execute_terminal_command
 
@@ -187,6 +187,7 @@ __all__ = [
     "auto_restore_skills",
     "handle_skill_command",
     "ensure_skill_terminal",
+    "ensure_hf_sync_skill",
     "run_skill_terminal",
     "execute_terminal_command",
     # Runtime queue

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 SKILLS_ROOT = Path(__file__).resolve().parent.parent / "runtime_skills"
 SKILL_NAMESPACE = "skills"
 SKILL_TERMINAL_NAME = "skill_terminal"
+HF_SYNC_NAME = "hf_sync"
 
 _GITHUB_REPO_RE = re.compile(
     r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/tree/([^/]+)(?:/(.+))?)?$"
@@ -112,6 +113,49 @@ def run(user_id: int, skill_name: str, input_text: str, state: dict) -> dict:
             "last_terminal_steps": result.get("steps", []),
             "last_terminal_ok": bool(result.get("ok")),
         },
+    }
+'''
+    if name == HF_SYNC_NAME:
+        return '''"""Runtime skill handler for hf_sync."""
+
+from services.skills import (
+    persist_skill_state,
+    persist_skill_snapshot,
+    restore_skill_snapshot,
+    list_skill_snapshots,
+)
+
+
+def run(user_id: int, skill_name: str, input_text: str, state: dict) -> dict:
+    import json
+    calls = int(state.get("calls", 0)) + 1
+    try:
+        args = json.loads(input_text) if input_text.strip().startswith("{") else {"action": "persist", "skill_name": input_text.strip()}
+    except Exception:
+        args = {"action": "persist", "skill_name": input_text.strip()}
+
+    action = args.get("action", "persist")
+    target = args.get("skill_name", "")
+    snapshot_id = args.get("snapshot_id")
+
+    if action == "persist":
+        ok = persist_skill_state(user_id, target)
+        output = f"Skill '{target}' persist {'succeeded' if ok else 'failed'}."
+    elif action == "restore":
+        ok = restore_skill_snapshot(user_id, target, snapshot_id=snapshot_id)
+        output = f"Skill '{target}' restore {'succeeded' if ok else 'failed'}."
+    elif action == "snapshot":
+        ok = persist_skill_snapshot(user_id, target, snapshot_id=snapshot_id)
+        output = f"Skill '{target}' snapshot {'succeeded' if ok else 'failed'}."
+    elif action == "list_snapshots":
+        snaps = list_skill_snapshots(user_id, target)
+        output = f"Snapshots for '{target}': {', '.join(snaps) if snaps else 'none'}"
+    else:
+        output = f"Unknown action: {action}"
+
+    return {
+        "output": output,
+        "state": {**state, "calls": calls, "last_action": action, "last_target": target},
     }
 '''
     return f'''"""Runtime skill handler for {name}."""

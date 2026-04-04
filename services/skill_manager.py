@@ -44,6 +44,11 @@ def ensure_skill_terminal(user_id: int) -> None:
         install_skill(user_id, "skill_terminal", source_type="builtin", source_ref="skill_terminal", persist_mode="hf_git")
 
 
+def ensure_hf_sync_skill(user_id: int) -> None:
+    if not get_skill(user_id, "hf_sync"):
+        install_skill(user_id, "hf_sync", source_type="builtin", source_ref="hf_sync", persist_mode="hf_git")
+
+
 def handle_skill_command(user_id: int, args: list[str], *, command_prefix: str = "/skill") -> str:
     if not args:
         return _list_message(user_id) + "\n\n" + SKILL_HELP_TEXT.replace("/skill", command_prefix)
