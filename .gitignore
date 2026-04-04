@@ -20,3 +20,4 @@ reports/
 claude-code-skill-scrapling/
 skills/
 runtime_skills/
+.wechat_state/

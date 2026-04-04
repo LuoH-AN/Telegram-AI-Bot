@@ -252,6 +252,8 @@ def _detect_platform(bot) -> str:
         return "Telegram"
     if hasattr(bot, "fetch_user"):
         return "Discord DM"
+    if hasattr(bot, "send_wechat_text"):
+        return "WeChat"
     return "this platform"
 
 
@@ -289,6 +291,12 @@ def _send_discord(bot, chat_id: int, text: str, loop) -> None:
     future.result(timeout=60)
 
 
+def _send_wechat(bot, chat_id: int, text: str, loop) -> None:
+    """Send a message via WeChat runtime."""
+    future = asyncio.run_coroutine_threadsafe(bot.send_wechat_text(chat_id, text), loop)
+    future.result(timeout=60)
+
+
 def _send_message(bot, chat_id: int, text: str) -> None:
     """Send a cron result message using the active runtime platform."""
     loop = _main_loop
@@ -300,6 +308,8 @@ def _send_message(bot, chat_id: int, text: str) -> None:
         _send_telegram(bot, chat_id, text, loop)
     elif hasattr(bot, "fetch_user"):
         _send_discord(bot, chat_id, text, loop)
+    elif hasattr(bot, "send_wechat_text"):
+        _send_wechat(bot, chat_id, text, loop)
     else:
         logger.error("Unsupported bot type for cron delivery: %s", type(bot).__name__)
 

@@ -245,6 +245,20 @@ CREATE_USER_SKILL_ARTIFACTS_TABLE = """
     )
 """
 
+# Global WeChat runtime state (login token / sync cursor / peer mappings)
+CREATE_WECHAT_RUNTIME_STATE_TABLE = """
+    CREATE TABLE IF NOT EXISTS wechat_runtime_state (
+        account_key TEXT PRIMARY KEY,
+        token TEXT DEFAULT '',
+        user_id TEXT DEFAULT '',
+        base_url TEXT DEFAULT '',
+        get_updates_buf TEXT DEFAULT '',
+        peer_map TEXT DEFAULT '{}',
+        context_tokens TEXT DEFAULT '{}',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
 # All schema creation statements in order
 SCHEMA_STATEMENTS = [
     CREATE_USER_SETTINGS_TABLE,
@@ -272,6 +286,7 @@ SCHEMA_STATEMENTS = [
     CREATE_USER_SKILLS_INDEX,
     CREATE_USER_SKILL_STATES_TABLE,
     CREATE_USER_SKILL_ARTIFACTS_TABLE,
+    CREATE_WECHAT_RUNTIME_STATE_TABLE,
 ]
 
 

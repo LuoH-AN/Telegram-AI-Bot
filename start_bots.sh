@@ -3,6 +3,7 @@ set -euo pipefail
 
 TELEGRAM_PORT="${TELEGRAM_PORT:-7860}"
 DISCORD_PORT="${DISCORD_PORT:-7861}"
+WECHAT_PORT="${WECHAT_PORT:-7862}"
 
 declare -a bot_pids=()
 declare -a bot_names=()
@@ -79,8 +80,14 @@ else
     echo ">>> Discord disabled (DISCORD_BOT_TOKEN is not configured)"
 fi
 
+if [[ "${WECHAT_ENABLED:-}" =~ ^([1Yy]|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn])$ ]]; then
+    start_bot "WeChat" "wechat_bot.py" "$WECHAT_PORT"
+else
+    echo ">>> WeChat disabled (WECHAT_ENABLED is not enabled)"
+fi
+
 if ((${#bot_pids[@]} == 0)); then
-    echo ">>> No bot token configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN."
+    echo ">>> No bot process configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN, or enable WECHAT_ENABLED=1."
     exit 1
 fi
 

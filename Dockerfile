@@ -49,7 +49,7 @@ RUN set -eux; \
     fi
 
 # Copy application code
-COPY bot.py discord_bot.py start_bots.sh hf_dataset_store.py ./
+COPY bot.py discord_bot.py wechat_bot.py start_bots.sh hf_dataset_store.py ./
 COPY config/ ./config/
 COPY database/ ./database/
 COPY cache/ ./cache/
@@ -61,12 +61,13 @@ COPY utils/ ./utils/
 COPY web/ ./web/
 COPY static/ ./static/
 
-# Health check ports (Telegram / Discord)
-EXPOSE 7860 7861
+# Health check ports (Telegram / Discord / WeChat)
+EXPOSE 7860 7861 7862
 
 # Auto-start platforms by configured tokens:
 # - TELEGRAM_BOT_TOKEN set => Telegram starts
 # - DISCORD_BOT_TOKEN set  => Discord starts
+# - WECHAT_ENABLED=1        => WeChat starts
 # - both set => both start
-# Override defaults via TELEGRAM_PORT / DISCORD_PORT env vars.
+# Override defaults via TELEGRAM_PORT / DISCORD_PORT / WECHAT_PORT env vars.
 CMD ["/bin/bash", "-lc", "bash /app/start_bots.sh"]
