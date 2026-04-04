@@ -35,6 +35,7 @@ from services import (
 )
 from services.log import record_ai_interaction, record_error
 from services.refresh import ensure_user_state
+from services.runtime_queue import register_response, unregister_response
 from ai import get_ai_client
 from cache import cache
 from utils import (
@@ -176,6 +177,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
     final_delivery_confirmed = False
 
     try:
+        # Register active response for /stop cancellation
+        current_task = asyncio.current_task()
+        if current_task:
+            register_response(slot_key, task=current_task, pump=render_pump)
+
         if was_queued:
             await _status_update("Previous request is still running. Queued and starting soon...")
 
@@ -389,6 +395,17 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             persona_name,
         )
 
+    except asyncio.CancelledError:
+        logger.info("%s response cancelled by /stop", ctx)
+        try:
+            render_pump.force_stop()
+        except Exception:
+            pass
+        if not final_delivery_confirmed and bot_message:
+            try:
+                await bot_message.edit_text("(Response stopped)")
+            except Exception:
+                pass
     except Exception as e:
         logger.exception("%s AI API error", ctx)
         try:
@@ -399,6 +416,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             await outbound.deliver_final(build_retry_message())
         record_error(user_id, str(e), "chat handler", settings.get("model"), persona_name)
     finally:
+        unregister_response(slot_key)
         try:
             await render_pump.stop()
         except Exception:

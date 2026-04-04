@@ -60,6 +60,12 @@ class ChatEventPump:
         await self._runner_task
         self._runner_task = None
 
+    def force_stop(self) -> None:
+        """Immediately cancel the render worker without draining."""
+        if self._runner_task is not None:
+            self._runner_task.cancel()
+            self._runner_task = None
+
     async def _runner(self) -> None:
         while True:
             event = await self._queue.get()

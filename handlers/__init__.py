@@ -5,6 +5,7 @@ from .commands import (
     start,
     help_command,
     clear,
+    stop,
     settings_command,
     set_command,
     usage_command,

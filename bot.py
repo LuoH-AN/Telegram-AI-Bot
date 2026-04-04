@@ -36,6 +36,7 @@ from handlers import (
     start,
     help_command,
     clear,
+    stop,
     settings_command,
     set_command,
     export_command,
@@ -144,6 +145,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("clear", clear))
+    application.add_handler(CommandHandler("stop", stop))
     application.add_handler(CommandHandler("persona", persona_command))
     application.add_handler(CommandHandler("chat", chat_command))
     application.add_handler(CommandHandler("settings", settings_command))
