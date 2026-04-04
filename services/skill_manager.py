@@ -20,8 +20,12 @@ from .skills import (
 SKILL_HELP_TEXT = (
     "Skill management:\n"
     "Just chat directly, AI will handle skill installation, execution, and management through tools.\n\n"
+    "Built-in skills:\n"
+    "- skill_terminal: run shell commands; supports background jobs for long-running tasks\n"
+    "- hf_sync: persist, restore, and snapshot skill state to Hugging Face backup storage\n\n"
     "/skill - list installed skills\n"
-    "/skill install <name or GitHub URL> - install skill\n"
+    "/skill help - show this help\n"
+    "/skill install <name or GitHub URL> [persist] - install skill\n"
     "/skill remove <name> - remove skill\n"
     "/skill enable <name> - enable skill\n"
     "/skill disable <name> - disable skill"

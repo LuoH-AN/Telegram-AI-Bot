@@ -39,6 +39,7 @@ from config import (
     WEB_BASE_URL,
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_STYLE,
+    SHOW_THINKING_MAX_CHARS,
 )
 from cache import init_database
 from web.app import create_app
@@ -90,11 +91,15 @@ from services import (
     conversation_slot,
     handle_skill_command,
 )
+from services.refresh import ensure_user_state
+from services.runtime_queue import register_response, unregister_response, cancel_user_responses
 from services.log import record_ai_interaction, record_error
 from services.cron import start_cron_scheduler, set_main_loop
 from ai import get_ai_client
 from utils import (
     filter_thinking_content,
+    extract_thinking_blocks,
+    format_thinking_block,
     get_datetime_prompt,
     split_message,
     get_file_extension,
@@ -120,6 +125,7 @@ from utils.platform_parity import (
     build_endpoint_invalid_message,
     build_forget_usage_message,
     build_forget_invalid_target_message,
+    build_global_prompt_help_message,
     build_help_message,
     build_invalid_memory_number_message,
     build_latex_guidance,
@@ -136,9 +142,13 @@ from utils.platform_parity import (
     build_provider_not_found_available_message,
     build_provider_save_hint_message,
     build_provider_usage_message,
+    build_reasoning_effort_help_message,
     build_set_usage_message,
+    build_settings_summary_message,
+    build_show_thinking_help_message,
     build_start_message_missing_api,
     build_start_message_returning,
+    build_stream_mode_help_message,
     build_token_limit_reached_message,
     build_unknown_set_key_message,
     build_usage_reset_message,
@@ -149,6 +159,7 @@ from utils.platform_parity import (
     build_web_dm_sent_message,
     format_log_context,
 )
+from handlers.messages.streaming import stream_response
 
 
 logging.basicConfig(
@@ -342,7 +353,7 @@ def _mask_key(api_key: str) -> str:
 
 def _normalize_stream_mode(mode: str | None) -> str:
     current = (mode or "").strip().lower()
-    if current in {"default", "time", "chars"}:
+    if current in {"default", "time", "chars", "off"}:
         return current
     return "default"
 
@@ -352,6 +363,16 @@ def _normalize_reasoning_effort(value: str | None) -> str:
     if current in VALID_REASONING_EFFORTS:
         return current
     return ""
+
+
+def _normalize_discord_output_text(text: str) -> str:
+    return (
+        (text or "")
+        .replace("\x02BQXSTART\x02", "```\n")
+        .replace("\x02BQSTART\x02", "```\n")
+        .replace("\x02BQXEND\x02", "\n```")
+        .replace("\x02BQEND\x02", "\n```")
+    )
 
 
 def _build_stream_preview(display_text: str, *, thinking_prefix: str = "", cursor: bool = True) -> str:
@@ -368,7 +389,7 @@ def _build_stream_preview(display_text: str, *, thinking_prefix: str = "", curso
 
 async def _safe_edit_message(message: discord.Message, text: str) -> bool:
     try:
-        trimmed = text if text else "(Empty response)"
+        trimmed = _normalize_discord_output_text(text) if text else "(Empty response)"
         if len(trimmed) > DISCORD_MAX_MESSAGE_LENGTH:
             trimmed = trimmed[: DISCORD_MAX_MESSAGE_LENGTH - 3] + "..."
         await message.edit(content=trimmed)
@@ -378,7 +399,8 @@ async def _safe_edit_message(message: discord.Message, text: str) -> bool:
 
 
 async def _send_text_reply(message: discord.Message, text: str) -> None:
-    chunks = split_message(text or "(Empty response)", max_length=DISCORD_MAX_MESSAGE_LENGTH)
+    normalized = _normalize_discord_output_text(text or "(Empty response)")
+    chunks = split_message(normalized, max_length=DISCORD_MAX_MESSAGE_LENGTH)
     for i, chunk in enumerate(chunks):
         if i == 0:
             await message.reply(chunk, mention_author=False)
@@ -387,7 +409,8 @@ async def _send_text_reply(message: discord.Message, text: str) -> None:
 
 
 async def _send_ctx_reply(ctx: commands.Context, text: str) -> None:
-    chunks = split_message(text or "(Empty response)", max_length=DISCORD_MAX_MESSAGE_LENGTH)
+    normalized = _normalize_discord_output_text(text or "(Empty response)")
+    chunks = split_message(normalized, max_length=DISCORD_MAX_MESSAGE_LENGTH)
     for i, chunk in enumerate(chunks):
         if i == 0:
             await ctx.reply(chunk, mention_author=False)
@@ -748,6 +771,7 @@ def _strip_bot_mentions(text: str, bot_user_id: int | None) -> str:
 async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> None:
     user_id = int(message.author.id)
     ctx = _discord_ctx(message.guild.id if message.guild else None, message.channel.id, user_id)
+    ensure_user_state(user_id)
 
     raw_text = _strip_bot_mentions(message.content or "", bot.user.id if bot.user else None)
     quoted = await _extract_reply_context(message)
@@ -776,24 +800,35 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     settings = get_user_settings(user_id)
     user_stream_mode = _normalize_stream_mode(settings.get("stream_mode", "") or STREAM_UPDATE_MODE)
     user_reasoning_effort = _normalize_reasoning_effort(settings.get("reasoning_effort", ""))
+    show_thinking = bool(settings.get("show_thinking"))
     session_id = ensure_session(user_id, persona_name)
     conversation = list(get_conversation(session_id))
-
-    placeholder = await message.reply("Thinking...", mention_author=False)
-
-    placeholder_alive = True
+    request_start = time.monotonic()
+    bot_message: discord.Message | None = None
+    if message.guild and isinstance(message.channel, discord.abc.Messageable):
+        try:
+            await message.add_reaction("👁️")
+        except Exception:
+            pass
 
     async def _edit_placeholder(text: str) -> bool:
-        if not placeholder_alive:
-            return False
-        return await _safe_edit_message(placeholder, text)
+        nonlocal bot_message
+        if bot_message is None:
+            try:
+                bot_message = await message.reply(text or "(Empty response)", mention_author=False)
+                return True
+            except Exception:
+                logger.exception("%s failed to create discord placeholder", ctx)
+                return False
+        return await _safe_edit_message(bot_message, text)
 
     async def _send_text(text: str) -> bool:
-        chunks = split_message(text or "(Empty response)", max_length=DISCORD_MAX_MESSAGE_LENGTH)
+        normalized = _normalize_discord_output_text(text or "(Empty response)")
+        chunks = split_message(normalized, max_length=DISCORD_MAX_MESSAGE_LENGTH)
         if not chunks:
             chunks = ["(Empty response)"]
         try:
-            await message.channel.send(chunks[0])
+            await message.reply(chunks[0], mention_author=False)
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
             return True
@@ -802,25 +837,27 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             return False
 
     async def _delete_placeholder() -> None:
-        nonlocal placeholder_alive
-        if not placeholder_alive:
+        nonlocal bot_message
+        if bot_message is None:
             return
         try:
-            await placeholder.delete()
+            await bot_message.delete()
         except Exception:
             pass
-        placeholder_alive = False
+        bot_message = None
 
     outbound = StreamOutboundAdapter(
         max_message_length=DISCORD_MAX_MESSAGE_LENGTH,
-        has_placeholder=lambda: placeholder_alive,
+        has_placeholder=lambda: True,
         edit_placeholder=_edit_placeholder,
         send_text=_send_text,
         delete_placeholder=_delete_placeholder,
-        empty_placeholder_text="Thinking...",
+        empty_placeholder_text="",
     )
 
     async def _render_event(event) -> None:
+        if event.kind != "stream":
+            return
         await outbound.stream_update(event.text)
 
     render_pump = ChatEventPump(_render_event)
@@ -835,10 +872,13 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     slot_key = f"discord:{message.channel.id}:{user_id}:{session_id}"
     slot_cm = conversation_slot(slot_key)
     was_queued = await slot_cm.__aenter__()
-    request_start = time.monotonic()
     final_delivery_confirmed = False
 
     try:
+        current_task = asyncio.current_task()
+        if current_task:
+            register_response(slot_key, task=current_task, pump=render_pump)
+
         if was_queued:
             await _status_update("Previous request is still running. Queued and starting soon...")
 
@@ -855,10 +895,14 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
         total_thinking_seconds = 0
         truncated_prefix = ""
         last_text_response = ""
+        thinking_segments: list[str] = []
+
+        from tools import get_all_tools, process_tool_calls
+        tool_definitions = get_all_tools(enabled_tools="all")
 
         while True:
-            full_response, usage_info, thinking_seconds, finish_reason = await _run_stream_completion_round(
-                user_id,
+            full_response, usage_info, thinking_seconds, finish_reason, reasoning_content, tool_calls = await stream_response(
+                get_ai_client(user_id),
                 messages,
                 settings["model"],
                 settings["temperature"],
@@ -867,8 +911,23 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
                 _status_update,
                 show_waiting=(not truncated_prefix),
                 stream_mode=user_stream_mode,
+                include_thought_prefix=True,
+                stream_cursor=True,
+                show_thinking=show_thinking,
+                thinking_max_chars=SHOW_THINKING_MAX_CHARS,
+                tools=tool_definitions,
             )
             total_thinking_seconds += thinking_seconds
+
+            if show_thinking:
+                tag_thinking, _ = extract_thinking_blocks(full_response)
+                for segment in (reasoning_content, tag_thinking):
+                    cleaned = (segment or "").strip()
+                    if not cleaned:
+                        continue
+                    if thinking_segments and thinking_segments[-1] == cleaned:
+                        continue
+                    thinking_segments.append(cleaned)
 
             if usage_info:
                 total_prompt_tokens += usage_info.get("prompt_tokens") or 0
@@ -876,6 +935,32 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
 
             if full_response.strip():
                 last_text_response = full_response
+
+            if tool_calls:
+                logger.info("%s model requested %d tool calls", ctx, len(tool_calls))
+                if full_response.strip():
+                    await render_pump.drain()
+                    await render_pump.stop()
+                    display_text = filter_thinking_content(full_response).strip()
+                    if display_text:
+                        await outbound.deliver_final(display_text)
+
+                tool_results = process_tool_calls(user_id, tool_calls, enabled_tools="all")
+                messages.append({
+                    "role": "assistant",
+                    "content": full_response or "",
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}}
+                        for tc in tool_calls
+                    ],
+                })
+                for result in tool_results:
+                    messages.append(result)
+
+                bot_message = None
+                render_pump = ChatEventPump(_render_event)
+                render_pump.start()
+                continue
 
             if finish_reason == "length":
                 logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
@@ -899,9 +984,20 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             logger.warning("%s model returned empty visible response", ctx)
             final_text = "(Empty response)"
 
+        thinking_block = ""
+        if show_thinking and thinking_segments:
+            thinking_text = "\n\n".join(thinking_segments).strip()
+            thinking_block = format_thinking_block(
+                thinking_text,
+                seconds=total_thinking_seconds,
+                max_chars=SHOW_THINKING_MAX_CHARS,
+            )
+
+        display_final = thinking_block + final_text if thinking_block else final_text
+
         await render_pump.drain()
         await render_pump.stop()
-        final_delivery_ok = await outbound.deliver_final(final_text)
+        final_delivery_ok = await outbound.deliver_final(display_final)
         final_delivery_confirmed = final_delivery_ok
 
         if final_delivery_ok:
@@ -941,6 +1037,17 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             persona_name,
         )
 
+    except asyncio.CancelledError:
+        logger.info("%s response cancelled by !stop", ctx)
+        try:
+            render_pump.force_stop()
+        except Exception:
+            pass
+        if not final_delivery_confirmed and bot_message:
+            try:
+                await bot_message.edit(content="(Response stopped)")
+            except Exception:
+                pass
     except Exception as e:
         logger.exception("%s AI API error", ctx)
         try:
@@ -951,8 +1058,13 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             await outbound.deliver_final(build_retry_message())
         record_error(user_id, str(e), "discord chat handler", settings.get("model"), persona_name)
     finally:
+        unregister_response(slot_key)
         try:
             await render_pump.stop()
+        except Exception:
+            pass
+        try:
+            await message.remove_reaction("👁️", bot.user)  # type: ignore[arg-type]
         except Exception:
             pass
         await slot_cm.__aexit__(None, None, None)
@@ -1047,6 +1159,19 @@ async def clear_command(ctx: commands.Context) -> None:
     )
 
 
+@bot.command(name="stop")
+async def stop_command(ctx: commands.Context) -> None:
+    dctx = _discord_cmd_ctx(ctx)
+    logger.info("%s /stop", dctx)
+    user_id = int(ctx.author.id)
+    chat_id = ctx.channel.id
+    cancelled = cancel_user_responses(chat_id, user_id, platform="discord")
+    if cancelled:
+        await _send_ctx_reply(ctx, f"Stopped {len(cancelled)} active response(s).")
+    else:
+        await _send_ctx_reply(ctx, "No active responses to stop.")
+
+
 @bot.command(name="settings")
 async def settings_command(ctx: commands.Context) -> None:
     logger.info("%s /settings", _discord_cmd_ctx(ctx))
@@ -1073,27 +1198,26 @@ async def settings_command(ctx: commands.Context) -> None:
     cron_model_raw = settings.get("cron_model", "")
     cron_model_display = cron_model_raw or "(current model)"
 
-    text = (
-        "Current Settings:\n\n"
-        f"base_url: {settings['base_url']}\n"
-        f"api_key: {_mask_key(settings['api_key'])}\n"
-        f"model: {settings['model']}\n"
-        f"temperature: {settings['temperature']}\n"
-        f"reasoning_effort: {settings.get('reasoning_effort', '') or '(provider/model default)'}\n"
-        f"stream_mode: {stream_mode}\n"
-        f"title_model: {title_model_display}\n"
-        f"cron_model: {cron_model_display}\n"
-        f"persona: {persona_name}\n"
-        f"token_limit({persona_name}): {token_limit if token_limit > 0 else 'unlimited'}\n"
-        f"global_prompt: {global_prompt_display}\n"
-        f"prompt: {prompt_display}\n"
-        f"tts_voice: {tts_voice}\n"
-        f"tts_style: {tts_style}\n"
-        f"tts_endpoint: {tts_endpoint}\n\n"
-        f"providers: {presets_info}\n\n"
-        f"Use {DISCORD_COMMAND_PREFIX}persona to manage personas and prompts.\n"
-        f"Use {DISCORD_COMMAND_PREFIX}chat to manage chat sessions.\n"
-        f"Use {DISCORD_COMMAND_PREFIX}set provider to manage API providers."
+    show_thinking = "on" if settings.get("show_thinking") else "off"
+    text = build_settings_summary_message(
+        DISCORD_COMMAND_PREFIX,
+        base_url=settings["base_url"],
+        masked_api_key=_mask_key(settings["api_key"]),
+        model=settings["model"],
+        temperature=settings["temperature"],
+        reasoning_effort=settings.get("reasoning_effort", "") or "(provider/model default)",
+        show_thinking=show_thinking,
+        stream_mode=stream_mode,
+        title_model=title_model_display,
+        cron_model=cron_model_display,
+        persona_name=persona_name,
+        token_limit_display=str(token_limit if token_limit > 0 else "unlimited"),
+        global_prompt=global_prompt_display,
+        prompt=prompt_display,
+        tts_voice=tts_voice,
+        tts_style=tts_style,
+        tts_endpoint=tts_endpoint,
+        providers_info=presets_info,
     )
 
     await _send_ctx_reply(ctx, text)
@@ -1148,41 +1272,20 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
         if key == "stream_mode":
             current = settings.get("stream_mode", "") or "default"
-            await _send_ctx_reply(
-                ctx,
-                f"Current stream_mode: {current}\n"
-                f"Usage: {p}set stream_mode <mode>\n\n"
-                "Available modes:\n"
-                "- default: time + chars combined\n"
-                "- time: update by time interval\n"
-                "- chars: update by character interval",
-            )
+            await _send_ctx_reply(ctx, build_stream_mode_help_message(p, current))
+            return
+        if key == "show_thinking":
+            current = "on" if settings.get("show_thinking") else "off"
+            await _send_ctx_reply(ctx, build_show_thinking_help_message(p, current))
             return
         if key == "reasoning_effort":
             current = settings.get("reasoning_effort", "") or "(provider/model default)"
-            await _send_ctx_reply(
-                ctx,
-                f"Current reasoning_effort: {current}\n"
-                f"Usage: {p}set reasoning_effort <value>\n\n"
-                "Available values:\n"
-                "- none\n"
-                "- minimal\n"
-                "- low\n"
-                "- medium\n"
-                "- high\n"
-                "- xhigh\n\n"
-                f"Use {p}set reasoning_effort clear to follow provider/model default.",
-            )
+            await _send_ctx_reply(ctx, build_reasoning_effort_help_message(p, current))
             return
         if key == "global_prompt":
             current = settings.get("global_prompt", "") or "(none)"
             display = current[:100] + "..." if len(current) > 100 else current
-            await _send_ctx_reply(
-                ctx,
-                f"Current global_prompt: {display}\n\n"
-                f"Usage: {p}set global_prompt <prompt>\n"
-                f"Use {p}set global_prompt clear to remove.",
-            )
+            await _send_ctx_reply(ctx, build_global_prompt_help_message(p, display))
             return
 
         await _send_ctx_reply(ctx, build_set_usage_message(p))
@@ -1285,6 +1388,20 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         update_user_setting(user_id, "reasoning_effort", val)
         logger.info("%s set reasoning_effort = %s", ctx_log, val)
         await _send_ctx_reply(ctx, f"reasoning_effort set to: {val}")
+        return
+
+    if key == "show_thinking":
+        val = value.strip().lower()
+        if val in {"on", "true", "1", "yes", "y"}:
+            update_user_setting(user_id, "show_thinking", True)
+            logger.info("%s set show_thinking = on", ctx_log)
+            await _send_ctx_reply(ctx, "show_thinking enabled.")
+        elif val in {"off", "false", "0", "no", "n", "clear"}:
+            update_user_setting(user_id, "show_thinking", False)
+            logger.info("%s set show_thinking = off", ctx_log)
+            await _send_ctx_reply(ctx, "show_thinking disabled.")
+        else:
+            await _send_ctx_reply(ctx, build_show_thinking_help_message(p, "on" if settings.get("show_thinking") else "off"))
         return
 
     if key == "token_limit":
@@ -1422,15 +1539,21 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
     if key == "stream_mode":
         mode = value.lower()
-        if mode in {"default", "time", "chars"}:
+        if mode in {"default", "time", "chars", "off"}:
             update_user_setting(user_id, "stream_mode", mode)
             logger.info("%s set stream_mode = %s", ctx_log, mode)
+            mode_desc = {
+                "default": "time + chars combined",
+                "time": "update by time interval",
+                "chars": "update by character interval",
+                "off": "non-streaming (full response at once)",
+            }
             await _send_ctx_reply(
                 ctx,
-                f"stream_mode set to: {mode}\n"
+                f"stream_mode set to: {mode} ({mode_desc.get(mode, '')})\n"
                 "Applies to both Telegram and Discord streaming output.",
             )
-        elif mode in {"", "off", "clear", "none"}:
+        elif mode in {"", "clear", "none"}:
             update_user_setting(user_id, "stream_mode", "")
             logger.info("%s cleared stream_mode", ctx_log)
             await _send_ctx_reply(
@@ -1440,15 +1563,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             )
         else:
             current = settings.get("stream_mode", "") or "default"
-            await _send_ctx_reply(
-                ctx,
-                f"Current stream_mode: {current}\n"
-                f"Usage: {p}set stream_mode <mode>\n\n"
-                "Available modes:\n"
-                "- default: time + chars combined\n"
-                "- time: update by time interval\n"
-                "- chars: update by character interval",
-            )
+            await _send_ctx_reply(ctx, build_stream_mode_help_message(p, current))
         return
 
     await _send_ctx_reply(ctx, build_unknown_set_key_message(key))

@@ -30,6 +30,44 @@ SHARED_TOOL_STATUS_MAP = {
     "browser_get_state": "Reading page state...",
 }
 
+SET_COMMAND_KEYS = (
+    "base_url",
+    "api_key",
+    "model",
+    "temperature",
+    "reasoning_effort",
+    "show_thinking",
+    "stream_mode",
+    "token_limit",
+    "global_prompt",
+    "title_model",
+    "cron_model",
+    "voice",
+    "style",
+    "endpoint",
+    "provider",
+)
+
+
+def _build_set_key_lines() -> str:
+    return (
+        "- base_url - API endpoint\n"
+        "- api_key - API key\n"
+        "- model - model (no value to browse list)\n"
+        "- temperature - temperature parameter\n"
+        "- reasoning_effort - reasoning effort (none/minimal/low/medium/high/xhigh)\n"
+        "- show_thinking - show condensed reasoning block when available (on/off)\n"
+        "- stream_mode - streaming mode (default/time/chars/off)\n"
+        "- token_limit - token limit for current persona\n"
+        "- global_prompt - global prompt (<text|clear>)\n"
+        "- title_model - title generation model [provider:]model\n"
+        "- cron_model - cron task model [provider:]model\n"
+        "- voice - TTS voice\n"
+        "- style - TTS style\n"
+        "- endpoint - TTS endpoint\n"
+        "- provider - provider management (list/save/load/delete)"
+    )
+
 
 def format_log_context(*, platform: str, user_id: int, scope: str, chat_id: int) -> str:
     return f"[platform={platform} user={user_id} scope={scope} chat={chat_id}]"
@@ -57,15 +95,18 @@ def build_start_message_returning(persona: str, prefix: str) -> str:
 def build_help_message(prefix: str) -> str:
     return (
         "AI Bot Help\n\n"
-        "Send text, image, or file to chat with AI.\n"
-        "AI can automatically execute commands, install dependencies, and manage files through tools.\n\n"
+        "Send text, images, or files to chat with AI.\n"
+        "AI can use installed tools and skills during chat when the current model supports them.\n\n"
         "In groups/servers: mention the bot or reply to a bot message\n"
         "In private chats/DMs: direct chat works\n\n"
-        f"Commands:\n"
+        "Commands:\n"
+        f"{prefix}start - show welcome message\n"
+        f"{prefix}help - show this help\n"
         f"{prefix}persona - manage personas\n"
         f"{prefix}chat - manage sessions\n"
         f"{prefix}settings - view settings\n"
         f"{prefix}set <key> <value> - modify settings\n"
+        f"{prefix}stop - stop active response\n"
         f"{prefix}skill - manage skills\n"
         f"{prefix}remember <text> - add memory\n"
         f"{prefix}memories - view memories\n"
@@ -74,6 +115,72 @@ def build_help_message(prefix: str) -> str:
         f"{prefix}export - export conversation\n"
         f"{prefix}clear - clear conversation\n"
         f"{prefix}web - open dashboard"
+    )
+
+
+def build_persona_help_section(prefix: str) -> str:
+    return (
+        "Persona Commands\n\n"
+        f"{prefix}persona - list all personas\n"
+        f"{prefix}persona <name> - switch to persona\n"
+        f"{prefix}persona new <name> [prompt] - create persona\n"
+        f"{prefix}persona delete <name> - delete persona\n"
+        f"{prefix}persona prompt <text> - set current persona prompt\n\n"
+        "Each persona has independent sessions and token usage."
+    )
+
+
+def build_settings_help_section(prefix: str) -> str:
+    return (
+        "Settings Commands\n\n"
+        f"{prefix}settings - show current settings\n"
+        f"{prefix}set <key> <value> - update a setting\n"
+        f"{prefix}set model - browse or list models\n"
+        f"{prefix}set stream_mode - show stream mode help\n"
+        f"{prefix}set show_thinking - show thinking help\n"
+        f"{prefix}set reasoning_effort - show reasoning help\n"
+        f"{prefix}set global_prompt - show global prompt help\n\n"
+        "Available keys:\n"
+        f"{_build_set_key_lines()}\n\n"
+        "Provider presets:\n"
+        f"{prefix}set provider list\n"
+        f"{prefix}set provider save <name>\n"
+        f"{prefix}set provider load <name>\n"
+        f"{prefix}set provider delete <name>"
+    )
+
+
+def build_memory_help_section(prefix: str) -> str:
+    return (
+        "Memory Commands\n\n"
+        f"{prefix}remember <text> - add a memory\n"
+        f"{prefix}memories - list all memories\n"
+        f"{prefix}forget <num|all> - delete memories\n\n"
+        "Memories are shared across all personas.\n"
+        "AI can also save useful memories automatically."
+    )
+
+
+def build_advanced_help_section(prefix: str) -> str:
+    return (
+        "Advanced\n\n"
+        f"{prefix}chat - manage chat sessions\n"
+        f"{prefix}export - export current session history\n"
+        f"{prefix}usage - show token usage\n"
+        f"{prefix}clear - clear current session conversation\n"
+        f"{prefix}stop - stop active response\n"
+        f"{prefix}web - open the web dashboard\n\n"
+        "Session Commands:\n"
+        f"{prefix}chat - list sessions\n"
+        f"{prefix}chat new [title] - create session\n"
+        f"{prefix}chat <num> - switch session\n"
+        f"{prefix}chat rename <title> - rename session\n"
+        f"{prefix}chat delete <num> - delete session\n\n"
+        "Features:\n"
+        "- Token limit is tracked per persona\n"
+        "- Send images or files for AI analysis\n"
+        "- stream_mode off sends one full reply at the end\n"
+        "- title_model and cron_model can use [provider:]model"
     )
 
 
@@ -235,25 +342,53 @@ def build_set_usage_message(prefix: str) -> str:
     return (
         f"Usage: {prefix}set <key> <value>\n\n"
         "Available keys:\n"
-        "- base_url - API endpoint\n"
-        "- api_key - API key\n"
-        "- model - model (no value to browse list)\n"
-        "- temperature - temperature parameter\n"
-        "- reasoning_effort - reasoning effort (none/minimal/low/medium/high/xhigh)\n"
-        "- token_limit - token limit (current persona)\n"
-        "- global_prompt - global prompt (<text|clear>)\n"
-        "- title_model - title generation model [provider:]model\n"
-        "- cron_model - cron task model [provider:]model\n"
-        "- cron_tools - cron task tools <tool1,tool2,...>\n"
-        "- stream_mode - stream mode (default/time/chars)\n"
-        "- show_thinking - show thinking process (on/off)\n"
-        "- voice - TTS voice\n"
-        "- style - TTS style\n"
-        "- endpoint - TTS endpoint\n"
-        "- tool - tool toggle <name> <on|off>\n"
-        "- cron_tool - cron task tool toggle <name> <on|off>\n"
-        "- provider - provider management save/load/delete/list\n\n"
-        f"To set prompt use {prefix}persona prompt <text>"
+        f"{_build_set_key_lines()}\n\n"
+        f"Use {prefix}set provider for provider preset commands.\n"
+        f"Use {prefix}persona prompt <text> to set the current persona prompt."
+    )
+
+
+def build_stream_mode_help_message(prefix: str, current: str) -> str:
+    return (
+        f"Current stream_mode: {current}\n"
+        f"Usage: {prefix}set stream_mode <mode>\n\n"
+        "Available modes:\n"
+        "- default: time + chars combined\n"
+        "- time: update by time interval\n"
+        "- chars: update by character interval\n"
+        "- off: non-streaming, wait for full response (reduces rate limits)\n\n"
+        f"Use {prefix}set stream_mode clear to return to default mode."
+    )
+
+
+def build_show_thinking_help_message(prefix: str, current: str) -> str:
+    return (
+        f"Current show_thinking: {current}\n"
+        f"Usage: {prefix}set show_thinking <on|off>\n\n"
+        "When enabled, supported models may show a condensed reasoning block in the final answer."
+    )
+
+
+def build_reasoning_effort_help_message(prefix: str, current: str) -> str:
+    return (
+        f"Current reasoning_effort: {current}\n"
+        f"Usage: {prefix}set reasoning_effort <value>\n\n"
+        "Available values:\n"
+        "- none\n"
+        "- minimal\n"
+        "- low\n"
+        "- medium\n"
+        "- high\n"
+        "- xhigh\n\n"
+        f"Use {prefix}set reasoning_effort clear to follow provider/model default."
+    )
+
+
+def build_global_prompt_help_message(prefix: str, current: str) -> str:
+    return (
+        f"Current global_prompt: {current}\n\n"
+        f"Usage: {prefix}set global_prompt <prompt>\n"
+        f"Use {prefix}set global_prompt clear to remove."
     )
 
 
@@ -261,6 +396,52 @@ def build_prompt_per_persona_message(prefix: str) -> str:
     return (
         "Prompts are now managed per persona.\n"
         f"Use {prefix}persona prompt <text> to set prompt for current persona."
+    )
+
+
+def build_settings_summary_message(
+    prefix: str,
+    *,
+    base_url: str,
+    masked_api_key: str,
+    model: str,
+    temperature: float,
+    reasoning_effort: str,
+    show_thinking: str,
+    stream_mode: str,
+    title_model: str,
+    cron_model: str,
+    persona_name: str,
+    token_limit_display: str,
+    global_prompt: str,
+    prompt: str,
+    tts_voice: str,
+    tts_style: str,
+    tts_endpoint: str,
+    providers_info: str,
+) -> str:
+    return (
+        "Current Settings:\n\n"
+        f"base_url: {base_url}\n"
+        f"api_key: {masked_api_key}\n"
+        f"model: {model}\n"
+        f"temperature: {temperature}\n"
+        f"reasoning_effort: {reasoning_effort}\n"
+        f"show_thinking: {show_thinking}\n"
+        f"stream_mode: {stream_mode}\n"
+        f"title_model: {title_model}\n"
+        f"cron_model: {cron_model}\n"
+        f"persona: {persona_name}\n"
+        f"token_limit({persona_name}): {token_limit_display}\n"
+        f"global_prompt: {global_prompt}\n"
+        f"prompt: {prompt}\n"
+        f"tts_voice: {tts_voice}\n"
+        f"tts_style: {tts_style}\n"
+        f"tts_endpoint: {tts_endpoint}\n\n"
+        f"providers: {providers_info}\n\n"
+        f"Use {prefix}persona to manage personas and prompts.\n"
+        f"Use {prefix}chat to manage chat sessions.\n"
+        f"Use {prefix}set provider to manage API providers."
     )
 
 
@@ -329,8 +510,7 @@ def build_provider_not_found_available_message(name: str, available: str) -> str
 def build_unknown_set_key_message(key: str) -> str:
     return (
         f"Unknown key: {key}\n\n"
-        "Available keys: base_url, api_key, model, temperature, reasoning_effort, token_limit, global_prompt, "
-        "title_model, cron_model, cron_tools, stream_mode, voice, style, endpoint, tool, cron_tool, provider"
+        f"Available keys: {', '.join(SET_COMMAND_KEYS)}"
     )
 
 

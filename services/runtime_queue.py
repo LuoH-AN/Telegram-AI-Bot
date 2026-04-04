@@ -51,9 +51,9 @@ def unregister_response(key: str) -> None:
     _ACTIVE_RESPONSES.pop(key, None)
 
 
-def cancel_user_responses(chat_id: int, user_id: int) -> list[str]:
+def cancel_user_responses(chat_id: int, user_id: int, *, platform: str = "telegram") -> list[str]:
     """Cancel all active responses for a user in a chat. Returns cancelled keys."""
-    prefix = f"telegram:{chat_id}:{user_id}:"
+    prefix = f"{platform}:{chat_id}:{user_id}:"
     cancelled = []
     for key in list(_ACTIVE_RESPONSES):
         if key.startswith(prefix):

@@ -26,13 +26,18 @@ from utils.platform_parity import (
     build_api_key_verify_failed_message,
     build_api_key_verify_no_models_message,
     build_endpoint_invalid_message,
+    build_global_prompt_help_message,
     build_prompt_per_persona_message,
     build_provider_list_usage_message,
     build_provider_no_saved_message,
     build_provider_not_found_available_message,
     build_provider_save_hint_message,
     build_provider_usage_message,
+    build_reasoning_effort_help_message,
     build_set_usage_message,
+    build_settings_summary_message,
+    build_show_thinking_help_message,
+    build_stream_mode_help_message,
     build_unknown_set_key_message,
 )
 
@@ -90,27 +95,26 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     cron_model_display = _format_model_display(settings.get("cron_model", ""))
 
     await update.message.reply_text(
-        f"Current Settings:\n\n"
-        f"base_url: {settings['base_url']}\n"
-        f"api_key: {masked_key}\n"
-        f"model: {settings['model']}\n"
-        f"temperature: {settings['temperature']}\n"
-        f"reasoning_effort: {settings.get('reasoning_effort', '') or '(provider/model default)'}\n"
-        f"show_thinking: {show_thinking}\n"
-        f"stream_mode: {stream_mode}\n"
-        f"title_model: {title_model_display}\n"
-        f"cron_model: {cron_model_display}\n"
-        f"persona: {persona_name}\n"
-        f"token_limit({persona_name}): {token_limit if token_limit > 0 else 'unlimited'}\n"
-        f"global_prompt: {global_prompt_display}\n"
-        f"prompt: {prompt_display}\n"
-        f"tts_voice: {tts_voice}\n"
-        f"tts_style: {tts_style}\n"
-        f"tts_endpoint: {tts_endpoint}\n\n"
-        f"providers: {presets_info}\n\n"
-        f"Use /persona to manage personas and prompts.\n"
-        f"Use /chat to manage chat sessions.\n"
-        f"Use /set provider to manage API providers."
+        build_settings_summary_message(
+            "/",
+            base_url=settings["base_url"],
+            masked_api_key=masked_key,
+            model=settings["model"],
+            temperature=settings["temperature"],
+            reasoning_effort=settings.get("reasoning_effort", "") or "(provider/model default)",
+            show_thinking=show_thinking,
+            stream_mode=stream_mode,
+            title_model=title_model_display,
+            cron_model=cron_model_display,
+            persona_name=persona_name,
+            token_limit_display=str(token_limit if token_limit > 0 else "unlimited"),
+            global_prompt=global_prompt_display,
+            prompt=prompt_display,
+            tts_voice=tts_voice,
+            tts_style=tts_style,
+            tts_endpoint=tts_endpoint,
+            providers_info=presets_info,
+        )
     )
 
 
@@ -148,46 +152,20 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         if context.args and context.args[0].lower() == "stream_mode":
             current = settings.get("stream_mode", "") or "default"
-            await update.message.reply_text(
-                f"Current stream_mode: {current}\n"
-                "Usage: /set stream_mode <mode>\n\n"
-                "Available modes:\n"
-                "- default: time + chars combined\n"
-                "- time: update by time interval\n"
-                "- chars: update by character interval\n"
-                "- off: non-streaming, wait for full response (reduces rate limits)"
-            )
+            await update.message.reply_text(build_stream_mode_help_message("/", current))
             return
         if context.args and context.args[0].lower() == "show_thinking":
             current = "on" if settings.get("show_thinking") else "off"
-            await update.message.reply_text(
-                f"Current show_thinking: {current}\n"
-                "Usage: /set show_thinking <on|off>"
-            )
+            await update.message.reply_text(build_show_thinking_help_message("/", current))
             return
         if context.args and context.args[0].lower() == "reasoning_effort":
             current = settings.get("reasoning_effort", "") or "(provider/model default)"
-            await update.message.reply_text(
-                f"Current reasoning_effort: {current}\n"
-                "Usage: /set reasoning_effort <value>\n\n"
-                "Available values:\n"
-                "- none\n"
-                "- minimal\n"
-                "- low\n"
-                "- medium\n"
-                "- high\n"
-                "- xhigh\n\n"
-                "Use /set reasoning_effort clear to follow provider/model default."
-            )
+            await update.message.reply_text(build_reasoning_effort_help_message("/", current))
             return
         if context.args and context.args[0].lower() == "global_prompt":
             current = settings.get("global_prompt", "") or "(none)"
             display = _truncate_display(current, 100)
-            await update.message.reply_text(
-                f"Current global_prompt: {display}\n\n"
-                "Usage: /set global_prompt <prompt>\n"
-                "Use /set global_prompt clear to remove."
-            )
+            await update.message.reply_text(build_global_prompt_help_message("/", display))
             return
 
         await update.message.reply_text(build_set_usage_message("/"))
@@ -344,15 +322,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
         else:
             current = settings.get("stream_mode", "") or "default"
-            await update.message.reply_text(
-                f"Current stream_mode: {current}\n"
-                "Usage: /set stream_mode <mode>\n\n"
-                "Available modes:\n"
-                "- default: time + chars combined\n"
-                "- time: update by time interval\n"
-                "- chars: update by character interval\n"
-                "- off: non-streaming, wait for full response (reduces rate limits)"
-            )
+            await update.message.reply_text(build_stream_mode_help_message("/", current))
     elif key == "show_thinking":
         val = value.strip().lower()
         if val in {"on", "true", "1", "yes", "y"}:

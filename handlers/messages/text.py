@@ -132,11 +132,21 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             await update.message.reply_text(build_token_limit_reached_message("/", persona_name))
             return
         await update.message.chat.send_action(ChatAction.TYPING)
-        bot_message = await update.message.reply_text("Thinking...")
+        # Set reaction to indicate processing
+        try:
+            await update.message.set_reaction("👁️")
+        except Exception:
+            pass
+        bot_message = None
 
     async def _edit_placeholder(text: str) -> bool:
+        nonlocal bot_message
         if bot_message is None:
-            return False
+            sent_messages = await send_message_safe(update.message, text)
+            if not sent_messages:
+                return False
+            bot_message = sent_messages[-1]
+            return True
         return await edit_message_safe(bot_message, text)
 
     async def _send_text(text: str) -> bool:
@@ -147,19 +157,24 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
         nonlocal bot_message
         if bot_message is None:
             return
-        await bot_message.delete()
+        try:
+            await bot_message.delete()
+        except Exception:
+            pass
         bot_message = None
 
     outbound = StreamOutboundAdapter(
         max_message_length=MAX_MESSAGE_LENGTH,
-        has_placeholder=lambda: bot_message is not None,
+        has_placeholder=lambda: True,
         edit_placeholder=_edit_placeholder,
         send_text=_send_text,
         delete_placeholder=_delete_placeholder,
-        empty_placeholder_text="Thinking...",
+        empty_placeholder_text="",
     )
 
     async def _render_event(event) -> None:
+        if event.kind != "stream":
+            return
         await outbound.stream_update(event.text)
 
     render_pump = ChatEventPump(_render_event)
@@ -273,20 +288,18 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 for result in tool_results:
                     messages.append(result)
 
-                # Create new message for final response
-                # Delete old placeholder message if exists (from previous tool call iteration)
-                if bot_message:
-                    try:
-                        await bot_message.delete()
-                    except Exception:
-                        pass
-                bot_message = await update.message.reply_text("Generating response...")
+                # Reset current streaming message so the next visible output lazily creates a new one
+                bot_message = None
 
                 # Reset outbound adapter for new message
                 async def _edit_new_placeholder(text: str) -> bool:
                     nonlocal bot_message
                     if bot_message is None:
-                        return False
+                        sent_messages = await send_message_safe(update.message, text)
+                        if not sent_messages:
+                            return False
+                        bot_message = sent_messages[-1]
+                        return True
                     return await edit_message_safe(bot_message, text)
 
                 async def _send_new_text(text: str) -> bool:
@@ -297,20 +310,25 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                     nonlocal bot_message
                     if bot_message is None:
                         return
-                    await bot_message.delete()
+                    try:
+                        await bot_message.delete()
+                    except Exception:
+                        pass
                     bot_message = None
 
                 outbound = StreamOutboundAdapter(
                     max_message_length=MAX_MESSAGE_LENGTH,
-                    has_placeholder=lambda: bot_message is not None,
+                    has_placeholder=lambda: True,
                     edit_placeholder=_edit_new_placeholder,
                     send_text=_send_new_text,
                     delete_placeholder=_delete_new_placeholder,
-                    empty_placeholder_text="Generating response...",
+                    empty_placeholder_text="",
                 )
 
                 # Recreate render event handler with new outbound
                 async def _render_event_new(event) -> None:
+                    if event.kind != "stream":
+                        return
                     await outbound.stream_update(event.text)
 
                 render_pump = ChatEventPump(_render_event_new)
@@ -412,6 +430,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
                 await bot_message.edit_text("(Response stopped)")
             except Exception:
                 pass
+        if not internal_call:
+            try:
+                await update.message.set_reaction(None)
+            except Exception:
+                pass
     except Exception as e:
         logger.exception("%s AI API error", ctx)
         try:
@@ -427,6 +450,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             await render_pump.stop()
         except Exception:
             logger.debug("%s failed to stop render pump in finally", ctx, exc_info=True)
+        if not internal_call:
+            try:
+                await update.message.set_reaction(None)
+            except Exception:
+                pass
         await slot_cm.__aexit__(None, None, None)
 
 
