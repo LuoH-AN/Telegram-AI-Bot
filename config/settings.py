@@ -11,12 +11,14 @@ _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ALLOWED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
-def _apply_env_content() -> None:
-    """Hydrate env vars from ENV_CONTENT using KEY=VALUE lines.
+def _apply_env_text() -> None:
+    """Hydrate env vars from ENV_TEXT / ENV_CONTENT using KEY=VALUE lines.
 
     Explicit environment variables keep higher priority and are not overwritten.
     """
-    raw = os.getenv("ENV_CONTENT", "")
+    raw = os.getenv("ENV_TEXT", "")
+    if not raw:
+        raw = os.getenv("ENV_CONTENT", "")
     if not raw:
         return
 
@@ -49,7 +51,7 @@ def _apply_env_content() -> None:
 
 # Load environment variables
 load_dotenv()
-_apply_env_content()
+_apply_env_text()
 
 
 def _normalize_reasoning_effort(value: str | None) -> str:

@@ -15,6 +15,53 @@ trim() {
     printf '%s' "$value"
 }
 
+apply_env_text() {
+    local raw text line key value
+    raw="$(trim "${ENV_TEXT:-}")"
+    if [[ -z "$raw" ]]; then
+        raw="$(trim "${ENV_CONTENT:-}")"
+    fi
+    if [[ -z "$raw" ]]; then
+        return
+    fi
+
+    text="${raw//$'\r\n'/$'\n'}"
+    text="${text//$'\r'/$'\n'}"
+    if [[ "$text" != *$'\n'* && "$text" == *"\\n"* ]]; then
+        text="${text//\\n/$'\n'}"
+    fi
+
+    while IFS= read -r line; do
+        line="$(trim "$line")"
+        if [[ -z "$line" || "$line" == \#* ]]; then
+            continue
+        fi
+        if [[ "$line" == export\ * ]]; then
+            line="$(trim "${line#export }")"
+        fi
+        if [[ "$line" != *=* ]]; then
+            continue
+        fi
+        key="$(trim "${line%%=*}")"
+        value="$(trim "${line#*=}")"
+        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            continue
+        fi
+        if [[ "${#value}" -ge 2 ]]; then
+            if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+                value="${value:1:${#value}-2}"
+            elif [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+                value="${value:1:${#value}-2}"
+            fi
+        fi
+        if [[ -z "${!key:-}" ]]; then
+            export "${key}=${value}"
+        fi
+    done <<< "$text"
+}
+
+apply_env_text
+
 BROWSER_HEADLESS="$(trim "${BROWSER_HEADLESS:-1}")"
 
 is_configured_token() {
