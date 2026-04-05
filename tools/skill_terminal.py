@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .base import BaseTool
+from .terminal_persist import persist_install_command
 from .terminal_bg_ops import check_bg_job, list_bg_jobs, run_background
 from .terminal_bg_state import REPO_ROOT
 
@@ -80,10 +81,13 @@ class SkillTerminalTool(BaseTool):
             if result.stderr:
                 parts.append(f"stderr:\n{result.stderr}")
             parts.append(f"exit_code: {result.returncode}")
+            if result.returncode == 0:
+                persist_note = persist_install_command(command)
+                if persist_note:
+                    parts.append(persist_note)
             return "\n\n".join(parts)
         except subprocess.TimeoutExpired:
             return f"Error: command execution timeout ({timeout}s). Consider using background=true for long-running commands."
         except Exception as exc:
             logger.exception("skill_terminal execution failed")
             return f"Error: {exc}"
-

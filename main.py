@@ -13,6 +13,7 @@ from launcher import (
     get_ports,
     is_configured_token,
     is_wechat_enabled,
+    run_cli_bootstrap,
     start_child,
     terminate_children,
     wait_for_first_exit,
@@ -44,6 +45,7 @@ def _start_children() -> list:
 def main() -> int:
     load_dotenv()
     apply_env_text()
+    run_cli_bootstrap(root_dir=ROOT_DIR)
     children = _start_children()
 
     if not children:
@@ -66,4 +68,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
