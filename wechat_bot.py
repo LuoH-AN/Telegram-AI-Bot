@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from collections import OrderedDict
 
 import uvicorn
 
@@ -271,6 +273,8 @@ class WeChatBotRuntime:
         self.client = WeChatOfficialClient(state_dir=WECHAT_STATE_DIR, bot_type=WECHAT_BOT_TYPE)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._typing_lock = asyncio.Lock()
+        self._seen_message_lock = threading.RLock()
+        self._seen_messages: OrderedDict[str, float] = OrderedDict()
         self.login_access_token = WECHAT_LOGIN_ACCESS_TOKEN or secrets.token_urlsafe(24)
         self._login_state_lock = threading.RLock()
         self._login_snapshot_path = Path(WECHAT_STATE_DIR) / "login_snapshot.json"
@@ -287,6 +291,46 @@ class WeChatBotRuntime:
             "access_token_hint": self.login_access_token,
         }
         set_wechat_runtime(self)
+
+    def _message_dedup_key(self, message: dict) -> str | None:
+        message_id = str(message.get("message_id") or "").strip()
+        seq = str(message.get("seq") or "").strip()
+        create_time_ms = str(message.get("create_time_ms") or "").strip()
+        from_user_id = str(message.get("from_user_id") or "").strip()
+        to_user_id = str(message.get("to_user_id") or "").strip()
+        group_id = str(message.get("group_id") or "").strip()
+        text_body = _extract_text_body(message.get("item_list") or [])
+        if message_id:
+            return f"msgid:{message_id}"
+        if seq and from_user_id:
+            return f"seq:{seq}:from:{from_user_id}"
+        if from_user_id and create_time_ms:
+            body_hash = (
+                hashlib.sha1(text_body.encode("utf-8")).hexdigest()[:16]
+                if text_body
+                else "no-body"
+            )
+            return f"fallback:{from_user_id}:{to_user_id}:{group_id}:{create_time_ms}:{body_hash}"
+        return None
+
+    def _should_skip_duplicate_message(self, message: dict) -> bool:
+        key = self._message_dedup_key(message)
+        if not key:
+            return False
+        now = time.time()
+        ttl_seconds = 15 * 60
+        max_items = 2048
+        with self._seen_message_lock:
+            expired = [k for k, ts in self._seen_messages.items() if now - ts > ttl_seconds]
+            for item in expired:
+                self._seen_messages.pop(item, None)
+            if key in self._seen_messages:
+                self._seen_messages.move_to_end(key)
+                return True
+            self._seen_messages[key] = now
+            while len(self._seen_messages) > max_items:
+                self._seen_messages.popitem(last=False)
+        return False
 
     def _build_login_page_url(self) -> str:
         return f"{WEB_BASE_URL.rstrip('/')}/wechat/login?access={self.login_access_token}"
@@ -570,6 +614,18 @@ class WeChatBotRuntime:
     async def handle_message(self, message: dict) -> None:
         if int(message.get("message_type") or 1) == 2:
             return
+        if int(message.get("message_state") or 0) == 1:
+            logger.info("Skipping WeChat message with generating state")
+            return
+        if self._should_skip_duplicate_message(message):
+            logger.info(
+                "Skipping duplicate WeChat message: message_id=%s seq=%s state=%s from=%s",
+                message.get("message_id"),
+                message.get("seq"),
+                message.get("message_state"),
+                message.get("from_user_id"),
+            )
+            return
         peer_id = str(message.get("from_user_id") or "").strip()
         if not peer_id:
             return
@@ -592,7 +648,14 @@ class WeChatBotRuntime:
         )
         text_body = _extract_text_body(message.get("item_list") or [])
         normalized_text = _strip_wechat_group_mentions(text_body) if ctx.is_group else text_body
-        logger.info("%s inbound message", ctx.log_context)
+        logger.info(
+            "%s inbound message (message_id=%s seq=%s state=%s group=%s)",
+            ctx.log_context,
+            message.get("message_id"),
+            message.get("seq"),
+            message.get("message_state"),
+            bool(group_id),
+        )
 
         if ctx.is_group and not _should_respond_in_wechat_group(text_body):
             return
