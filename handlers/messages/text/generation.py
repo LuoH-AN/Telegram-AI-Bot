@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from config import SHOW_THINKING_MAX_CHARS, STREAM_UPDATE_MODE
@@ -58,7 +59,13 @@ async def generate_with_tools(
                 if visible:
                     await runtime.outbound.deliver_final(visible)
                     runtime.clear_placeholder()
-            tool_results = process_tool_calls(user_id, tool_calls, enabled_tools="all", event_callback=runtime.tool_event_callback)
+            tool_results = await asyncio.to_thread(
+                process_tool_calls,
+                user_id,
+                tool_calls,
+                "all",
+                runtime.tool_event_callback,
+            )
             messages.append(build_assistant_tool_call_message(full_response, tool_calls))
             messages.extend(tool_results)
             continue

@@ -1,13 +1,10 @@
 """Main model/tool-call loop for Discord chat streaming."""
-
 from __future__ import annotations
-
+import asyncio
 from ai import get_ai_client
 from handlers.messages.streaming import stream_response
 from utils import extract_thinking_blocks, filter_thinking_content
-
 from ..config import SHOW_THINKING_MAX_CHARS, logger
-
 
 def _append_thinking_segments(*, show_thinking: bool, full_response: str, reasoning_content: str | None, thinking_segments: list[str]) -> None:
     if not show_thinking:
@@ -17,8 +14,6 @@ def _append_thinking_segments(*, show_thinking: bool, full_response: str, reason
         cleaned = (segment or "").strip()
         if cleaned and (not thinking_segments or thinking_segments[-1] != cleaned):
             thinking_segments.append(cleaned)
-
-
 async def run_stream_loop(
     *,
     user_id: int,
@@ -71,7 +66,13 @@ async def run_stream_loop(
                 if display_text:
                     await runtime.outbound.deliver_final(display_text)
                     runtime.clear_placeholder_reference()
-            tool_results = process_tool_calls(user_id, tool_calls, enabled_tools="all", event_callback=runtime.tool_event_callback)
+            tool_results = await asyncio.to_thread(
+                process_tool_calls,
+                user_id,
+                tool_calls,
+                "all",
+                runtime.tool_event_callback,
+            )
             messages.append({"role": "assistant", "content": full_response or "", "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}} for tc in tool_calls]})
             for result in tool_results:
                 messages.append(result)

@@ -29,11 +29,7 @@ def put_storage_object(
     object_name = _normalize_object_key(name, default="object.dat")
     stored_filename = (filename or object_name or "object.dat").strip() or "object.dat"
     content_hash = _meta_key_for_path(object_name)
-    content_path = (
-        f".hf_sync/objects/{int(user_id)}/{content_hash}"
-        if encrypt
-        else object_name
-    )
+    content_path = f".hf_sync/objects/{int(user_id)}/{content_hash}"
     meta_path = f".hf_sync/meta/{int(user_id)}/{content_hash}.json"
 
     created_at = time.time()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from ai import get_ai_client
 from config import SHOW_THINKING_MAX_CHARS
 from handlers.messages.streaming import stream_response
@@ -41,7 +43,8 @@ async def run_completion_round(*, user_id: int, settings: dict, messages: list[d
             last_text_response = full
         if tool_calls:
             messages.append({"role": "assistant", "content": full or "", "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}} for tc in tool_calls]})
-            messages.extend(process_tool_calls(user_id, tool_calls, enabled_tools="all"))
+            tool_results = await asyncio.to_thread(process_tool_calls, user_id, tool_calls, "all", None)
+            messages.extend(tool_results)
             continue
         if finish_reason == "length":
             truncated = full or ""
