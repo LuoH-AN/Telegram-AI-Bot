@@ -1,6 +1,6 @@
 """Schema constants split by domain."""
 
-from .user_data import (
+from .users import (
     SCHEMA_INIT_LOCK_KEY,
     CREATE_USER_SETTINGS_TABLE,
     CREATE_USER_PERSONAS_TABLE,
@@ -11,10 +11,10 @@ from .user_data import (
     CREATE_CONVERSATIONS_INDEX,
     CREATE_CONVERSATIONS_SESSION_INDEX,
 )
-from .tokens_settings_migrations import (
+from .tokens import (
     CREATE_USER_PERSONA_TOKENS_TABLE,
 )
-from .memory_logs_cron import (
+from .memories_logs import (
     CREATE_USER_MEMORIES_TABLE,
     CREATE_MEMORIES_INDEX,
     CREATE_USER_LOGS_TABLE,
@@ -22,7 +22,7 @@ from .memory_logs_cron import (
     CREATE_USER_CRON_TASKS_TABLE,
     CREATE_CRON_TASKS_INDEX,
 )
-from .skills_wechat import (
+from .skills import (
     CREATE_USER_SKILLS_TABLE,
     CREATE_USER_SKILLS_INDEX,
     CREATE_USER_SKILL_STATES_TABLE,

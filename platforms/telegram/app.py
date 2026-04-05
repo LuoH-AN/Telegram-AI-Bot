@@ -6,7 +6,7 @@ from telegram import Update
 
 from cache import init_database
 from config import TELEGRAM_BOT_TOKEN
-from services.platform_shared import start_web_server
+from services.platform import start_web_server
 
 from .app_builder import build_application
 from .logging_config import configure_platform_logging

@@ -1,6 +1,6 @@
-"""Backwards-compatible shared platform exports."""
+"""Shared platform services."""
 
-from .helpers import (
+from .runtime import (
     fetch_models_for_user,
     mask_key,
     normalize_reasoning_effort,
@@ -21,4 +21,3 @@ __all__ = [
     "apply_provider_command",
     "build_usage_text",
 ]
-

@@ -1,6 +1,6 @@
 """Database schema definitions and creation entrypoint."""
 
-from .schema_parts import (
+from .schema_sql import (
     SCHEMA_INIT_LOCK_KEY,
     CREATE_USER_SETTINGS_TABLE,
     CREATE_USER_PERSONAS_TABLE,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.settings import get_settings_view_text
 from services import clear_conversation, ensure_session, get_current_persona_name, has_api_key, reset_token_usage
-from services.platform_shared import apply_provider_command, build_provider_list_text
+from services.platform import apply_provider_command, build_provider_list_text
 from services.runtime_queue import cancel_user_responses
 from utils.platform_parity import build_help_message, build_start_message_missing_api, build_start_message_returning
 

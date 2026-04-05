@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from platforms.command_core.dispatch import dispatch_command as dispatch_command_core
+from platforms.commands.dispatch import dispatch_command as dispatch_command_core
 
 
 async def dispatch_command(ctx, text: str) -> None:

@@ -6,10 +6,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
-from platforms.command_core.basic import clear_command as core_clear_command
-from platforms.command_core.basic import help_command as core_help_command
-from platforms.command_core.basic import start_command as core_start_command
-from platforms.command_core.basic import stop_command as core_stop_command
+from platforms.commands.basic import clear_command as core_clear_command
+from platforms.commands.basic import help_command as core_help_command
+from platforms.commands.basic import start_command as core_start_command
+from platforms.commands.basic import stop_command as core_stop_command
 from services.refresh import ensure_user_state
 
 from .context_adapter import TelegramCommandContextAdapter

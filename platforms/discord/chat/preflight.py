@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 from services import ensure_session, get_conversation, get_current_persona_name, get_remaining_tokens, get_user_settings, has_api_key
-from services.platform_shared import normalize_reasoning_effort, normalize_stream_mode
+from services.platform import normalize_reasoning_effort, normalize_stream_mode
 from services.refresh import ensure_user_state
 from utils.platform_parity import build_api_key_required_message, build_token_limit_reached_message
 

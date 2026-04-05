@@ -27,7 +27,7 @@ from config import (
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_VOICE,
 )
-from database.schema_parts import (
+from database.schema_sql import (
     CREATE_MEMORIES_INDEX,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_USER_PERSONA_TOKENS_TABLE,

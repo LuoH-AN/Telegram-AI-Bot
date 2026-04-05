@@ -1,4 +1,4 @@
-"""Platform-shared helper functions."""
+"""Shared runtime utilities for platform services."""
 
 from __future__ import annotations
 

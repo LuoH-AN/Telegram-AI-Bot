@@ -8,7 +8,7 @@ from utils.platform_parity import (
     build_provider_usage_message,
 )
 
-from .helpers import mask_key
+from .runtime import mask_key
 
 
 def build_provider_list_text(settings: dict, *, command_prefix: str) -> str:
@@ -64,4 +64,3 @@ def apply_provider_command(user_id: int, settings: dict, args: list[str], *, com
         update_user_setting(user_id, "model", preset["model"])
         return f"Loaded provider '{name}':\n  base_url: {preset['base_url']}\n  api_key: {mask_key(preset.get('api_key', ''))}\n  model: {preset['model']}"
     return build_provider_usage_message(command_prefix)
-

@@ -6,9 +6,9 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
-from platforms.command_core.memory import forget_command as core_forget_command
-from platforms.command_core.memory import memories_command as core_memories_command
-from platforms.command_core.memory import remember_command as core_remember_command
+from platforms.commands.memory import forget_command as core_forget_command
+from platforms.commands.memory import memories_command as core_memories_command
+from platforms.commands.memory import remember_command as core_remember_command
 
 from .context_adapter import TelegramCommandContextAdapter
 

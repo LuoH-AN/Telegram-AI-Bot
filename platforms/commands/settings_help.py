@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from services import has_api_key
-from services.platform_shared import fetch_models_for_user
+from services.platform import fetch_models_for_user
 from utils.platform_parity import (
     build_api_key_required_message,
     build_global_prompt_help_message,

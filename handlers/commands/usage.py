@@ -6,8 +6,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
-from platforms.command_core.account import export_command as core_export_command
-from platforms.command_core.account import usage_command as core_usage_command
+from platforms.commands.account import export_command as core_export_command
+from platforms.commands.account import usage_command as core_usage_command
 from services.refresh import ensure_user_state
 
 from .context_adapter import TelegramCommandContextAdapter

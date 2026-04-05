@@ -8,8 +8,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
-from platforms.command_core.basic import settings_command as core_settings_command
-from platforms.command_core.set_command import set_command as core_set_command
+from platforms.commands.basic import settings_command as core_settings_command
+from platforms.commands.settings_command import set_command as core_set_command
 from services.refresh import ensure_user_state
 
 from .context_adapter import TelegramCommandContextAdapter

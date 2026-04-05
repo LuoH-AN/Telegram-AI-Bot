@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from services import update_user_setting
-from services.platform_shared import fetch_models_for_user, mask_key
+from services.platform import fetch_models_for_user, mask_key
 from utils.platform_parity import (
     build_api_key_verify_failed_message,
     build_api_key_verify_no_models_message,

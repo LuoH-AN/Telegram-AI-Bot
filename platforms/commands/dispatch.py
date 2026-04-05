@@ -8,7 +8,7 @@ from .account import export_command, usage_command, web_command
 from .basic import clear_command, help_command, settings_command, start_command, stop_command
 from .memory import forget_command, memories_command, remember_command
 from .persona_chat import chat_command, persona_command
-from .set_command import set_command
+from .settings_command import set_command
 
 
 async def dispatch_command(

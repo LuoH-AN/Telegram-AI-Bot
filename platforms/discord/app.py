@@ -8,7 +8,7 @@ import discord
 from discord.ext import commands
 
 from cache import init_database
-from services.platform_shared import start_web_server
+from services.platform import start_web_server
 
 from .commands import register_commands
 from .config import DISCORD_BOT_TOKEN, DISCORD_COMMAND_PREFIX, logger

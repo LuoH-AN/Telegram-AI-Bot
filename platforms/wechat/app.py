@@ -6,7 +6,7 @@ import asyncio
 import threading
 
 from cache import init_database
-from services.platform_shared import start_web_server
+from services.platform import start_web_server
 
 from .config import WECHAT_ENABLED, logger
 from .runtime import WeChatBotRuntime

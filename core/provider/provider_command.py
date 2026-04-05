@@ -1,7 +1,7 @@
 """Provider subcommand use cases."""
 
 from services import get_user_settings
-from services.platform_shared import apply_provider_command, build_provider_list_text
+from services.platform import apply_provider_command, build_provider_list_text
 
 
 def show_provider_list(user_id: int, *, command_prefix: str) -> str:
@@ -22,4 +22,3 @@ def run_provider_command(
         args,
         command_prefix=command_prefix,
     )
-

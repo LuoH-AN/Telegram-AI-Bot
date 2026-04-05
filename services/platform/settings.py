@@ -12,7 +12,7 @@ from services import (
 )
 from utils.platform_parity import build_settings_summary_message
 
-from .helpers import mask_key
+from .runtime import mask_key
 
 
 def build_settings_text(user_id: int, *, command_prefix: str) -> str:

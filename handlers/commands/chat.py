@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context
-from platforms.command_core.persona_chat import chat_command as core_chat_command
+from platforms.commands.persona_chat import chat_command as core_chat_command
 from services.refresh import ensure_user_state
 
 from .context_adapter import TelegramCommandContextAdapter
