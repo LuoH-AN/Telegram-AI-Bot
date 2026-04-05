@@ -5,7 +5,7 @@ import threading
 from telegram import Update
 
 from cache import init_database
-from config import HEALTH_CHECK_PORT, TELEGRAM_BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN
 from services.platform_shared import start_web_server
 
 from .app_builder import build_application
@@ -22,7 +22,7 @@ def main() -> None:
     init_database()
     threading.Thread(
         target=start_web_server,
-        kwargs={"logger": logger, "port": HEALTH_CHECK_PORT},
+        kwargs={"logger": logger},
         daemon=True,
     ).start()
 

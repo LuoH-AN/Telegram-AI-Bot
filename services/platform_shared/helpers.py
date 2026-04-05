@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import uvicorn
 
@@ -14,6 +15,12 @@ VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
 def start_web_server(logger: logging.Logger, *, port: int = HEALTH_CHECK_PORT) -> None:
+    env_port = (os.getenv("PORT") or "").strip()
+    if env_port:
+        try:
+            port = int(env_port)
+        except ValueError:
+            logger.warning("Invalid PORT value '%s'; fallback to %d", env_port, port)
     app = create_app()
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning", access_log=False)
     logger.info("Web server started on port %d", port)
@@ -43,4 +50,3 @@ def fetch_models_for_user(user_id: int) -> list[str]:
         return get_ai_client(user_id).list_models()
     except Exception:
         return []
-

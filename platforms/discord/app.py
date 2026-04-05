@@ -11,7 +11,7 @@ from cache import init_database
 from services.platform_shared import start_web_server
 
 from .commands import register_commands
-from .config import DISCORD_BOT_TOKEN, DISCORD_COMMAND_PREFIX, HEALTH_CHECK_PORT, logger
+from .config import DISCORD_BOT_TOKEN, DISCORD_COMMAND_PREFIX, logger
 from .events import register_events
 from .network import apply_discord_network_overrides
 
@@ -34,7 +34,7 @@ def main() -> None:
     init_database()
     web_thread = threading.Thread(
         target=start_web_server,
-        kwargs={"logger": logger, "port": HEALTH_CHECK_PORT},
+        kwargs={"logger": logger},
         daemon=True,
     )
     web_thread.start()

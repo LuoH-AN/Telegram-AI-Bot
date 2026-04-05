@@ -21,7 +21,11 @@ def main() -> None:
 
     init_database()
 
-    web_thread = threading.Thread(target=start_web_server, daemon=True)
+    web_thread = threading.Thread(
+        target=start_web_server,
+        kwargs={"logger": logger},
+        daemon=True,
+    )
     web_thread.start()
 
     logger.info("Starting WeChat bot...")
