@@ -53,6 +53,33 @@ def create_short_token(user_id: int) -> str:
     return token
 
 
+def create_artifact_token(
+    *,
+    user_id: int,
+    path: str,
+    content_type: str = "application/octet-stream",
+    filename: str = "",
+    encrypted: bool = True,
+    ttl_minutes: int = 60 * 24,
+) -> str:
+    """Generate a signed short-lived token for artifact viewing."""
+    now = datetime.now(timezone.utc)
+    return jwt.encode(
+        {
+            "user_id": int(user_id),
+            "type": "artifact",
+            "path": str(path),
+            "content_type": str(content_type or "application/octet-stream"),
+            "filename": str(filename or ""),
+            "encrypted": bool(encrypted),
+            "iat": now,
+            "exp": now + timedelta(minutes=max(1, int(ttl_minutes))),
+        },
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+
+
 def exchange_short_token(token: str) -> str:
     """Exchange a short token for a JWT.
 
@@ -110,6 +137,20 @@ def verify_jwt_token(token: str) -> int:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         return int(payload["user_id"])
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, KeyError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+
+def verify_artifact_token(token: str) -> dict:
+    """Verify an artifact token and return the decoded payload."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        if payload.get("type") != "artifact":
+            raise ValueError("wrong token type")
+        return payload
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError, KeyError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

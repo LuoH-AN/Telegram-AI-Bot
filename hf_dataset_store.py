@@ -187,8 +187,10 @@ class HFDatasetStore:
             logger.warning("HF store encryption failed for %s: %s", filename, exc)
             return None
 
-    def _decrypt_payload(self, payload: bytes, filename: str) -> bytes | None:
+    def _decrypt_payload(self, payload: bytes, filename: str, *, allow_plaintext: bool = False) -> bytes | None:
         if not payload.startswith(_ENC_MAGIC):
+            if allow_plaintext:
+                return payload
             if payload.startswith(_LFS_POINTER_PREFIX):
                 logger.warning(
                     "HF store found a Git LFS/Xet pointer for %s. Install/configure git-lfs or git-xet so large files are materialized.",
@@ -419,7 +421,7 @@ class HFDatasetStore:
             logger.warning("HF git commit/push failed for %s: %s", self.repo_id, exc)
             return False
 
-    def get_bytes(self, path: str) -> bytes | None:
+    def get_bytes(self, path: str, *, allow_plaintext: bool = False) -> bytes | None:
         with self._lock:
             if not self._ensure_git_checkout():
                 return None
@@ -440,9 +442,16 @@ class HFDatasetStore:
             except Exception as exc:
                 logger.warning("HF store read local git checkout failed for %s: %s", filename, exc)
                 return None
-            return self._decrypt_payload(raw, filename)
+            return self._decrypt_payload(raw, filename, allow_plaintext=allow_plaintext)
 
-    def put_bytes(self, path: str, data: bytes, *, commit_message: str | None = None) -> bool:
+    def put_bytes(
+        self,
+        path: str,
+        data: bytes,
+        *,
+        commit_message: str | None = None,
+        encrypt: bool = True,
+    ) -> bool:
         with self._lock:
             if not self._ensure_git_checkout():
                 return False
@@ -453,8 +462,8 @@ class HFDatasetStore:
                 logger.warning("HF store put_bytes rejected path %r: %s", path, exc)
                 return False
 
-            encrypted = self._encrypt_payload(data, filename)
-            if encrypted is None:
+            payload = self._encrypt_payload(data, filename) if encrypt else data
+            if payload is None:
                 return False
 
             message = (commit_message or f"Update {filename}").strip()[:120]
@@ -464,15 +473,15 @@ class HFDatasetStore:
             try:
                 os.makedirs(os.path.dirname(abs_path), exist_ok=True)
                 with open(abs_path, "wb") as f:
-                    f.write(encrypted)
+                    f.write(payload)
                 self._run_git(["add", "--all", "--", filename], cwd=repo_dir)
                 return self._commit_git_change(filename, message)
             except Exception as exc:
                 logger.warning("HF store put_bytes failed for %s: %s", filename, exc)
                 return False
 
-    def get_json(self, path: str) -> Any | None:
-        raw = self.get_bytes(path)
+    def get_json(self, path: str, *, allow_plaintext: bool = False) -> Any | None:
+        raw = self.get_bytes(path, allow_plaintext=allow_plaintext)
         if raw is None:
             return None
         try:
@@ -481,13 +490,29 @@ class HFDatasetStore:
             logger.warning("HF store get_json parse failed for %s: %s", path, exc)
             return None
 
-    def put_json(self, path: str, value: Any, *, commit_message: str | None = None) -> bool:
+    def put_json(
+        self,
+        path: str,
+        value: Any,
+        *,
+        commit_message: str | None = None,
+        encrypt: bool = True,
+    ) -> bool:
         try:
             raw = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
         except Exception as exc:
             logger.warning("HF store put_json encode failed for %s: %s", path, exc)
             return False
-        return self.put_bytes(path, raw, commit_message=commit_message)
+        return self.put_bytes(path, raw, commit_message=commit_message, encrypt=encrypt)
+
+    def resolve_repo_url(self, path: str) -> str | None:
+        if not self._enabled or not self.repo_id:
+            return None
+        try:
+            filename = self._prefixed_path(path)
+        except ValueError:
+            return None
+        return f"https://huggingface.co/datasets/{self.repo_id}/resolve/{self.branch}/{filename}"
 
     def delete(self, path: str, *, commit_message: str | None = None) -> bool:
         with self._lock:

@@ -1,4 +1,4 @@
-"""AI-driven terminal workflow for installing and managing skills."""
+"""Terminal workflow for direct shell usage and AI-guided task execution."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from .terminal_exec import DEFAULT_TIMEOUT_SECONDS, REPO_ROOT, execute_terminal_command
+from .terminal_session import get_terminal_session, reset_terminal_session
 from .user import get_user_settings
 from openai import OpenAI
 
@@ -27,6 +28,8 @@ Constraints:
 6. When command output is sufficient to reach a conclusion, immediately set done=true.
 7. If failure prevents continuation, set done=true and clearly explain the failure reason in final_message.
 """
+
+_DIRECT_PREFIXES = ("cmd:", "exec:", "shell:")
 
 
 def _safe_json_loads(payload: str) -> dict | None:
@@ -98,9 +101,121 @@ def _coerce_step(payload: dict | None, fallback_error: str) -> dict:
     }
 
 
+def _looks_like_direct_command(goal: str) -> bool:
+    text = (goal or "").strip()
+    if not text:
+        return False
+    lower = text.lower()
+    if lower.startswith(_DIRECT_PREFIXES):
+        return True
+    if lower in {"pwd", "env", "reset", "reset-session"}:
+        return True
+    return any(
+        lower.startswith(prefix)
+        for prefix in (
+            "cd ",
+            "ls",
+            "cat ",
+            "pwd",
+            "env",
+            "python ",
+            "python3 ",
+            "pip ",
+            "pip3 ",
+            "uv ",
+            "npm ",
+            "pnpm ",
+            "yarn ",
+            "npx ",
+            "node ",
+            "git ",
+            "curl ",
+            "wget ",
+            "apt ",
+            "apt-get ",
+            "brew ",
+            "cargo ",
+            "go ",
+            "docker ",
+            "make ",
+            "pytest",
+            "ruff",
+            "mypy",
+            "bash ",
+            "sh ",
+        )
+    )
+
+
+def _strip_direct_prefix(goal: str) -> str:
+    text = (goal or "").strip()
+    lower = text.lower()
+    for prefix in _DIRECT_PREFIXES:
+        if lower.startswith(prefix):
+            return text[len(prefix):].strip()
+    return text
+
+
+def _run_direct_terminal(user_id: int, goal: str) -> dict:
+    command = _strip_direct_prefix(goal)
+    result = execute_terminal_command(
+        user_id,
+        command,
+        session_name="default",
+        timeout_seconds=SKILL_TERMINAL_TIMEOUT_SECONDS,
+    )
+    message = result["stdout"] or result["stderr"] or "(no output)"
+    return {
+        "ok": bool(result.get("ok")),
+        "message": message,
+        "steps": [
+            {
+                "step": 1,
+                "summary": "direct terminal execution",
+                "command": command,
+                "cwd": result.get("cwd"),
+                "session_name": result.get("session_name", "default"),
+                "exit_code": result.get("exit_code"),
+            }
+        ],
+        "result": result,
+    }
+
+
 def run_skill_terminal(user_id: int, goal: str) -> dict:
     settings = get_user_settings(user_id)
     api_key = settings.get("api_key") or ""
+    stripped_goal = (goal or "").strip()
+
+    if stripped_goal.lower() in {"session", "session info", "terminal session"}:
+        session = get_terminal_session(user_id, session_name="default")
+        return {
+            "ok": True,
+            "message": json.dumps(
+                {
+                    "cwd": session.cwd,
+                    "previous_cwd": session.previous_cwd,
+                    "env": session.env,
+                    "last_command": session.last_command,
+                    "last_exit_code": session.last_exit_code,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            "steps": [],
+        }
+
+    if stripped_goal.lower() in {"reset terminal", "reset session", "terminal reset"}:
+        session = reset_terminal_session(user_id, session_name="default")
+        return {
+            "ok": True,
+            "message": f"Terminal session reset. cwd={session.cwd}",
+            "steps": [],
+        }
+
+    if _looks_like_direct_command(stripped_goal):
+        return _run_direct_terminal(user_id, stripped_goal)
+
     if not api_key:
         return {
             "ok": False,
@@ -144,6 +259,7 @@ def run_skill_terminal(user_id: int, goal: str) -> dict:
             step["command"],
             cwd=step["cwd"],
             timeout_seconds=SKILL_TERMINAL_TIMEOUT_SECONDS,
+            session_name="default",
         )
         history.append(
             {

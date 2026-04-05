@@ -14,6 +14,8 @@ from pathlib import Path
 
 from cache import cache
 from hf_dataset_store import get_hf_dataset_store
+from .hf_sync import run_hf_sync_command
+from .skill_terminal import run_skill_terminal
 
 logger = logging.getLogger(__name__)
 
@@ -347,6 +349,14 @@ def call_skill(user_id: int, name: str, input_text: str) -> str:
         return f"Skill not found: {name}"
     if not skill.get("enabled"):
         return f"Skill is disabled: {name}"
+
+    if name == SKILL_TERMINAL_NAME:
+        result = run_skill_terminal(user_id, input_text)
+        return str(result.get("message") or "")
+
+    if name == HF_SYNC_NAME:
+        result = run_hf_sync_command(user_id, input_text)
+        return str(result.get("output") or "")
 
     runner = _load_skill_runner(user_id, name)
     if runner is None:

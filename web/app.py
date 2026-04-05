@@ -20,6 +20,7 @@ from web.routes.backup import router as backup_router
 from web.routes.browser_view import router as browser_view_router
 from web.routes.proxy import router as proxy_router
 from web.routes.wechat import router as wechat_router
+from web.routes.artifacts import router as artifacts_router
 from web.live_logs import get_live_logs_text, install_live_log_handler
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(browser_view_router)
     app.include_router(proxy_router)
     app.include_router(wechat_router)
+    app.include_router(artifacts_router)
 
     # Log all /api/ requests with user context
     @app.middleware("http")
