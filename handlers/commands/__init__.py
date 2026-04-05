@@ -7,7 +7,6 @@ from .memory import remember_command, memories_command, forget_command
 from .persona import persona_command
 from .chat import chat_command
 from .web import web_command
-from .skill import skill_command
 
 __all__ = [
     "start",
@@ -25,5 +24,4 @@ __all__ = [
     "persona_command",
     "chat_command",
     "web_command",
-    "skill_command",
 ]

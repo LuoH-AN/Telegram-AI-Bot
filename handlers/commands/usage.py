@@ -37,7 +37,6 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(build_usage_reset_message(persona_name))
         return
 
-    # Get current persona usage
     usage = get_token_usage(user_id, persona_name)
     token_limit = get_token_limit(user_id, persona_name)
 
@@ -58,7 +57,6 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         message += f"Remaining: {remaining:,}\n"
         message += f"Usage:     {percentage:.1f}%\n\n"
 
-        # Progress bar (20 characters wide)
         filled = int(percentage / 5)
         empty = 20 - filled
         bar = "[" + "#" * filled + "-" * empty + "]"
@@ -66,7 +64,6 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         message += f"\nLimit: unlimited"
 
-    # Show total across all personas
     total_all = get_total_tokens_all_personas(user_id)
     message += f"\n\n--- All personas ---\n"
     message += f"Total tokens: {total_all:,}"

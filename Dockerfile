@@ -3,8 +3,6 @@ FROM python:3.12-slim
 ARG BROWSER_HEADLESS=0
 ARG INSTALL_SHELL_UTILS=1
 ARG INSTALL_HEADFUL_SUPPORT=1
-ARG INSTALL_BROWSER=1
-ARG INSTALL_BROWSER_DEPS=1
 ARG INSTALL_CJK_FONTS=1
 
 WORKDIR /app
@@ -29,16 +27,6 @@ RUN mkdir -p /tmp/shell /app/runtime_skills
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Optional browser stack. This is the main image-size contributor.
-RUN set -eux; \
-    if [ "$INSTALL_BROWSER" = "1" ]; then \
-        if [ "$INSTALL_BROWSER_DEPS" = "1" ]; then \
-            playwright install --with-deps chromium; \
-        else \
-            playwright install chromium; \
-        fi; \
-    fi
 
 # Optional Chinese fonts for page rendering / screenshots.
 RUN set -eux; \

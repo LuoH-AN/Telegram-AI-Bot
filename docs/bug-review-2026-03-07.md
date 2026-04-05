@@ -115,9 +115,6 @@
 
 - `tools/fetch.py:68`
 - `tools/fetch.py:85`
-- `tools/playwright.py:621`
-- `tools/browser_agent.py:2154`
-- `tools/browser_agent.py:2382`
 - `tools/tts.py:197`
 - `tools/shell.py:375`
 
@@ -146,4 +143,3 @@
 2. 再修媒体请求 persona/session 快照错位。
 3. 再处理 media group 二次触发问题。
 4. 最后系统性收敛 cache 线程安全和 tool 错误回传策略。
-

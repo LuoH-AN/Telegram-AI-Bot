@@ -70,12 +70,6 @@
             <path d="M6 5h12M6 12h12M6 19h12"></path>
           </svg>
         </button>
-        <button class="nav-btn" data-pane="maintenance" type="button" title="Maintenance" aria-label="Maintenance">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3.5"></circle>
-            <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6z"></path>
-          </svg>
-        </button>
       </nav>
     </div>
 
@@ -145,18 +139,6 @@
             <label class="field field-full">
               <span>Global Prompt</span>
               <textarea id="cfg-global_prompt" rows="3" placeholder="Optional global system prompt for all personas"></textarea>
-            </label>
-            <label class="field">
-              <span>TTS Voice</span>
-              <input id="cfg-tts_voice" type="text" placeholder="zh-CN-XiaoxiaoMultilingualNeural">
-            </label>
-            <label class="field">
-              <span>TTS Style</span>
-              <input id="cfg-tts_style" type="text" placeholder="general">
-            </label>
-            <label class="field field-full">
-              <span>TTS Endpoint</span>
-              <input id="cfg-tts_endpoint" type="text" placeholder="https://...">
             </label>
           </div>
 
@@ -465,30 +447,6 @@
             <span id="logsPageInfo">1 / 1</span>
             <button class="btn" id="btnLogsNext" type="button">Next</button>
           </div>
-        </section>
-
-        <section class="pane" id="pane-maintenance">
-          <div class="pane-head">
-            <h2>Maintenance</h2>
-          </div>
-
-          <div class="inline-form tight">
-            <button class="btn" id="btnBackupExport" type="button">Export Backup</button>
-            <label>
-              <span>Import Mode</span>
-              <select id="backupImportMode">
-                <option value="replace">replace</option>
-                <option value="merge">merge</option>
-              </select>
-            </label>
-            <label>
-              <span>Backup File</span>
-              <input id="backupFileInput" type="file" accept="application/json,.json">
-            </label>
-            <button class="btn" id="btnBackupImport" type="button">Import Backup</button>
-          </div>
-
-          <div class="log-panel" id="backupResult">No backup operation yet.</div>
         </section>
       </main>
   </div>

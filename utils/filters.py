@@ -1,5 +1,4 @@
 """Content filtering utilities."""
-
 import re
 
 _THINKING_BLOCK_PATTERNS = [
@@ -11,53 +10,41 @@ _THINKING_BLOCK_PATTERNS = [
     re.compile(r"\[thinking\](.*?)\[/thinking\]", re.DOTALL | re.IGNORECASE),
     re.compile(r"<\|think\|>(.*?)<\|/think\|>", re.DOTALL | re.IGNORECASE),
 ]
+_THINKING_COMPLETE_PATTERNS = [
+    r"<think>.*?</think>",
+    r"<thinking>.*?</thinking>",
+    r"<reasoning>.*?</reasoning>",
+    r"<reflection>.*?</reflection>",
+    r"<internal>.*?</internal>",
+    r"\[thinking\].*?\[/thinking\]",
+    r"<\|think\|>.*?<\|/think\|>",
+]
+_THINKING_INCOMPLETE_PATTERNS = [
+    r"<think>.*$",
+    r"<thinking>.*$",
+    r"<reasoning>.*$",
+    r"<reflection>.*$",
+    r"<internal>.*$",
+    r"\[thinking\].*$",
+    r"<\|think\|>.*$",
+]
+_TAG_STRIP_PATTERN = r"</?(?:think|thinking|reasoning|reflection|internal)>|\[/?thinking\]|<\|/?think\|>"
 
 
 def filter_thinking_content(text: str, streaming: bool = False) -> str:
-    """Filter out thinking/reasoning content from the response.
-
-    Handles both complete and incomplete (streaming) thinking blocks.
-    For incomplete blocks, removes from opening tag to end of text.
-
-    Args:
-        text: The text to filter.
-        streaming: If True, skip the fallback that keeps content when all text
-                   is inside think tags. During streaming, returning empty means
-                   "still thinking" which lets the caller show a thinking indicator.
-    """
     filtered = text
-
-    filtered = re.sub(r"<think>.*?</think>", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<thinking>.*?</thinking>", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<reasoning>.*?</reasoning>", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<reflection>.*?</reflection>", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<internal>.*?</internal>", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"\[thinking\].*?\[/thinking\]", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<\|think\|>.*?<\|/think\|>", "", filtered, flags=re.DOTALL)
-
-    filtered = re.sub(r"<think>.*$", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<thinking>.*$", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<reasoning>.*$", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<reflection>.*$", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<internal>.*$", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"\[thinking\].*$", "", filtered, flags=re.DOTALL)
-    filtered = re.sub(r"<\|think\|>.*$", "", filtered, flags=re.DOTALL)
-
+    for pattern in _THINKING_COMPLETE_PATTERNS:
+        filtered = re.sub(pattern, "", filtered, flags=re.DOTALL)
+    for pattern in _THINKING_INCOMPLETE_PATTERNS:
+        filtered = re.sub(pattern, "", filtered, flags=re.DOTALL)
     filtered = filtered.strip()
 
     if not streaming and not filtered and text.strip():
-        filtered = re.sub(
-            r"</?(?:think|thinking|reasoning|reflection|internal)>|\[/?thinking\]|<\|/?think\|>",
-            "",
-            text,
-        )
-        filtered = filtered.strip()
-
+        filtered = re.sub(_TAG_STRIP_PATTERN, "", text).strip()
     return filtered
 
 
 def extract_thinking_blocks(text: str) -> tuple[str, str]:
-    """Extract thinking/reasoning blocks and return (thinking_text, cleaned_text)."""
     if not text:
         return "", text
 
@@ -66,7 +53,6 @@ def extract_thinking_blocks(text: str) -> tuple[str, str]:
         for match in pattern.finditer(text):
             content = match.group(1) if match.lastindex else ""
             spans.append((match.start(), match.end(), content))
-
     if not spans:
         return "", text
 
@@ -96,7 +82,6 @@ def extract_thinking_blocks(text: str) -> tuple[str, str]:
 
 
 def format_thinking_block(thinking_text: str, *, seconds: int | float | None = None, max_chars: int = 1200) -> str:
-    """Format thinking content for display."""
     raw = (thinking_text or "").strip()
     if not raw:
         return ""

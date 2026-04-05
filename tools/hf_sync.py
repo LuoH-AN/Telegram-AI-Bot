@@ -1,26 +1,18 @@
-"""HuggingFace Dataset sync tool for AI — backup/restore skill data."""
+"""HF object storage tool for AI."""
 
 from __future__ import annotations
 
+import json
 import logging
 
 from .base import BaseTool
-from services.skills import (
-    persist_skill_state,
-    persist_skill_snapshot,
-    restore_skill,
-    restore_skill_snapshot,
-    list_skill_snapshots,
-)
+from services.hf_sync import run_hf_sync_command
 
 logger = logging.getLogger(__name__)
-
-_VALID_ACTIONS = {"persist", "restore", "snapshot", "list_snapshots"}
+_VALID_ACTIONS = {"upload", "upload_text", "upload_b64", "list", "url", "delete"}
 
 
 class HFSyncTool(BaseTool):
-    """Tool for AI to backup/restore skill data to/from HuggingFace Dataset."""
-
     @property
     def name(self) -> str:
         return "hf_sync"
@@ -32,10 +24,9 @@ class HFSyncTool(BaseTool):
                 "function": {
                     "name": "hf_sync",
                     "description": (
-                        "将技能数据备份到 HuggingFace Dataset 或从其恢复。"
-                        "支持的操作：persist（备份最新状态）、restore（从HF恢复）、"
-                        "snapshot（创建命名快照并备份）、list_snapshots（列出所有快照）。"
-                        "用户要求备份、上传、恢复、快照技能数据时使用此工具。"
+                        "Store content as objects in HuggingFace Dataset (S3-like object storage). "
+                        "Uses the provided key directly (no forced folder). "
+                        "Supports upload/upload_text/upload_b64/list/url/delete."
                     ),
                     "parameters": self._parameters(),
                 },
@@ -48,64 +39,61 @@ class HFSyncTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["persist", "restore", "snapshot", "list_snapshots"],
-                    "description": (
-                        "操作类型：persist=备份技能最新状态到HF，"
-                        "restore=从HF恢复技能数据，"
-                        "snapshot=创建命名快照并备份到HF，"
-                        "list_snapshots=列出技能的所有快照"
-                    ),
+                    "enum": sorted(_VALID_ACTIONS),
+                    "description": "Action: upload/upload_text/upload_b64/list/url/delete",
                 },
-                "skill_name": {
+                "path": {
                     "type": "string",
-                    "description": "目标技能名称",
+                    "description": "Local file path for upload action",
                 },
-                "snapshot_id": {
+                "key": {
                     "type": "string",
-                    "description": "快照ID，仅在 snapshot/restore 操作时使用。snapshot时为空则自动生成，restore时为空则恢复最新状态。",
+                    "description": "Object key path (e.g. assets/cover.png). Preferred.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Legacy alias of key. Kept for compatibility.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Text payload for upload_text action",
+                },
+                "content_b64": {
+                    "type": "string",
+                    "description": "Base64 payload for upload_b64 action",
+                },
+                "content_type": {
+                    "type": "string",
+                    "description": "Optional MIME type for upload_b64 action",
+                },
+                "encrypt": {
+                    "type": "boolean",
+                    "description": "Encrypt object content (default: true)",
                 },
             },
-            "required": ["action", "skill_name"],
+            "required": ["action"],
         }
 
     def execute(self, user_id: int, tool_name: str, arguments: dict) -> str:
         action = str(arguments.get("action", "")).strip().lower()
-        skill_name = str(arguments.get("skill_name", "")).strip()
-        snapshot_id = str(arguments.get("snapshot_id", "")).strip() or None
+        if action not in _VALID_ACTIONS:
+            return f"Error: invalid action '{action}'. Allowed: {', '.join(sorted(_VALID_ACTIONS))}"
 
-        if not action or action not in _VALID_ACTIONS:
-            return f"错误：无效的 action '{action}'，可选值：{', '.join(sorted(_VALID_ACTIONS))}"
-
-        if not skill_name:
-            return "错误：skill_name 不能为空"
-
-        logger.info("hf_sync: user=%d, action=%s, skill=%s, snapshot=%s", user_id, action, skill_name, snapshot_id)
-
+        payload = {
+            "action": action,
+            "path": arguments.get("path"),
+            "key": arguments.get("key"),
+            "name": arguments.get("name"),
+            "text": arguments.get("text"),
+            "content_b64": arguments.get("content_b64"),
+            "content_type": arguments.get("content_type"),
+            "encrypt": arguments.get("encrypt", True),
+        }
+        request = json.dumps(payload, ensure_ascii=False)
+        logger.info("hf_sync object action: user=%d action=%s", user_id, action)
         try:
-            if action == "persist":
-                ok = persist_skill_state(user_id, skill_name)
-                return f"技能 '{skill_name}' 备份{'成功' if ok else '失败'}" + ("。" if ok else "，请检查 HF 配置和技能是否存在。")
-
-            if action == "restore":
-                ok = restore_skill_snapshot(user_id, skill_name, snapshot_id=snapshot_id)
-                label = f"（快照: {snapshot_id}）" if snapshot_id else "（最新状态）"
-                return f"技能 '{skill_name}' 恢复{label}{'成功' if ok else '失败'}。"
-
-            if action == "snapshot":
-                ok = persist_skill_snapshot(user_id, skill_name, snapshot_id=snapshot_id)
-                return f"技能 '{skill_name}' 快照创建{'成功' if ok else '失败'}。"
-
-            if action == "list_snapshots":
-                snapshots = list_skill_snapshots(user_id, skill_name)
-                if not snapshots:
-                    return f"技能 '{skill_name}' 暂无快照。"
-                lines = [f"技能 '{skill_name}' 的快照列表："]
-                for snap in snapshots:
-                    lines.append(f"  - {snap}")
-                return "\n".join(lines)
-
-        except Exception as e:
-            logger.exception("hf_sync execution failed: %s %s", action, skill_name)
-            return f"错误：{action} 操作失败 - {e}"
-
-        return "未知操作。"
+            result = run_hf_sync_command(user_id, request)
+            return str(result.get("output") or "")
+        except Exception as exc:
+            logger.exception("hf_sync object action failed: %s", action)
+            return f"Error: action '{action}' failed - {exc}"

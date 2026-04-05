@@ -18,9 +18,10 @@ reports/
 
 # External/runtime directories
 claude-code-skill-scrapling/
-skills/
 runtime_skills/
-.wechat_state/
+runtime/
 agent-browser/
-bg_logs/
 blog_luoh_org.png
+
+.wechat_state
+bg_logs

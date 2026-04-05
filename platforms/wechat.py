@@ -19,12 +19,15 @@ from config import (
     SHOW_THINKING_MAX_CHARS,
     MAX_FILE_SIZE,
     MAX_TEXT_CONTENT_LENGTH,
+    VALID_REASONING_EFFORTS,
 )
+from core.persona import run_persona_command
+from core.settings import get_settings_view_text
+from core.session import run_chat_command
 from web.auth import create_short_token
 from services.platform_shared import (
     apply_provider_command,
     build_provider_list_text,
-    build_settings_text,
     build_usage_text,
     fetch_models_for_user,
     mask_key,
@@ -68,23 +71,21 @@ from services import (
     rename_session,
     get_session_count,
     get_session_message_count,
-    normalize_tts_endpoint,
     clear_conversation,
     generate_session_title,
     conversation_slot,
-    handle_skill_command,
 )
 from services.cron import start_cron_scheduler, set_main_loop
 from services.refresh import ensure_user_state
 from services.runtime_queue import register_response, unregister_response, cancel_user_responses
 from services.log import record_ai_interaction, record_error
-from services.wechat_official import (
+from services.wechat.official import (
     DEFAULT_BOT_TYPE,
     WECHAT_TEXT_LIMIT,
     WeChatOfficialClient,
     local_chat_id_for_wechat,
 )
-from services.wechat_runtime import set_wechat_runtime
+from services.wechat.runtime import set_wechat_runtime
 from ai import get_ai_client
 from utils import (
     filter_thinking_content,
@@ -110,7 +111,6 @@ from utils.platform_parity import (
     build_chat_commands_message,
     build_chat_no_sessions_message,
     build_chat_unknown_subcommand_message,
-    build_endpoint_invalid_message,
     build_forget_usage_message,
     build_forget_invalid_target_message,
     build_global_prompt_help_message,
@@ -156,7 +156,7 @@ logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 WECHAT_COMMAND_PREFIX = os.getenv("WECHAT_COMMAND_PREFIX", "/").strip() or "/"
-WECHAT_STATE_DIR = os.getenv("WECHAT_STATE_DIR", ".wechat_state").strip() or ".wechat_state"
+WECHAT_STATE_DIR = os.getenv("WECHAT_STATE_DIR", "runtime/wechat").strip() or "runtime/wechat"
 WECHAT_ENABLED = str(os.getenv("WECHAT_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
 WECHAT_BOT_TYPE = os.getenv("WECHAT_BOT_TYPE", DEFAULT_BOT_TYPE).strip() or DEFAULT_BOT_TYPE
 WECHAT_LOGIN_ACCESS_TOKEN = os.getenv("WECHAT_LOGIN_ACCESS_TOKEN", "").strip()
@@ -1205,7 +1205,6 @@ async def _dispatch_command(ctx: WeChatMessageContext, text: str) -> None:
         "forget": lambda: _forget_command(ctx, args[0] if args else None),
         "persona": lambda: _persona_command(ctx, *args),
         "chat": lambda: _chat_command(ctx, *args),
-        "skill": lambda: _skill_command(ctx, *args),
         "web": lambda: _web_command(ctx),
     }
     handler = command_handlers.get(command)
@@ -1247,7 +1246,12 @@ async def _stop_command(ctx: WeChatMessageContext) -> None:
 
 
 async def _settings_command(ctx: WeChatMessageContext) -> None:
-    await ctx.reply_text(build_settings_text(ctx.local_user_id, command_prefix=WECHAT_COMMAND_PREFIX))
+    await ctx.reply_text(
+        get_settings_view_text(
+            ctx.local_user_id,
+            command_prefix=WECHAT_COMMAND_PREFIX,
+        )
+    )
 
 
 async def _set_command(ctx: WeChatMessageContext, *args: str) -> None:
@@ -1379,26 +1383,6 @@ async def _set_command(ctx: WeChatMessageContext, *args: str) -> None:
         set_token_limit(user_id, limit, persona_name)
         await ctx.reply_text(f"Persona '{persona_name}' token_limit set to: {limit:,}" + (" (unlimited)" if limit == 0 else ""))
         return
-    if key == "voice":
-        update_user_setting(user_id, "tts_voice", value)
-        await ctx.reply_text(f"voice set to: {value}")
-        return
-    if key == "style":
-        update_user_setting(user_id, "tts_style", value.lower())
-        await ctx.reply_text(f"style set to: {value.lower()}")
-        return
-    if key == "endpoint":
-        if value.lower() in {"auto", "default", "off"}:
-            update_user_setting(user_id, "tts_endpoint", "")
-            await ctx.reply_text("endpoint set to: auto")
-            return
-        normalized = normalize_tts_endpoint(value)
-        if not normalized:
-            await ctx.reply_text(build_endpoint_invalid_message(p))
-            return
-        update_user_setting(user_id, "tts_endpoint", normalized)
-        await ctx.reply_text(f"endpoint set to: {normalized}")
-        return
     if key == "provider":
         await _handle_provider_command(ctx, user_id, settings, list(args[1:]))
         return
@@ -1518,163 +1502,21 @@ async def _forget_command(ctx: WeChatMessageContext, target: str | None = None) 
 
 
 async def _persona_command(ctx: WeChatMessageContext, *args: str) -> None:
-    user_id = ctx.local_user_id
-    p = WECHAT_COMMAND_PREFIX
-    if not args:
-        personas = get_personas(user_id)
-        current = get_current_persona_name(user_id)
-        if not personas:
-            await ctx.reply_text("No personas found.")
-            return
-        lines = ["Your personas:\n"]
-        for name, persona in personas.items():
-            marker = "> " if name == current else "  "
-            usage = get_token_usage(user_id, name)
-            session_id = ensure_session(user_id, name)
-            msg_count = get_message_count(session_id)
-            session_ct = get_session_count(user_id, name)
-            prompt_preview = persona["system_prompt"][:30]
-            if len(persona["system_prompt"]) > 30:
-                prompt_preview += "..."
-            lines.append(f"{marker}{name}")
-            lines.append(f"    {msg_count} msgs | {session_ct} sessions | {usage['total_tokens']:,} tokens")
-            lines.append(f"    {prompt_preview}")
-            lines.append("")
-        lines.append(build_persona_commands_message(p))
-        await ctx.reply_text("\n".join(lines))
-        return
-    subcmd = args[0].lower()
-    if subcmd == "new":
-        if len(args) < 2:
-            await ctx.reply_text(build_persona_new_usage_message(p))
-            return
-        name = args[1]
-        prompt = " ".join(args[2:]) if len(args) > 2 else None
-        if create_persona(user_id, name, prompt):
-            switch_persona(user_id, name)
-            await ctx.reply_text(build_persona_created_message(name, p))
-        else:
-            await ctx.reply_text(f"Persona '{name}' already exists.")
-        return
-    if subcmd == "delete":
-        if len(args) < 2:
-            await ctx.reply_text(f"Usage: {p}persona delete <name>")
-            return
-        name = args[1]
-        if name == "default":
-            await ctx.reply_text("Cannot delete the default persona.")
-            return
-        if delete_persona(user_id, name):
-            await ctx.reply_text(f"Deleted persona: {name}")
-        else:
-            await ctx.reply_text(f"Persona '{name}' not found.")
-        return
-    if subcmd == "prompt":
-        if len(args) < 2:
-            persona = get_current_persona(user_id)
-            await ctx.reply_text(build_persona_prompt_overview_message(persona["name"], persona["system_prompt"], p))
-            return
-        prompt = " ".join(args[1:])
-        update_current_prompt(user_id, prompt)
-        name = get_current_persona_name(user_id)
-        await ctx.reply_text(f"Updated prompt for '{name}'.")
-        return
-    name = args[0]
-    if not persona_exists(user_id, name):
-        await ctx.reply_text(build_persona_not_found_message(name, p))
-        return
-    switch_persona(user_id, name)
-    persona = get_current_persona(user_id)
-    usage = get_token_usage(user_id, name)
-    session_id = ensure_session(user_id, name)
-    msg_count = get_message_count(session_id)
-    session_ct = get_session_count(user_id, name)
-    current_session = get_current_session(user_id, name)
-    session_title = (current_session.get("title") or "New Chat") if current_session else "New Chat"
-    prompt_text = persona["system_prompt"]
-    if len(prompt_text) > 100:
-        prompt_text = prompt_text[:100] + "..."
-    await ctx.reply_text(
-        f"Switched to: {name}\n\nMessages: {msg_count}\nSessions: {session_ct}\nCurrent session: {session_title}\nTokens: {usage['total_tokens']:,}\n\nPrompt: {prompt_text}"
+    text = run_persona_command(
+        ctx.local_user_id,
+        list(args),
+        command_prefix=WECHAT_COMMAND_PREFIX,
     )
-
-
-async def _skill_command(ctx: WeChatMessageContext, *args: str) -> None:
-    result = handle_skill_command(ctx.local_user_id, list(args), command_prefix=f"{WECHAT_COMMAND_PREFIX}skill")
-    await ctx.reply_text(result)
+    await ctx.reply_text(text)
 
 
 async def _chat_command(ctx: WeChatMessageContext, *args: str) -> None:
-    user_id = ctx.local_user_id
-    persona_name = get_current_persona_name(user_id)
-    p = WECHAT_COMMAND_PREFIX
-    if not args:
-        sessions = get_sessions(user_id, persona_name)
-        current_id = get_current_session_id(user_id, persona_name)
-        if not sessions:
-            await ctx.reply_text(build_chat_no_sessions_message(persona_name, p))
-            return
-        lines = [f"Sessions (persona: {persona_name})\n"]
-        for i, session in enumerate(sessions, 1):
-            marker = "> " if session["id"] == current_id else "  "
-            title = session.get("title") or "New Chat"
-            msg_count = get_session_message_count(session["id"])
-            lines.append(f"{marker}{i}. {title} ({msg_count} msgs)")
-        lines.append("")
-        lines.append(build_chat_commands_message(p))
-        await ctx.reply_text("\n".join(lines))
-        return
-    subcmd = args[0].lower()
-    if subcmd == "new":
-        title = " ".join(args[1:]) if len(args) > 1 else None
-        session = create_session(user_id, persona_name, title)
-        display_title = title or "New Chat"
-        await ctx.reply_text(f"Created new session: {display_title}\nSwitched to session #{len(get_sessions(user_id, persona_name))}")
-        logger.info("%s /chat new (session_id=%s)", ctx.log_context, session["id"])
-        return
-    if subcmd == "rename":
-        if len(args) < 2:
-            await ctx.reply_text(f"Usage: {p}chat rename <title>")
-            return
-        title = " ".join(args[1:])
-        if rename_session(user_id, title, persona_name):
-            await ctx.reply_text(f"Session renamed to: {title}")
-        else:
-            await ctx.reply_text("No current session to rename.")
-        return
-    if subcmd == "delete":
-        if len(args) < 2:
-            await ctx.reply_text(f"Usage: {p}chat delete <number>")
-            return
-        try:
-            index = int(args[1])
-        except ValueError:
-            await ctx.reply_text("Please provide a valid session number.")
-            return
-        sessions = get_sessions(user_id, persona_name)
-        if index < 1 or index > len(sessions):
-            await ctx.reply_text(f"Invalid session number. Valid range: 1-{len(sessions)}")
-            return
-        display_title = sessions[index - 1].get("title") or "New Chat"
-        if delete_chat_session(user_id, index, persona_name):
-            await ctx.reply_text(f"Deleted session: {display_title}")
-        else:
-            await ctx.reply_text("Failed to delete session.")
-        return
-    try:
-        index = int(subcmd)
-    except ValueError:
-        await ctx.reply_text(build_chat_unknown_subcommand_message(p))
-        return
-    if switch_session(user_id, index, persona_name):
-        sessions = get_sessions(user_id, persona_name)
-        session = sessions[index - 1]
-        display_title = session.get("title") or "New Chat"
-        msg_count = get_session_message_count(session["id"])
-        await ctx.reply_text(f"Switched to session #{index}: {display_title}\nMessages: {msg_count}")
-    else:
-        total = len(get_sessions(user_id, persona_name))
-        await ctx.reply_text(f"Invalid session number. Valid range: 1-{total}")
+    text = run_chat_command(
+        ctx.local_user_id,
+        list(args),
+        command_prefix=WECHAT_COMMAND_PREFIX,
+    )
+    await ctx.reply_text(text)
 
 
 async def _web_command(ctx: WeChatMessageContext) -> None:

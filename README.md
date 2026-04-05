@@ -110,7 +110,7 @@ Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
 当前运行时仅保留并启用：
 
 - `terminal`
-- `hf_sync`
+- `hf_sync`（对象存储模式，S3-like）
 
 `docs/tool-*.md` 仅作历史设计参考，不代表当前运行时代码。
 
@@ -129,8 +129,7 @@ Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
 - `models`
 - `logs`
 - `cron`
-- `backup`
-- `browser_view`
+- `wechat`
 
 鉴权通过短时 token 与 JWT（`/web` 命令下发链接）。
 

@@ -16,7 +16,6 @@ from .commands import (
     persona_command,
     chat_command,
     web_command,
-    skill_command,
 )
 
 # Messages
@@ -42,7 +41,6 @@ __all__ = [
     "persona_command",
     "chat_command",
     "web_command",
-    "skill_command",
     "chat",
     "handle_photo",
     "handle_document",

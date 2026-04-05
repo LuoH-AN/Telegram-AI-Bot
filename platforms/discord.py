@@ -37,13 +37,16 @@ from config import (
     MIME_TYPE_MAP,
     WEB_BASE_URL,
     SHOW_THINKING_MAX_CHARS,
+    VALID_REASONING_EFFORTS,
 )
+from core.persona import run_persona_command
+from core.settings import get_settings_view_text
+from core.session import run_chat_command
 from cache import init_database
 from web.auth import create_short_token
 from services.platform_shared import (
     apply_provider_command,
     build_provider_list_text,
-    build_settings_text,
     build_usage_text,
     fetch_models_for_user,
     mask_key,
@@ -87,11 +90,9 @@ from services import (
     rename_session,
     get_session_count,
     get_session_message_count,
-    normalize_tts_endpoint,
     clear_conversation,
     generate_session_title,
     conversation_slot,
-    handle_skill_command,
 )
 from services.refresh import ensure_user_state
 from services.runtime_queue import register_response, unregister_response, cancel_user_responses
@@ -124,7 +125,6 @@ from utils.platform_parity import (
     build_chat_commands_message,
     build_chat_no_sessions_message,
     build_chat_unknown_subcommand_message,
-    build_endpoint_invalid_message,
     build_forget_usage_message,
     build_forget_invalid_target_message,
     build_global_prompt_help_message,
@@ -1125,8 +1125,7 @@ async def stop_command(ctx: commands.Context) -> None:
 async def settings_command(ctx: commands.Context) -> None:
     logger.info("%s /settings", _discord_cmd_ctx(ctx))
     user_id = int(ctx.author.id)
-    text = build_settings_text(user_id, command_prefix=DISCORD_COMMAND_PREFIX)
-
+    text = get_settings_view_text(user_id, command_prefix=DISCORD_COMMAND_PREFIX)
     await _send_ctx_reply(ctx, text)
 
 
@@ -1163,16 +1162,6 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         return
 
     if len(args) < 2:
-        if key in {"voice", "style", "endpoint"}:
-            setting_key = {
-                "voice": "tts_voice",
-                "style": "tts_style",
-                "endpoint": "tts_endpoint",
-            }[key]
-            current = settings.get(setting_key, "") or "auto"
-            await _send_ctx_reply(ctx, f"Current {key}: {current}\nUsage: {p}set {key} <value>")
-            return
-
         if key == "provider":
             await _show_provider_list(ctx, settings)
             return
@@ -1327,42 +1316,6 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             f"Persona '{persona_name}' token_limit set to: {limit:,}"
             + (" (unlimited)" if limit == 0 else ""),
         )
-        return
-
-    if key == "voice":
-        if not value:
-            await _send_ctx_reply(ctx, "Voice cannot be empty")
-            return
-        update_user_setting(user_id, "tts_voice", value)
-        logger.info("%s set voice = %s", ctx_log, value)
-        await _send_ctx_reply(ctx, f"voice set to: {value}")
-        return
-
-    if key == "style":
-        style = value.lower()
-        if not style:
-            await _send_ctx_reply(ctx, "Style cannot be empty")
-            return
-        update_user_setting(user_id, "tts_style", style)
-        logger.info("%s set style = %s", ctx_log, style)
-        await _send_ctx_reply(ctx, f"style set to: {style}")
-        return
-
-    if key == "endpoint":
-        if value.lower() in {"auto", "default", "off"}:
-            update_user_setting(user_id, "tts_endpoint", "")
-            logger.info("%s set endpoint = auto", ctx_log)
-            await _send_ctx_reply(ctx, "endpoint set to: auto")
-            return
-
-        normalized = normalize_tts_endpoint(value)
-        if not normalized:
-            await _send_ctx_reply(ctx, build_endpoint_invalid_message(p))
-            return
-
-        update_user_setting(user_id, "tts_endpoint", normalized)
-        logger.info("%s set endpoint = %s", ctx_log, normalized)
-        await _send_ctx_reply(ctx, f"endpoint set to: {normalized}")
         return
 
     if key == "provider":
@@ -1602,126 +1555,12 @@ async def persona_command(ctx: commands.Context, *args: str) -> None:
     ctx_log = _discord_cmd_ctx(ctx)
     logger.info("%s /persona %s", ctx_log, " ".join(args) if args else "")
     user_id = int(ctx.author.id)
-    p = DISCORD_COMMAND_PREFIX
-
-    if not args:
-        logger.info("%s /persona list", ctx_log)
-        personas = get_personas(user_id)
-        current = get_current_persona_name(user_id)
-        if not personas:
-            await _send_ctx_reply(ctx, "No personas found.")
-            return
-
-        lines = ["Your personas:\n"]
-        for name, persona in personas.items():
-            marker = "> " if name == current else "  "
-            usage = get_token_usage(user_id, name)
-            session_id = ensure_session(user_id, name)
-            msg_count = get_message_count(session_id)
-            session_ct = get_session_count(user_id, name)
-            prompt_preview = persona["system_prompt"][:30]
-            if len(persona["system_prompt"]) > 30:
-                prompt_preview += "..."
-
-            lines.append(f"{marker}{name}")
-            lines.append(f"    {msg_count} msgs | {session_ct} sessions | {usage['total_tokens']:,} tokens")
-            lines.append(f"    {prompt_preview}")
-            lines.append("")
-
-        lines.append(build_persona_commands_message(p))
-
-        await _send_ctx_reply(ctx, "\n".join(lines))
-        return
-
-    subcmd = args[0].lower()
-
-    if subcmd == "new":
-        if len(args) < 2:
-            await _send_ctx_reply(ctx, build_persona_new_usage_message(p))
-            return
-
-        name = args[1]
-        prompt = " ".join(args[2:]) if len(args) > 2 else None
-        if create_persona(user_id, name, prompt):
-            switch_persona(user_id, name)
-            logger.info("%s /persona new %s", ctx_log, name)
-            await _send_ctx_reply(ctx, build_persona_created_message(name, p))
-        else:
-            await _send_ctx_reply(ctx, f"Persona '{name}' already exists.")
-        return
-
-    if subcmd == "delete":
-        if len(args) < 2:
-            await _send_ctx_reply(ctx, f"Usage: {p}persona delete <name>")
-            return
-
-        name = args[1]
-        if name == "default":
-            await _send_ctx_reply(ctx, "Cannot delete the default persona.")
-            return
-
-        if delete_persona(user_id, name):
-            logger.info("%s /persona delete %s", ctx_log, name)
-            await _send_ctx_reply(ctx, f"Deleted persona: {name}")
-        else:
-            await _send_ctx_reply(ctx, f"Persona '{name}' not found.")
-        return
-
-    if subcmd == "prompt":
-        if len(args) < 2:
-            persona = get_current_persona(user_id)
-            await _send_ctx_reply(
-                ctx,
-                build_persona_prompt_overview_message(
-                    persona["name"],
-                    persona["system_prompt"],
-                    p,
-                ),
-            )
-            return
-
-        prompt = " ".join(args[1:])
-        update_current_prompt(user_id, prompt)
-        name = get_current_persona_name(user_id)
-        logger.info("%s /persona prompt (persona=%s)", ctx_log, name)
-        await _send_ctx_reply(ctx, f"Updated prompt for '{name}'.")
-        return
-
-    name = args[0]
-    if not persona_exists(user_id, name):
-        await _send_ctx_reply(ctx, build_persona_not_found_message(name, p))
-        return
-
-    switch_persona(user_id, name)
-    logger.info("%s /persona switch %s", ctx_log, name)
-    persona = get_current_persona(user_id)
-    usage = get_token_usage(user_id, name)
-    session_id = ensure_session(user_id, name)
-    msg_count = get_message_count(session_id)
-    session_ct = get_session_count(user_id, name)
-    current_session = get_current_session(user_id, name)
-    session_title = (current_session.get("title") or "New Chat") if current_session else "New Chat"
-    prompt_text = persona["system_prompt"]
-    if len(prompt_text) > 100:
-        prompt_text = prompt_text[:100] + "..."
-
-    await _send_ctx_reply(
-        ctx,
-        f"Switched to: {name}\n\n"
-        f"Messages: {msg_count}\n"
-        f"Sessions: {session_ct}\n"
-        f"Current session: {session_title}\n"
-        f"Tokens: {usage['total_tokens']:,}\n\n"
-        f"Prompt: {prompt_text}",
+    text = run_persona_command(
+        user_id,
+        list(args),
+        command_prefix=DISCORD_COMMAND_PREFIX,
     )
-
-
-@bot.command(name="skill")
-async def skill_command(ctx: commands.Context, *args: str) -> None:
-    user_id = int(ctx.author.id)
-    ensure_user_state(user_id)
-    result = handle_skill_command(user_id, list(args), command_prefix="!skill")
-    await _send_ctx_reply(ctx, result)
+    await _send_ctx_reply(ctx, text)
 
 
 @bot.command(name="chat")
@@ -1729,103 +1568,12 @@ async def chat_command(ctx: commands.Context, *args: str) -> None:
     ctx_log = _discord_cmd_ctx(ctx)
     logger.info("%s /chat %s", ctx_log, " ".join(args) if args else "")
     user_id = int(ctx.author.id)
-    persona_name = get_current_persona_name(user_id)
-    p = DISCORD_COMMAND_PREFIX
-
-    if not args:
-        logger.info("%s /chat list", ctx_log)
-        sessions = get_sessions(user_id, persona_name)
-        current_id = get_current_session_id(user_id, persona_name)
-
-        if not sessions:
-            await _send_ctx_reply(ctx, build_chat_no_sessions_message(persona_name, p))
-            return
-
-        lines = [f"Sessions (persona: {persona_name})\n"]
-        for i, session in enumerate(sessions, 1):
-            marker = "> " if session["id"] == current_id else "  "
-            title = session.get("title") or "New Chat"
-            msg_count = get_session_message_count(session["id"])
-            lines.append(f"{marker}{i}. {title} ({msg_count} msgs)")
-
-        lines.append("")
-        lines.append(build_chat_commands_message(p))
-
-        await _send_ctx_reply(ctx, "\n".join(lines))
-        return
-
-    subcmd = args[0].lower()
-
-    if subcmd == "new":
-        title = " ".join(args[1:]) if len(args) > 1 else None
-        session = create_session(user_id, persona_name, title)
-        display_title = title or "New Chat"
-        await _send_ctx_reply(
-            ctx,
-            f"Created new session: {display_title}\n"
-            f"Switched to session #{len(get_sessions(user_id, persona_name))}",
-        )
-        logger.info("%s /chat new (session_id=%s)", ctx_log, session["id"])
-        return
-
-    if subcmd == "rename":
-        if len(args) < 2:
-            await _send_ctx_reply(ctx, f"Usage: {p}chat rename <title>")
-            return
-
-        title = " ".join(args[1:])
-        if rename_session(user_id, title, persona_name):
-            logger.info("%s /chat rename '%s'", ctx_log, title)
-            await _send_ctx_reply(ctx, f"Session renamed to: {title}")
-        else:
-            await _send_ctx_reply(ctx, "No current session to rename.")
-        return
-
-    if subcmd == "delete":
-        if len(args) < 2:
-            await _send_ctx_reply(ctx, f"Usage: {p}chat delete <number>")
-            return
-
-        try:
-            index = int(args[1])
-        except ValueError:
-            await _send_ctx_reply(ctx, "Please provide a valid session number.")
-            return
-
-        sessions = get_sessions(user_id, persona_name)
-        if index < 1 or index > len(sessions):
-            await _send_ctx_reply(ctx, f"Invalid session number. Valid range: 1-{len(sessions)}")
-            return
-
-        session = sessions[index - 1]
-        display_title = session.get("title") or "New Chat"
-
-        if delete_chat_session(user_id, index, persona_name):
-            logger.info("%s /chat delete %d", ctx_log, index)
-            await _send_ctx_reply(ctx, f"Deleted session: {display_title}")
-        else:
-            await _send_ctx_reply(ctx, "Failed to delete session.")
-        return
-
-    try:
-        index = int(subcmd)
-    except ValueError:
-        await _send_ctx_reply(ctx, build_chat_unknown_subcommand_message(p))
-        return
-
-    if switch_session(user_id, index, persona_name):
-        sessions = get_sessions(user_id, persona_name)
-        session = sessions[index - 1]
-        display_title = session.get("title") or "New Chat"
-        msg_count = get_session_message_count(session["id"])
-        logger.info("%s /chat switch %d", ctx_log, index)
-        await _send_ctx_reply(
-            ctx,
-            f"Switched to session #{index}: {display_title}\nMessages: {msg_count}",
-        )
-    else:
-        total = len(get_sessions(user_id, persona_name))
-        await _send_ctx_reply(ctx, f"Invalid session number. Valid range: 1-{total}")
+    text = run_chat_command(
+        user_id,
+        list(args),
+        command_prefix=DISCORD_COMMAND_PREFIX,
+    )
+    await _send_ctx_reply(ctx, text)
 
 
 @bot.command(name="web")

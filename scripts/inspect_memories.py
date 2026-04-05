@@ -1,32 +1,17 @@
 #!/usr/bin/env python3
 """Inspect user memories from DB using DATABASE_URL in .env."""
-
 from __future__ import annotations
-
 import argparse
 import os
 import sys
-
 import psycopg2
 from dotenv import load_dotenv
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="List memories from user_memories table",
-    )
-    parser.add_argument(
-        "--user-id",
-        type=int,
-        default=None,
-        help="Target Telegram user_id. If omitted, auto-select.",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=200,
-        help="Max memories to print (default: 200)",
-    )
+    parser = argparse.ArgumentParser(description="List memories from user_memories table")
+    parser.add_argument("--user-id", type=int, default=None, help="Target Telegram user_id. If omitted, auto-select.")
+    parser.add_argument("--limit", type=int, default=200, help="Max memories to print (default: 200)")
     return parser.parse_args()
 
 
@@ -43,10 +28,8 @@ def pick_user_id(cur, explicit_user_id: int | None) -> int | None:
         """
     )
     rows = cur.fetchall()
-    if not rows:
-        return None
-    if len(rows) == 1:
-        return int(rows[0][0])
+    if not rows: return None
+    if len(rows) == 1: return int(rows[0][0])
 
     print("Found multiple users with memories:")
     for row in rows:
@@ -96,9 +79,9 @@ def main() -> int:
                     return 0
 
                 print(f"user_id={user_id} total={len(rows)}")
-                for i, row in enumerate(rows, start=1):
+                for idx, row in enumerate(rows, start=1):
                     mem_id, content, source, created_at = row
-                    print(f"\n[{i}] id={mem_id} source={source} created_at={created_at}")
+                    print(f"\n[{idx}] id={mem_id} source={source} created_at={created_at}")
                     print(content)
     finally:
         conn.close()

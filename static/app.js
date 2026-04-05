@@ -8,9 +8,6 @@
     "global_prompt",
     "title_model",
     "cron_model",
-    "tts_voice",
-    "tts_style",
-    "tts_endpoint",
   ];
   const SETTINGS_BOOL_FIELDS = [
     "show_thinking",
@@ -1392,54 +1389,6 @@
     await loadLogs();
   }
 
-  async function exportBackup() {
-    const payload = await apiGet("/api/backup/export");
-    const data = JSON.stringify(payload, null, 2);
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "gemen-backup-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-
-    $("backupResult").textContent = "Backup exported at " + new Date().toLocaleString();
-    toast("Backup exported", "success");
-  }
-
-  async function importBackup() {
-    const file = $("backupFileInput").files && $("backupFileInput").files[0];
-    if (!file) {
-      toast("Choose a backup file first", "error");
-      return;
-    }
-
-    const mode = $("backupImportMode").value || "replace";
-    const text = await file.text();
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      toast("Invalid JSON file", "error");
-      return;
-    }
-
-    if (!confirm("Import backup in '" + mode + "' mode?")) {
-      return;
-    }
-
-    const result = await apiPost("/api/backup/import", {
-      mode,
-      payload,
-    });
-
-    $("backupResult").textContent = JSON.stringify(result, null, 2);
-    toast("Backup imported", "success");
-    await reloadAll();
-  }
-
   function setActivePane(name) {
     state.activePane = name;
     document.querySelectorAll(".nav-btn").forEach((button) => {
@@ -1740,21 +1689,6 @@
       }
     });
 
-    $("btnBackupExport").addEventListener("click", async () => {
-      try {
-        await exportBackup();
-      } catch (err) {
-        toast("Export failed: " + err.message, "error");
-      }
-    });
-
-    $("btnBackupImport").addEventListener("click", async () => {
-      try {
-        await importBackup();
-      } catch (err) {
-        toast("Import failed: " + err.message, "error");
-      }
-    });
   }
 
   async function init() {
