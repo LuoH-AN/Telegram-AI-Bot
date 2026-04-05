@@ -25,11 +25,15 @@ def build_cipher(store) -> bool:
         except Exception as exc:
             if not store._missing_crypto_logged:
                 store._missing_crypto_logged = True
-                logger.warning("HF dataset storage disabled: cryptography is unavailable (%s).", exc)
-            store._enabled = False
+                logger.warning("HF dataset encryption unavailable: cryptography import failed (%s).", exc)
             return False
 
-        raw = store.encryption_key
+        raw = (store.encryption_key or "").strip()
+        if not raw:
+            if not store._missing_crypto_logged:
+                store._missing_crypto_logged = True
+                logger.warning("HF dataset encryption unavailable: missing HF_DATASET_ENCRYPTION_KEY.")
+            return False
         key_bytes: bytes | None = None
         if raw.startswith("base64:"):
             try:
@@ -44,8 +48,7 @@ def build_cipher(store) -> bool:
         if key_bytes is None:
             key_bytes = hashlib.sha256(raw.encode("utf-8")).digest()
         if len(key_bytes) not in {16, 24, 32}:
-            logger.warning("HF dataset storage disabled: invalid encryption key format.")
-            store._enabled = False
+            logger.warning("HF dataset encryption unavailable: invalid encryption key format.")
             return False
 
         store._aesgcm_cls = AESGCM

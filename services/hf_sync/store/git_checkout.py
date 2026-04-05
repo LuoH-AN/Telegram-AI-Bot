@@ -11,12 +11,11 @@ from .constants import (
     LFS_TRANSFER_MAX_RETRIES,
     LFS_TRANSFER_MAX_RETRY_DELAY,
 )
-from .crypto import build_cipher
 from .git_common import ensure_git_backend, git_local_dir, git_repo_url, run_git
 
 
 def ensure_git_checkout(store) -> bool:
-    if not ensure_git_backend(store) or not build_cipher(store):
+    if not ensure_git_backend(store):
         return False
     repo_dir = git_local_dir(store)
     with store._lock:

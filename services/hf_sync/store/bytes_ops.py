@@ -11,7 +11,7 @@ from .git_common import git_local_dir, run_git
 from .paths import prefixed_path
 
 
-def get_bytes(store, path: str, *, allow_plaintext: bool = False) -> bytes | None:
+def get_bytes(store, path: str, *, allow_plaintext: bool = True) -> bytes | None:
     with store._lock:
         if not ensure_git_checkout(store):
             return None

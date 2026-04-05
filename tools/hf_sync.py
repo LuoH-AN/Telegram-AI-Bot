@@ -9,7 +9,22 @@ from .base import BaseTool
 from services.hf_sync import run_hf_sync_command
 
 logger = logging.getLogger(__name__)
-_VALID_ACTIONS = {"upload", "upload_text", "upload_b64", "list", "url", "delete"}
+_VALID_ACTIONS = {
+    "upload",
+    "upload_text",
+    "upload_b64",
+    "list",
+    "ls",
+    "head",
+    "exists",
+    "get_text",
+    "get_b64",
+    "copy",
+    "move",
+    "url",
+    "delete",
+    "delete_prefix",
+}
 
 
 class HFSyncTool(BaseTool):
@@ -26,7 +41,7 @@ class HFSyncTool(BaseTool):
                     "description": (
                         "Store content as objects in S3-style object storage. "
                         "Uses the provided key directly (no forced folder). "
-                        "Supports upload/upload_text/upload_b64/list/url/delete."
+                        "Supports upload/read/list/copy/move/delete operations."
                     ),
                     "parameters": self._parameters(),
                 },
@@ -40,7 +55,7 @@ class HFSyncTool(BaseTool):
                 "action": {
                     "type": "string",
                     "enum": sorted(_VALID_ACTIONS),
-                    "description": "Action: upload/upload_text/upload_b64/list/url/delete",
+                    "description": "Action: upload/upload_text/upload_b64/list/ls/head/exists/get_text/get_b64/copy/move/url/delete/delete_prefix",
                 },
                 "path": {
                     "type": "string",
@@ -66,9 +81,41 @@ class HFSyncTool(BaseTool):
                     "type": "string",
                     "description": "Optional MIME type for upload_b64 action",
                 },
+                "prefix": {
+                    "type": "string",
+                    "description": "Prefix filter for ls/delete_prefix actions",
+                },
+                "recursive": {
+                    "type": "boolean",
+                    "description": "Whether ls should recurse directories (default: true)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max rows for ls (default: 200, max: 5000)",
+                },
+                "src_key": {
+                    "type": "string",
+                    "description": "Source key for copy/move actions",
+                },
+                "dst_key": {
+                    "type": "string",
+                    "description": "Destination key for copy/move actions",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Allow overwriting destination for copy/move (default: true)",
+                },
+                "encoding": {
+                    "type": "string",
+                    "description": "Text encoding for get_text action (default: utf-8)",
+                },
+                "errors": {
+                    "type": "string",
+                    "description": "Decode error mode for get_text: strict/ignore/replace",
+                },
                 "encrypt": {
                     "type": "boolean",
-                    "description": "Encrypt object content (default: true)",
+                    "description": "Encrypt object content (default: false)",
                 },
             },
             "required": ["action"],
@@ -87,7 +134,15 @@ class HFSyncTool(BaseTool):
             "text": arguments.get("text"),
             "content_b64": arguments.get("content_b64"),
             "content_type": arguments.get("content_type"),
-            "encrypt": arguments.get("encrypt", True),
+            "prefix": arguments.get("prefix"),
+            "recursive": arguments.get("recursive"),
+            "limit": arguments.get("limit"),
+            "src_key": arguments.get("src_key"),
+            "dst_key": arguments.get("dst_key"),
+            "overwrite": arguments.get("overwrite"),
+            "encoding": arguments.get("encoding"),
+            "errors": arguments.get("errors"),
+            "encrypt": arguments.get("encrypt", False),
         }
         request = json.dumps(payload, ensure_ascii=False)
         logger.info("hf_sync s3 action: user=%d action=%s", user_id, action)

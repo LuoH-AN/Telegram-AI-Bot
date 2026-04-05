@@ -9,7 +9,9 @@ from typing import Any
 
 from .bytes_ops import get_bytes, put_bytes
 from .constants import FALSY, TRUTHY
-from .delete_ops import delete_path
+from .delete_ops import delete_path, delete_prefix
+from .list_ops import exists_path, head_path, list_paths
+from .copy_ops import copy_path, move_path
 from .json_ops import get_json, put_json, resolve_repo_url
 from .paths import build_repo_id
 
@@ -28,13 +30,15 @@ class HFDatasetStore:
         self.branch = (os.getenv("HF_DATASET_BRANCH", "main") or "main").strip() or "main"
         self.prefix = (os.getenv("HF_DATASET_PREFIX", "") or "").strip().strip("/")
         self.encryption_key = (os.getenv("HF_DATASET_ENCRYPTION_KEY", "") or "").strip()
+        compact_raw = (os.getenv("HF_DATASET_COMPACT_AFTER_WRITE", "1") or "1").strip().lower()
+        self.compact_after_write = False if compact_raw in FALSY else (compact_raw in TRUTHY or not compact_raw)
         sync_raw = (os.getenv("HF_DATASET_SYNC_INTERVAL_SECONDS", "20") or "20").strip()
         try:
             self.sync_interval_seconds = max(0.0, float(sync_raw))
         except Exception:
             self.sync_interval_seconds = 20.0
         self.repo_id = build_repo_id(self.username, self.dataset_name)
-        if not self.repo_id or not self.token or not self.encryption_key:
+        if not self.repo_id or not self.token:
             self._enabled = False
 
         self._logger = logger
@@ -57,18 +61,18 @@ class HFDatasetStore:
                 return "disabled: missing HF_DATASET_NAME"
             if not self.repo_id:
                 return "disabled: missing HF_DATASET_USERNAME or invalid HF_DATASET_NAME"
-            if not self.encryption_key:
-                return "disabled: missing HF_DATASET_ENCRYPTION_KEY"
             return "disabled"
-        return f"enabled: repo={self.repo_id} branch={self.branch} backend=git"
+        mode = "optional" if self.encryption_key else "off"
+        compact = "on" if self.compact_after_write else "off"
+        return f"enabled: repo={self.repo_id} branch={self.branch} backend=git encryption={mode} compact={compact}"
 
-    def get_bytes(self, path: str, *, allow_plaintext: bool = False) -> bytes | None:
+    def get_bytes(self, path: str, *, allow_plaintext: bool = True) -> bytes | None:
         return get_bytes(self, path, allow_plaintext=allow_plaintext)
 
     def put_bytes(self, path: str, data: bytes, *, commit_message: str | None = None, encrypt: bool = True) -> bool:
         return put_bytes(self, path, data, commit_message=commit_message, encrypt=encrypt)
 
-    def get_json(self, path: str, *, allow_plaintext: bool = False) -> Any | None:
+    def get_json(self, path: str, *, allow_plaintext: bool = True) -> Any | None:
         return get_json(self, path, allow_plaintext=allow_plaintext)
 
     def put_json(self, path: str, value: Any, *, commit_message: str | None = None, encrypt: bool = True) -> bool:
@@ -79,3 +83,21 @@ class HFDatasetStore:
 
     def delete(self, path: str, *, commit_message: str | None = None) -> bool:
         return delete_path(self, path, commit_message=commit_message)
+
+    def delete_prefix(self, prefix: str, *, commit_message: str | None = None) -> dict:
+        return delete_prefix(self, prefix, commit_message=commit_message)
+
+    def list_paths(self, *, prefix: str = "", limit: int = 200, recursive: bool = True) -> list[dict]:
+        return list_paths(self, prefix=prefix, limit=limit, recursive=recursive)
+
+    def head(self, path: str) -> dict | None:
+        return head_path(self, path)
+
+    def exists(self, path: str) -> bool:
+        return exists_path(self, path)
+
+    def copy(self, src_path: str, dst_path: str, *, overwrite: bool = True, commit_message: str | None = None) -> bool:
+        return copy_path(self, src_path, dst_path, overwrite=overwrite, commit_message=commit_message)
+
+    def move(self, src_path: str, dst_path: str, *, overwrite: bool = True, commit_message: str | None = None) -> bool:
+        return move_path(self, src_path, dst_path, overwrite=overwrite, commit_message=commit_message)

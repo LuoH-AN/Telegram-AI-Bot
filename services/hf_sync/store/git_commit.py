@@ -24,6 +24,7 @@ def commit_git_change(store, filename: str, commit_message: str) -> bool:
             push = run_git(store, ["push", "origin", f"HEAD:{store.branch}"], cwd=repo_dir, network=True, check=False)
             if push.returncode == 0:
                 store._last_sync_at = time.monotonic()
+                _maybe_compact_history(store, repo_dir, commit_message)
                 return True
             error_text = (push.stderr or push.stdout or "").strip()
             if not is_lfs_push_error(error_text):
@@ -53,6 +54,35 @@ def commit_git_change(store, filename: str, commit_message: str) -> bool:
     except Exception as exc:
         store._logger.warning("HF git commit/push failed for %s: %s", store.repo_id, exc)
         return False
+
+
+def _maybe_compact_history(store, repo_dir: str, commit_message: str) -> None:
+    if not bool(getattr(store, "compact_after_write", False)):
+        return
+    try:
+        tree = (run_git(store, ["rev-parse", "HEAD^{tree}"], cwd=repo_dir).stdout or "").strip()
+        if not tree:
+            return
+        snapshot_message = f"snapshot: {commit_message}".strip()[:120]
+        created = run_git(store, ["commit-tree", tree, "-m", snapshot_message], cwd=repo_dir)
+        commit_id = (created.stdout or "").strip()
+        if not commit_id:
+            return
+        force_push = run_git(
+            store,
+            ["push", "--force", "origin", f"{commit_id}:{store.branch}"],
+            cwd=repo_dir,
+            network=True,
+            check=False,
+        )
+        if force_push.returncode != 0:
+            error_text = (force_push.stderr or force_push.stdout or "").strip()
+            store._logger.warning("HF history compact failed for %s: %s", store.repo_id, error_text)
+            return
+        run_git(store, ["reset", "--hard", commit_id], cwd=repo_dir)
+        store._last_sync_at = time.monotonic()
+    except Exception as exc:
+        store._logger.warning("HF history compact failed for %s: %s", store.repo_id, exc)
 
 
 def _safe_size_hint(repo_dir: str, filename: str) -> int | None:

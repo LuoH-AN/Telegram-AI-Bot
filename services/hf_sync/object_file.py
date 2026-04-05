@@ -13,7 +13,7 @@ def put_storage_file(
     *,
     file_path: str,
     name: str | None = None,
-    encrypt: bool = True,
+    encrypt: bool = False,
 ) -> dict:
     source = _resolve_path(file_path)
     if not source.exists() or not source.is_file():

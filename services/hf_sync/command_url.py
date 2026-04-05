@@ -11,12 +11,16 @@ from .objects import _artifact_view_url
 
 
 def resolve_url_output(user_id: int, object_key: str, items: list[dict]) -> tuple[bool, str]:
+    store = get_hf_dataset_store()
     match = next(
         (item for item in items if str(item.get("object_name") or "") == object_key),
         None,
     )
     if match is None:
-        return False, f"Object '{object_key}' not found."
+        repo_url = store.resolve_repo_url(object_key)
+        if not repo_url:
+            return False, f"Object '{object_key}' not found."
+        return True, json.dumps({"repo_url": repo_url, "view_url": None}, ensure_ascii=False, indent=2)
 
     record = ObjectRecord(
         object_name=str(match["object_name"]),
@@ -31,7 +35,7 @@ def resolve_url_output(user_id: int, object_key: str, items: list[dict]) -> tupl
     payload = {
         "view_url": _artifact_view_url(record, user_id=user_id),
         "repo_url": (
-            get_hf_dataset_store().resolve_repo_url(record.content_path)
+            store.resolve_repo_url(record.content_path)
             if not record.encrypted
             else None
         ),

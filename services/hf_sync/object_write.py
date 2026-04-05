@@ -20,7 +20,7 @@ def put_storage_object(
     name: str,
     filename: str | None = None,
     content_type: str = "application/octet-stream",
-    encrypt: bool = True,
+    encrypt: bool = False,
 ) -> dict:
     store = get_hf_dataset_store()
     if not store.enabled:
@@ -29,7 +29,7 @@ def put_storage_object(
     object_name = _normalize_object_key(name, default="object.dat")
     stored_filename = (filename or object_name or "object.dat").strip() or "object.dat"
     content_hash = _meta_key_for_path(object_name)
-    content_path = f".hf_sync/objects/{int(user_id)}/{content_hash}"
+    content_path = f".hf_sync/objects/{int(user_id)}/{content_hash}" if encrypt else object_name
     meta_path = f".hf_sync/meta/{int(user_id)}/{content_hash}.json"
 
     created_at = time.time()
@@ -85,5 +85,5 @@ def put_storage_object(
         "encrypted": bool(encrypt),
         "size": len(data),
         "view_url": _artifact_view_url(record, user_id=user_id),
-        "repo_url": store.resolve_repo_url(content_path) if not encrypt else None,
+        "repo_url": store.resolve_repo_url(object_name) if not encrypt else None,
     }
