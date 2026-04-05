@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents (Codex CLI, Claude Code, etc.) w
 
 ## Project Overview
 
-Gemen is a Telegram AI chatbot (Python 3.12) supporting multi-persona conversations, streaming responses, tool use (search, fetch, TTS, memory, Wikipedia), and a web dashboard. It uses OpenAI-compatible APIs with an abstraction layer for future Gemini/local LLM support.
+Gemen is a multi-platform AI chatbot (Telegram / Discord / WeChat, Python 3.12) supporting multi-persona conversations, streaming responses, a small built-in tool layer, and a web dashboard. It uses OpenAI-compatible APIs with an abstraction layer for future Gemini/local LLM support.
 
 The README and UI are in Chinese (zh-CN). Maintain this convention for user-facing strings.
 
@@ -14,8 +14,8 @@ The README and UI are in Chinese (zh-CN). Maintain this convention for user-faci
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the bot (starts Telegram polling + FastAPI web server)
-python bot.py
+# Run the unified launcher
+python main.py
 
 # Docker build and run
 docker build -t gemen .
@@ -33,13 +33,13 @@ See `.env.example` and `config/settings.py` for optional variables.
 
 ## Architecture
 
-**Entry point:** `bot.py` — initializes the database, starts the FastAPI web server in a daemon thread, then runs Telegram polling.
+**Entry point:** `main.py` — unified launcher that starts the selected platform runtimes and the FastAPI web server.
 
 ### Layers
 
 - **handlers/** — Telegram command and message handlers. `handlers/messages/text.py` contains the core chat loop.
 - **ai/** — AI client abstraction. `base.py` defines the interface; `openai_client.py` implements streaming with tool call support.
-- **tools/** — Plugin system via `BaseTool` abstract class. `registry.py` handles registration and dispatch.
+- **tools/** — Minimal AI tool layer. `registry.py` handles registration and dispatch for the currently enabled tools.
 - **services/** — Business logic (conversation, memory, persona, session, token tracking, user settings, embedding, TTS, logging, export).
 - **cache/** — In-memory cache (`manager.py`) with dirty-flag tracking. `sync.py` runs a background thread that flushes changes to PostgreSQL every 30 seconds.
 - **database/** — PostgreSQL connection management and schema definitions.

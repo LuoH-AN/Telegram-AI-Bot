@@ -1,6 +1,6 @@
 # Telegram-AI-Bot (Gemen)
 
-一个支持 **Telegram / Discord / WeChat** 的 AI Bot 项目，带有统一启动入口、Web Dashboard、Persona（角色）与 Session（会话）管理、记忆系统、TTS 配置、定时任务与归档文档。
+一个支持 **Telegram / Discord / WeChat** 的 AI Bot 项目，带有统一启动入口、Web Dashboard、Persona（角色）与 Session（会话）管理、记忆系统、TTS 配置和定时任务。
 
 ## 功能概览
 
@@ -13,7 +13,7 @@
 - Token 用量统计与限额
 - Web Dashboard（设置、日志、会话、记忆、模型、备份等）
 - 定时任务
-- 已归档的旧工具设计文档（位于 `docs/tool-*.md`）
+- AI 工具系统（当前启用：终端与 HF Sync）
 
 ## 技术栈
 
@@ -37,7 +37,7 @@
 ├── database/                 # 数据库连接与 schema
 ├── config/                   # 常量与环境配置
 ├── utils/                    # 通用工具函数
-├── tools/                    # 已归档的旧工具源码占位
+├── tools/                    # 当前启用的 AI 工具
 ├── scripts/                  # 脚本
 └── docs/                     # 设计、评审与工具归档文档
 ```
@@ -105,22 +105,14 @@ Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
 - `forget`
 - `web`（发送 Dashboard 登录链接）
 
-## 旧工具系统归档
+## 工具系统说明
 
-运行时工具系统已经移除，不再在聊天主链路中执行 function calling、浏览器工具、shell 工具或 MCP 工具挂载。
+当前运行时仅保留并启用：
 
-为便于后续恢复，原有工具设计已分别归档到：
+- `terminal`
+- `hf_sync`
 
-- `docs/tool-memory.md`
-- `docs/tool-search.md`
-- `docs/tool-fetch.md`
-- `docs/tool-wikipedia.md`
-- `docs/tool-tts.md`
-- `docs/tool-shell.md`
-- `docs/tool-cron.md`
-- `docs/tool-playwright.md`
-- `docs/tool-crawl4ai.md`
-- `docs/tool-browser-agent.md`
+`docs/tool-*.md` 仅作历史设计参考，不代表当前运行时代码。
 
 ## Web Dashboard
 
@@ -159,7 +151,7 @@ Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
 - 新增模型能力优先走 `ai/` 抽象层
 - Bot 文案优先复用 `utils/platform_parity.py`，保持 Telegram/Discord 一致
 - 修改缓存结构时同步检查 `cache/` 与相关数据库 loader/sync 逻辑
-- 若要恢复旧工具能力，优先参考 `docs/tool-*.md`，不要直接依赖当前 `tools/` 目录占位文件
+- 若要扩展工具能力，优先从当前 `tools/` 与 `services/` 实现继续演进
 
 ## 许可证
 

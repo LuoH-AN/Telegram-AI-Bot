@@ -31,6 +31,19 @@ Constraints:
 
 _DIRECT_PREFIXES = ("cmd:", "exec:", "shell:")
 
+_TERMINAL_HELP_TEXT = (
+    "skill_terminal usage:\n"
+    "- direct command: cmd: npm install -g @mermaid-js/mermaid-cli\n"
+    "- direct command: shell: python -m pip install httpie\n"
+    "- inspect session: session\n"
+    "- reset session: reset terminal\n"
+    "- AI guided task: describe the goal in natural language\n\n"
+    "Session features:\n"
+    "- persistent cwd\n"
+    "- persistent exported env vars\n"
+    "- supports cd / pwd / env / export / unset / reset-session\n"
+)
+
 
 def _safe_json_loads(payload: str) -> dict | None:
     try:
@@ -186,6 +199,9 @@ def run_skill_terminal(user_id: int, goal: str) -> dict:
     settings = get_user_settings(user_id)
     api_key = settings.get("api_key") or ""
     stripped_goal = (goal or "").strip()
+
+    if stripped_goal.lower() in {"help", "?", ""}:
+        return {"ok": True, "message": _TERMINAL_HELP_TEXT, "steps": []}
 
     if stripped_goal.lower() in {"session", "session info", "terminal session"}:
         session = get_terminal_session(user_id, session_name="default")

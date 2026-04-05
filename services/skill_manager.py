@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 from .skills import (
-    call_skill,
     enable_skill,
     get_skill,
     install_skill,
     install_skill_from_github,
-    list_skill_snapshots,
     list_skills,
-    persist_skill_snapshot,
-    persist_skill_state,
     remove_skill,
-    restore_skill,
-    restore_skill_snapshot,
 )
 
 SKILL_HELP_TEXT = (

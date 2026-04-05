@@ -21,3 +21,6 @@ claude-code-skill-scrapling/
 skills/
 runtime_skills/
 .wechat_state/
+agent-browser/
+bg_logs/
+blog_luoh_org.png

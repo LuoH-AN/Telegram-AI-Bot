@@ -178,6 +178,7 @@ def put_storage_object(
     )
     return {
         "ok": True,
+        "kind": "object",
         "object_name": object_name,
         "path": content_path,
         "filename": stored_filename,
@@ -361,6 +362,23 @@ def list_sync_snapshots(user_id: int, *, name: str) -> list[str]:
 
 
 def run_hf_sync_command(user_id: int, input_text: str) -> dict:
+    stripped = (input_text or "").strip()
+    if stripped.lower() in {"help", "?", ""}:
+        return {
+            "ok": True,
+            "output": (
+                "hf_sync actions:\n"
+                "- upload: {\"action\":\"upload\",\"path\":\"/abs/file.png\",\"name\":\"cover\",\"encrypt\":false}\n"
+                "- upload_text: {\"action\":\"upload_text\",\"name\":\"note\",\"text\":\"hello\",\"encrypt\":true}\n"
+                "- upload_b64: {\"action\":\"upload_b64\",\"name\":\"blob\",\"content_b64\":\"...\",\"content_type\":\"image/png\",\"encrypt\":false}\n"
+                "- list: {\"action\":\"list\"}\n"
+                "- url: {\"action\":\"url\",\"name\":\"cover\"}\n"
+                "- delete: {\"action\":\"delete\",\"name\":\"cover\"}\n"
+                "- persist/snapshot/restore/list_snapshots for workspace paths\n"
+                "- skill_name + action for old skill backup mode"
+            ),
+        }
+
     try:
         args = json.loads(input_text) if input_text.strip().startswith("{") else {}
     except Exception:
