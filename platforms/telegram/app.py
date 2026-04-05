@@ -6,8 +6,10 @@ from telegram import Update
 
 from cache import init_database
 from config import HEALTH_CHECK_PORT, TELEGRAM_BOT_TOKEN
-from platforms.telegram_runtime import build_application, configure_platform_logging
 from services.platform_shared import start_web_server
+
+from .app_builder import build_application
+from .logging_config import configure_platform_logging
 
 logger = configure_platform_logging()
 
@@ -30,7 +32,3 @@ def main() -> None:
 
     start_cron_scheduler(application.bot)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()

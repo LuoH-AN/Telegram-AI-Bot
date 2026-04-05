@@ -1,0 +1,33 @@
+.table-wrap {
+  overflow: auto;
+  border: none;
+  border-radius: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: var(--text-3);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  background: transparent;
+  border-top: 1px solid var(--line-soft);
+}
+
+tbody tr:hover {
+  background: var(--soft-fill);
+}
