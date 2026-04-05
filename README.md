@@ -1,6 +1,6 @@
 # Telegram-AI-Bot (Gemen)
 
-一个支持 **Telegram / Discord 双平台** 的 AI Bot 项目，带有 Web Dashboard、Persona（角色）与 Session（会话）管理、记忆系统、TTS 配置、定时任务与归档文档。
+一个支持 **Telegram / Discord / WeChat** 的 AI Bot 项目，带有统一启动入口、Web Dashboard、Persona（角色）与 Session（会话）管理、记忆系统、TTS 配置、定时任务与归档文档。
 
 ## 功能概览
 
@@ -27,8 +27,8 @@
 
 ```text
 .
-├── bot.py                    # Telegram 入口
-├── discord_bot.py            # Discord 入口
+├── main.py                   # 统一启动入口
+├── platforms/                # 平台运行时（Telegram / Discord / WeChat）
 ├── web/                      # FastAPI Web Dashboard
 ├── handlers/                 # Telegram handlers（命令、消息、回调）
 ├── services/                 # 业务逻辑层
@@ -63,6 +63,7 @@ cp .env.example .env
 - `DATABASE_URL`
 - `TELEGRAM_BOT_TOKEN`（启 Telegram 时）
 - `DISCORD_BOT_TOKEN`（启 Discord 时）
+- `WECHAT_ENABLED=1`（启 WeChat 时）
 - `OPENAI_API_KEY`（也支持每个用户在 Bot 内单独配置）
 
 ### 3. 准备数据库
@@ -71,19 +72,20 @@ cp .env.example .env
 
 ### 4. 启动服务
 
-#### 启动 Telegram Bot
+#### 统一启动
 
 ```bash
-python bot.py
+python main.py
 ```
 
-#### 启动 Discord Bot
+说明：
 
-```bash
-python discord_bot.py
-```
-
-说明：两个入口都会启动 Web 服务（默认 `PORT=8080`）。如果要同时运行两者，请为不同进程设置不同端口。
+- `main.py` 会按环境变量自动拉起 Telegram / Discord / WeChat
+- 每个平台会使用自己的 `PORT`
+- 默认端口：
+  - Telegram：`7860`
+  - Discord：`7861`
+  - WeChat：`7862`
 
 ## 常用命令
 

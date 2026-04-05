@@ -165,6 +165,8 @@ class WeChatStateStore:
     """Persist login state and peer mappings to PostgreSQL."""
 
     def __init__(self, state_dir: str | Path, *, account_key: str = "default"):
+        # Keep the runtime directory for non-sensitive helper artifacts such as
+        # login snapshot pages and temporary media files, but not for account state.
         self._state_dir = Path(state_dir)
         self._state_dir.mkdir(parents=True, exist_ok=True)
         self._account_key = (account_key or "default").strip() or "default"
@@ -242,6 +244,15 @@ class WeChatStateStore:
             try:
                 with get_connection() as conn:
                     with conn.cursor() as cur:
+                        payload = (
+                            self._account_key,
+                            state.token,
+                            state.user_id,
+                            state.base_url,
+                            state.get_updates_buf,
+                            json.dumps(state.peer_map, ensure_ascii=False),
+                            json.dumps(state.context_tokens, ensure_ascii=False),
+                        )
                         cur.execute(
                             """
                             INSERT INTO wechat_runtime_state
@@ -256,15 +267,7 @@ class WeChatStateStore:
                                 context_tokens = EXCLUDED.context_tokens,
                                 updated_at = CURRENT_TIMESTAMP
                             """,
-                            (
-                                self._account_key,
-                                state.token,
-                                state.user_id,
-                                state.base_url,
-                                state.get_updates_buf,
-                                json.dumps(state.peer_map, ensure_ascii=False),
-                                json.dumps(state.context_tokens, ensure_ascii=False),
-                            ),
+                            payload,
                         )
                     conn.commit()
             except Exception:
@@ -432,19 +435,50 @@ class WeChatOfficialClient:
         context_token: str | None = None,
     ) -> str:
         client_id = f"gemen-wechat-{uuid.uuid4().hex}"
-        body = {
-            "msg": {
-                "from_user_id": "",
-                "to_user_id": to_user_id,
-                "client_id": client_id,
-                "message_type": 2,
-                "message_state": 2,
-                "item_list": [{"type": 1, "text_item": {"text": text}}],
-                "context_token": context_token or None,
-            }
-        }
-        self._request("POST", "ilink/bot/sendmessage", body=body, token=token, timeout=15)
+        logger.info(
+            "WeChat sendmessage text: to=%s client_id=%s len=%s has_context=%s",
+            to_user_id,
+            client_id,
+            len(text or ""),
+            bool(context_token),
+        )
+        self._send_message_packet(
+            token=token,
+            to_user_id=to_user_id,
+            client_id=client_id,
+            packet={"type": 1, "text_item": {"text": text}},
+            context_token=context_token,
+            timeout=15,
+        )
         return client_id
+
+    def _send_message_packet(
+        self,
+        *,
+        token: str,
+        to_user_id: str,
+        client_id: str,
+        packet: dict,
+        context_token: str | None,
+        timeout: float,
+    ) -> None:
+        self._request(
+            "POST",
+            "ilink/bot/sendmessage",
+            body={
+                "msg": {
+                    "from_user_id": "",
+                    "to_user_id": to_user_id,
+                    "client_id": client_id,
+                    "message_type": 2,
+                    "message_state": 2,
+                    "item_list": [packet],
+                    "context_token": context_token or None,
+                }
+            },
+            token=token,
+            timeout=timeout,
+        )
 
     def _get_upload_url(self, token: str, payload: dict) -> dict:
         response = self._request(
@@ -574,21 +608,19 @@ class WeChatOfficialClient:
         last_client_id = ""
         for packet in ([{"type": 1, "text_item": {"text": text}}] if text else []) + [item]:
             last_client_id = f"gemen-wechat-{uuid.uuid4().hex}"
-            self._request(
-                "POST",
-                "ilink/bot/sendmessage",
-                body={
-                    "msg": {
-                        "from_user_id": "",
-                        "to_user_id": to_user_id,
-                        "client_id": last_client_id,
-                        "message_type": 2,
-                        "message_state": 2,
-                        "item_list": [packet],
-                        "context_token": context_token or None,
-                    }
-                },
+            logger.info(
+                "WeChat sendmessage media: to=%s client_id=%s packet_type=%s has_context=%s",
+                to_user_id,
+                last_client_id,
+                packet.get("type"),
+                bool(context_token),
+            )
+            self._send_message_packet(
                 token=token,
+                to_user_id=to_user_id,
+                client_id=last_client_id,
+                packet=packet,
+                context_token=context_token,
                 timeout=30,
             )
         return last_client_id

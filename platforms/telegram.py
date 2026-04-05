@@ -3,7 +3,6 @@
 import logging
 import threading
 
-import uvicorn
 from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import (
@@ -30,7 +29,7 @@ from config import (
     HEALTH_CHECK_PORT,
 )
 from cache import init_database
-from web.app import create_app
+from services.platform_shared import start_web_server
 from utils.rate_limiter import QueuedRateLimiter
 from handlers import (
     start,
@@ -69,18 +68,6 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-
-def start_web_server():
-    app = create_app()
-    config = uvicorn.Config(
-        app, host="0.0.0.0", port=HEALTH_CHECK_PORT,
-        log_level="warning", access_log=False,
-    )
-    server = uvicorn.Server(config)
-    logger.info("Web server started on port %d", HEALTH_CHECK_PORT)
-    server.run()
-
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     error = context.error
     if isinstance(error, TelegramError) and "Invalid server response" in str(error):
@@ -107,7 +94,11 @@ def main() -> None:
 
     init_database()
 
-    web_thread = threading.Thread(target=start_web_server, daemon=True)
+    web_thread = threading.Thread(
+        target=start_web_server,
+        kwargs={"logger": logger, "port": HEALTH_CHECK_PORT},
+        daemon=True,
+    )
     web_thread.start()
 
     builder = (

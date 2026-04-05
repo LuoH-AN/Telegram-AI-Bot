@@ -13,21 +13,25 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from collections import OrderedDict
-
-import uvicorn
-
 from cache import init_database
 from config import (
     HEALTH_CHECK_PORT,
-    WEB_BASE_URL,
-    DEFAULT_TTS_STYLE,
-    DEFAULT_TTS_VOICE,
     SHOW_THINKING_MAX_CHARS,
     MAX_FILE_SIZE,
     MAX_TEXT_CONTENT_LENGTH,
 )
-from web.app import create_app
 from web.auth import create_short_token
+from services.platform_shared import (
+    apply_provider_command,
+    build_provider_list_text,
+    build_settings_text,
+    build_usage_text,
+    fetch_models_for_user,
+    mask_key,
+    normalize_reasoning_effort,
+    normalize_stream_mode,
+    start_web_server,
+)
 from services import (
     get_user_settings,
     update_user_setting,
@@ -40,7 +44,6 @@ from services import (
     get_system_prompt,
     get_remaining_tokens,
     get_current_persona_name,
-    get_current_persona,
     get_personas,
     switch_persona,
     create_persona,
@@ -49,9 +52,6 @@ from services import (
     persona_exists,
     get_message_count,
     get_token_usage,
-    get_total_tokens_all_personas,
-    get_token_limit,
-    get_usage_percentage,
     export_to_markdown,
     set_token_limit,
     reset_token_usage,
@@ -125,14 +125,9 @@ from utils.platform_parity import (
     build_persona_not_found_message,
     build_persona_prompt_overview_message,
     build_prompt_per_persona_message,
-    build_provider_list_usage_message,
-    build_provider_no_saved_message,
-    build_provider_not_found_available_message,
     build_provider_save_hint_message,
-    build_provider_usage_message,
     build_reasoning_effort_help_message,
     build_set_usage_message,
-    build_settings_summary_message,
     build_show_thinking_help_message,
     build_start_message_missing_api,
     build_start_message_returning,
@@ -160,7 +155,6 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 WECHAT_COMMAND_PREFIX = os.getenv("WECHAT_COMMAND_PREFIX", "/").strip() or "/"
 WECHAT_STATE_DIR = os.getenv("WECHAT_STATE_DIR", ".wechat_state").strip() or ".wechat_state"
 WECHAT_ENABLED = str(os.getenv("WECHAT_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
@@ -175,21 +169,7 @@ WECHAT_GROUP_MENTION_ALIASES = [
     ).split(",")
     if item.strip()
 ]
-
-
-def start_web_server() -> None:
-    app = create_app()
-    config = uvicorn.Config(
-        app,
-        host="0.0.0.0",
-        port=HEALTH_CHECK_PORT,
-        log_level="warning",
-        access_log=False,
-    )
-    server = uvicorn.Server(config)
-    logger.info("Web server started on port %d", HEALTH_CHECK_PORT)
-    server.run()
-
+WECHAT_VIDEO_SUFFIXES = (".mp4", ".mov", ".webm", ".mkv", ".avi")
 
 def _wechat_ctx(local_user_id: int) -> str:
     return format_log_context(platform="wechat", user_id=local_user_id, scope="private", chat_id=local_user_id)
@@ -203,38 +183,6 @@ def _wechat_ctx_for_scope(*, local_user_id: int, local_chat_id: int, is_group: b
         chat_id=local_chat_id,
     )
 
-
-def _mask_key(api_key: str) -> str:
-    if not api_key:
-        return "(empty)"
-    if len(api_key) <= 12:
-        return "***"
-    return f"{api_key[:8]}...{api_key[-4:]}"
-
-
-def _normalize_stream_mode(mode: str | None) -> str:
-    current = (mode or "").strip().lower()
-    if current in {"default", "time", "chars", "off"}:
-        return current
-    return "default"
-
-
-def _normalize_reasoning_effort(value: str | None) -> str:
-    current = (value or "").strip().lower()
-    if current in VALID_REASONING_EFFORTS:
-        return current
-    return ""
-
-
-def _fetch_models(user_id: int) -> list[str]:
-    try:
-        client = get_ai_client(user_id)
-        return client.list_models()
-    except Exception:
-        logger.exception("Failed to fetch models")
-        return []
-
-
 @dataclass
 class WeChatMessageContext:
     runtime: "WeChatBotRuntime"
@@ -245,6 +193,7 @@ class WeChatMessageContext:
     is_group: bool = False
     group_id: str | None = None
     context_token: str | None = None
+    inbound_key: str | None = None
 
     @property
     def log_context(self) -> str:
@@ -255,7 +204,12 @@ class WeChatMessageContext:
         )
 
     async def reply_text(self, text: str) -> None:
-        await self.runtime.send_text_to_peer(self.reply_to_id, text, context_token=self.context_token)
+        await self.runtime.send_text_to_peer(
+            self.reply_to_id,
+            text,
+            context_token=self.context_token,
+            dedupe_key=self.inbound_key,
+        )
 
     async def reply_file(self, file_path: str | Path, *, caption: str = "") -> None:
         await self.runtime.send_file_to_peer(
@@ -263,7 +217,91 @@ class WeChatMessageContext:
             str(file_path),
             caption=caption,
             context_token=self.context_token,
+            dedupe_key=self.inbound_key,
         )
+
+
+class RecentKeyCache:
+    """Small TTL cache for dedup / echo suppression."""
+
+    def __init__(self, *, ttl_seconds: int, max_items: int):
+        self._ttl_seconds = ttl_seconds
+        self._max_items = max_items
+        self._lock = threading.RLock()
+        self._items: OrderedDict[str, float] = OrderedDict()
+
+    def _prune(self, now: float) -> None:
+        expired = [key for key, ts in self._items.items() if now - ts > self._ttl_seconds]
+        for key in expired:
+            self._items.pop(key, None)
+        while len(self._items) > self._max_items:
+            self._items.popitem(last=False)
+
+    def seen(self, key: str | None) -> bool:
+        if not key:
+            return False
+        now = time.time()
+        with self._lock:
+            self._prune(now)
+            if key in self._items:
+                self._items.move_to_end(key)
+                return True
+            return False
+
+    def remember(self, key: str | None) -> None:
+        if not key:
+            return
+        now = time.time()
+        with self._lock:
+            self._prune(now)
+            self._items[key] = now
+            self._items.move_to_end(key)
+
+    def remember_once(self, key: str | None) -> bool:
+        """Return True when key already exists, else remember it and return False."""
+        if not key:
+            return False
+        now = time.time()
+        with self._lock:
+            self._prune(now)
+            if key in self._items:
+                self._items.move_to_end(key)
+                return True
+            self._items[key] = now
+            self._items.move_to_end(key)
+            return False
+
+
+class NoopPump:
+    """Minimal cancellation hook for runtime_queue registration."""
+
+    def force_stop(self) -> None:
+        return None
+
+
+@dataclass(frozen=True)
+class WeChatInboundEnvelope:
+    message: dict
+    inbound_key: str | None
+    from_user_id: str
+    to_user_id: str
+    group_id: str | None
+    reply_to_id: str
+    text_body: str
+    normalized_text: str
+    item_types: tuple[int, ...]
+    message_type: int
+    message_state: int
+    message_id: str
+    seq: str
+
+    @property
+    def is_group(self) -> bool:
+        return bool(self.group_id)
+
+    @property
+    def echo_target_id(self) -> str:
+        return self.group_id or self.to_user_id or self.from_user_id
 
 
 class WeChatBotRuntime:
@@ -273,8 +311,9 @@ class WeChatBotRuntime:
         self.client = WeChatOfficialClient(state_dir=WECHAT_STATE_DIR, bot_type=WECHAT_BOT_TYPE)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._typing_lock = asyncio.Lock()
-        self._seen_message_lock = threading.RLock()
-        self._seen_messages: OrderedDict[str, float] = OrderedDict()
+        self._seen_messages = RecentKeyCache(ttl_seconds=15 * 60, max_items=2048)
+        self._sent_messages = RecentKeyCache(ttl_seconds=30, max_items=2048)
+        self._recent_outbound_fingerprints = RecentKeyCache(ttl_seconds=60, max_items=2048)
         self.login_access_token = WECHAT_LOGIN_ACCESS_TOKEN or secrets.token_urlsafe(24)
         self._login_state_lock = threading.RLock()
         self._login_snapshot_path = Path(WECHAT_STATE_DIR) / "login_snapshot.json"
@@ -292,14 +331,17 @@ class WeChatBotRuntime:
         }
         set_wechat_runtime(self)
 
-    def _message_dedup_key(self, message: dict) -> str | None:
-        message_id = str(message.get("message_id") or "").strip()
-        seq = str(message.get("seq") or "").strip()
-        create_time_ms = str(message.get("create_time_ms") or "").strip()
-        from_user_id = str(message.get("from_user_id") or "").strip()
-        to_user_id = str(message.get("to_user_id") or "").strip()
-        group_id = str(message.get("group_id") or "").strip()
-        text_body = _extract_text_body(message.get("item_list") or [])
+    def _message_dedup_key(
+        self,
+        *,
+        message_id: str,
+        seq: str,
+        create_time_ms: str,
+        from_user_id: str,
+        to_user_id: str,
+        group_id: str | None,
+        text_body: str,
+    ) -> str | None:
         if message_id:
             return f"msgid:{message_id}"
         if seq and from_user_id:
@@ -313,29 +355,82 @@ class WeChatBotRuntime:
             return f"fallback:{from_user_id}:{to_user_id}:{group_id}:{create_time_ms}:{body_hash}"
         return None
 
-    def _should_skip_duplicate_message(self, message: dict) -> bool:
-        key = self._message_dedup_key(message)
-        if not key:
+    def _outbound_fingerprint(self, *, target_id: str, text: str = "", item_types: tuple[int, ...] = ()) -> str:
+        body = text.strip()
+        digest = hashlib.sha1(body.encode("utf-8")).hexdigest()[:16] if body else "no-body"
+        types = ",".join(str(item) for item in item_types) if item_types else "text"
+        return f"{target_id}|{types}|{digest}"
+
+    def _parse_inbound_message(self, message: dict) -> WeChatInboundEnvelope:
+        from_user_id = str(message.get("from_user_id") or "").strip()
+        to_user_id = str(message.get("to_user_id") or "").strip()
+        group_id = str(message.get("group_id") or "").strip() or None
+        text_body = _extract_text_body(message.get("item_list") or [])
+        normalized_text = _strip_wechat_group_mentions(text_body) if group_id else text_body
+        message_id = str(message.get("message_id") or "").strip()
+        seq = str(message.get("seq") or "").strip()
+        create_time_ms = str(message.get("create_time_ms") or "").strip()
+        inbound_key = self._message_dedup_key(
+            message_id=message_id,
+            seq=seq,
+            create_time_ms=create_time_ms,
+            from_user_id=from_user_id,
+            to_user_id=to_user_id,
+            group_id=group_id,
+            text_body=text_body,
+        )
+        return WeChatInboundEnvelope(
+            message=message,
+            inbound_key=inbound_key,
+            from_user_id=from_user_id,
+            to_user_id=to_user_id,
+            group_id=group_id,
+            reply_to_id=group_id or from_user_id,
+            text_body=text_body,
+            normalized_text=normalized_text,
+            item_types=tuple(int(item.get("type") or 0) for item in (message.get("item_list") or [])),
+            message_type=int(message.get("message_type") or 1),
+            message_state=int(message.get("message_state") or 0),
+            message_id=message_id,
+            seq=seq,
+        )
+
+    def _should_skip_inbound_echo(self, inbound: WeChatInboundEnvelope, current_user_id: str) -> bool:
+        if not current_user_id or not inbound.from_user_id or inbound.from_user_id != current_user_id:
             return False
-        now = time.time()
-        ttl_seconds = 15 * 60
-        max_items = 2048
-        with self._seen_message_lock:
-            expired = [k for k, ts in self._seen_messages.items() if now - ts > ttl_seconds]
-            for item in expired:
-                self._seen_messages.pop(item, None)
-            if key in self._seen_messages:
-                self._seen_messages.move_to_end(key)
-                return True
-            self._seen_messages[key] = now
-            while len(self._seen_messages) > max_items:
-                self._seen_messages.popitem(last=False)
+        echo_fingerprint = self._outbound_fingerprint(
+            target_id=inbound.echo_target_id,
+            text=inbound.text_body,
+            item_types=inbound.item_types or (1,),
+        )
+        if self._recent_outbound_fingerprints.seen(echo_fingerprint):
+            logger.info(
+                "Skipping outbound echo WeChat message: message_id=%s seq=%s state=%s from=%s fingerprint=%s",
+                inbound.message_id,
+                inbound.seq,
+                inbound.message_state,
+                inbound.from_user_id,
+                echo_fingerprint,
+            )
+            return True
+        logger.warning(
+            "WeChat self-sent message did not match recent outbound fingerprint; processing continues: message_id=%s seq=%s state=%s from=%s fingerprint=%s",
+            inbound.message_id,
+            inbound.seq,
+            inbound.message_state,
+            inbound.from_user_id,
+            echo_fingerprint,
+        )
         return False
 
     def _build_login_page_url(self) -> str:
+        from config import WEB_BASE_URL
+
         return f"{WEB_BASE_URL.rstrip('/')}/wechat/login?access={self.login_access_token}"
 
     def _build_login_image_url(self) -> str:
+        from config import WEB_BASE_URL
+
         return f"{WEB_BASE_URL.rstrip('/')}/wechat/login/qr?access={self.login_access_token}"
 
     def _set_login_snapshot(self, **updates) -> dict:
@@ -531,13 +626,28 @@ class WeChatBotRuntime:
         except Exception:
             logger.debug("Failed to update WeChat typing indicator", exc_info=True)
 
-    async def send_text_to_peer(self, peer_id: str, text: str, *, context_token: str | None = None) -> None:
+    async def send_text_to_peer(
+        self,
+        peer_id: str,
+        text: str,
+        *,
+        context_token: str | None = None,
+        dedupe_key: str | None = None,
+    ) -> None:
         state = self.client.state_store.load()
         if not state.token:
             raise RuntimeError("WeChat bot is not logged in")
         context = context_token or self.client.state_store.resolve_context_token(peer_id)
         chunks = split_message(text or "(Empty response)", max_length=WECHAT_TEXT_LIMIT)
-        for chunk in chunks or ["(Empty response)"]:
+        for index, chunk in enumerate(chunks or ["(Empty response)"]):
+            outbound_key = f"text:{peer_id}:{dedupe_key}:{index}" if dedupe_key else None
+            if self._sent_messages.remember_once(outbound_key):
+                logger.info("Skipping duplicate WeChat outbound text: peer=%s dedupe_key=%s index=%s", peer_id, dedupe_key, index)
+                continue
+            logger.info("WeChat outbound text: peer=%s dedupe_key=%s index=%s len=%s", peer_id, dedupe_key, index, len(chunk))
+            self._recent_outbound_fingerprints.remember(
+                self._outbound_fingerprint(target_id=peer_id, text=chunk, item_types=(1,))
+            )
             await asyncio.to_thread(
                 self.client.send_text_message,
                 state.token,
@@ -553,11 +663,25 @@ class WeChatBotRuntime:
         *,
         caption: str = "",
         context_token: str | None = None,
+        dedupe_key: str | None = None,
     ) -> None:
         state = self.client.state_store.load()
         if not state.token:
             raise RuntimeError("WeChat bot is not logged in")
         context = context_token or self.client.state_store.resolve_context_token(peer_id)
+        outbound_key = f"file:{peer_id}:{dedupe_key}:{file_path}:{caption}" if dedupe_key else None
+        if self._sent_messages.remember_once(outbound_key):
+            logger.info("Skipping duplicate WeChat outbound file: peer=%s dedupe_key=%s path=%s", peer_id, dedupe_key, file_path)
+            return
+        logger.info("WeChat outbound file: peer=%s dedupe_key=%s path=%s", peer_id, dedupe_key, file_path)
+        media_type_code = _wechat_media_type_code_for_path(file_path)
+        self._recent_outbound_fingerprints.remember(
+            self._outbound_fingerprint(
+                target_id=peer_id,
+                text=caption or "",
+                item_types=(media_type_code,),
+            )
+        )
         await asyncio.to_thread(
             self.client.send_media_file,
             state.token,
@@ -612,25 +736,30 @@ class WeChatBotRuntime:
                 await asyncio.sleep(5)
 
     async def handle_message(self, message: dict) -> None:
-        if int(message.get("message_type") or 1) == 2:
+        inbound = self._parse_inbound_message(message)
+        if inbound.message_type == 2:
             return
-        if int(message.get("message_state") or 0) == 1:
+        state = self.client.state_store.load()
+        current_wechat_user_id = str(state.user_id or "").strip()
+        if self._should_skip_inbound_echo(inbound, current_wechat_user_id):
+            return
+        if inbound.message_state == 1:
             logger.info("Skipping WeChat message with generating state")
             return
-        if self._should_skip_duplicate_message(message):
+        if self._seen_messages.remember_once(inbound.inbound_key):
             logger.info(
-                "Skipping duplicate WeChat message: message_id=%s seq=%s state=%s from=%s",
-                message.get("message_id"),
-                message.get("seq"),
-                message.get("message_state"),
-                message.get("from_user_id"),
+                "Skipping duplicate WeChat message: inbound_key=%s message_id=%s seq=%s state=%s from=%s",
+                inbound.inbound_key,
+                inbound.message_id,
+                inbound.seq,
+                inbound.message_state,
+                inbound.from_user_id,
             )
             return
-        peer_id = str(message.get("from_user_id") or "").strip()
+        peer_id = inbound.from_user_id
         if not peer_id:
             return
-        group_id = str(message.get("group_id") or "").strip() or None
-        reply_to_id = group_id or peer_id
+        reply_to_id = inbound.reply_to_id
         local_chat_id = local_chat_id_for_wechat(reply_to_id)
         context_token = str(message.get("context_token") or "").strip() or None
         local_user_id = self.client.state_store.remember_peer(peer_id, context_token=context_token)
@@ -642,26 +771,26 @@ class WeChatBotRuntime:
             reply_to_id=reply_to_id,
             local_user_id=local_user_id,
             local_chat_id=local_chat_id,
-            is_group=bool(group_id),
-            group_id=group_id,
+            is_group=inbound.is_group,
+            group_id=inbound.group_id,
             context_token=context_token,
+            inbound_key=inbound.inbound_key,
         )
-        text_body = _extract_text_body(message.get("item_list") or [])
-        normalized_text = _strip_wechat_group_mentions(text_body) if ctx.is_group else text_body
         logger.info(
-            "%s inbound message (message_id=%s seq=%s state=%s group=%s)",
+            "%s inbound message (inbound_key=%s message_id=%s seq=%s state=%s group=%s)",
             ctx.log_context,
-            message.get("message_id"),
-            message.get("seq"),
-            message.get("message_state"),
-            bool(group_id),
+            inbound.inbound_key,
+            inbound.message_id,
+            inbound.seq,
+            inbound.message_state,
+            inbound.is_group,
         )
 
-        if ctx.is_group and not _should_respond_in_wechat_group(text_body):
+        if ctx.is_group and not _should_respond_in_wechat_group(inbound.text_body):
             return
 
-        if normalized_text.startswith(WECHAT_COMMAND_PREFIX):
-            await _dispatch_command(ctx, normalized_text)
+        if inbound.normalized_text.startswith(WECHAT_COMMAND_PREFIX):
+            await _dispatch_command(ctx, inbound.normalized_text)
             return
 
         await _process_chat_message(self, ctx, message)
@@ -727,6 +856,15 @@ def _should_respond_in_wechat_group(text: str) -> bool:
         if alias_lower in lowered and len(alias_lower) >= 3:
             return True
     return False
+
+
+def _wechat_media_type_code_for_path(file_path: str) -> int:
+    lower_path = file_path.lower()
+    if is_image_file(file_path):
+        return 2
+    if lower_path.endswith(WECHAT_VIDEO_SUFFIXES):
+        return 5
+    return 4
 
 
 async def _build_user_content_from_wechat_message(
@@ -884,7 +1022,7 @@ async def _process_chat_message(
     final_delivery_confirmed = False
     current_task = asyncio.current_task()
     if current_task:
-        register_response(slot_key, task=current_task, pump=type("NoopPump", (), {"force_stop": lambda self: None})())
+        register_response(slot_key, task=current_task, pump=NoopPump())
 
     typing_stop = asyncio.Event()
     typing_task = asyncio.create_task(runtime._typing_loop(ctx.reply_to_id, ctx.context_token, typing_stop))
@@ -1052,53 +1190,28 @@ async def _dispatch_command(ctx: WeChatMessageContext, text: str) -> None:
     name, _, rest = body.partition(" ")
     command = name.lower().strip()
     args = rest.split() if rest else []
-
-    if command == "start":
-        await _start_command(ctx)
+    command_handlers = {
+        "start": lambda: _start_command(ctx),
+        "help": lambda: _help_command(ctx),
+        "clear": lambda: _clear_command(ctx),
+        "stop": lambda: _stop_command(ctx),
+        "settings": lambda: _settings_command(ctx),
+        "set": lambda: _set_command(ctx, *args),
+        "usage": lambda: _usage_command(ctx, *args),
+        "export": lambda: _export_command(ctx),
+        "remember": lambda: _remember_command(ctx, content=rest or None),
+        "memories": lambda: _memories_command(ctx),
+        "forget": lambda: _forget_command(ctx, args[0] if args else None),
+        "persona": lambda: _persona_command(ctx, *args),
+        "chat": lambda: _chat_command(ctx, *args),
+        "skill": lambda: _skill_command(ctx, *args),
+        "web": lambda: _web_command(ctx),
+    }
+    handler = command_handlers.get(command)
+    if handler is None:
+        await ctx.reply_text(build_help_message(WECHAT_COMMAND_PREFIX))
         return
-    if command == "help":
-        await _help_command(ctx)
-        return
-    if command == "clear":
-        await _clear_command(ctx)
-        return
-    if command == "stop":
-        await _stop_command(ctx)
-        return
-    if command == "settings":
-        await _settings_command(ctx)
-        return
-    if command == "set":
-        await _set_command(ctx, *args)
-        return
-    if command == "usage":
-        await _usage_command(ctx, *args)
-        return
-    if command == "export":
-        await _export_command(ctx)
-        return
-    if command == "remember":
-        await _remember_command(ctx, content=rest or None)
-        return
-    if command == "memories":
-        await _memories_command(ctx)
-        return
-    if command == "forget":
-        await _forget_command(ctx, args[0] if args else None)
-        return
-    if command == "persona":
-        await _persona_command(ctx, *args)
-        return
-    if command == "chat":
-        await _chat_command(ctx, *args)
-        return
-    if command == "skill":
-        await _skill_command(ctx, *args)
-        return
-    if command == "web":
-        await _web_command(ctx)
-        return
-    await ctx.reply_text(build_help_message(WECHAT_COMMAND_PREFIX))
+    await handler()
 
 
 async def _start_command(ctx: WeChatMessageContext) -> None:
@@ -1133,50 +1246,7 @@ async def _stop_command(ctx: WeChatMessageContext) -> None:
 
 
 async def _settings_command(ctx: WeChatMessageContext) -> None:
-    user_id = ctx.local_user_id
-    settings = get_user_settings(user_id)
-    persona_name = get_current_persona_name(user_id)
-    persona = get_current_persona(user_id)
-    token_limit = get_token_limit(user_id, persona_name)
-
-    prompt = persona["system_prompt"]
-    prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
-    global_prompt = settings.get("global_prompt", "") or ""
-    global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
-    tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
-    tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
-    tts_endpoint = settings.get("tts_endpoint", "") or "auto"
-    stream_mode = settings.get("stream_mode", "") or "default"
-    presets = settings.get("api_presets", {})
-    presets_info = ", ".join(presets.keys()) if presets else "(none)"
-
-    title_model_raw = settings.get("title_model", "")
-    title_model_display = title_model_raw or "(current model)"
-    cron_model_raw = settings.get("cron_model", "")
-    cron_model_display = cron_model_raw or "(current model)"
-    show_thinking = "on" if settings.get("show_thinking") else "off"
-
-    text = build_settings_summary_message(
-        WECHAT_COMMAND_PREFIX,
-        base_url=settings["base_url"],
-        masked_api_key=_mask_key(settings["api_key"]),
-        model=settings["model"],
-        temperature=settings["temperature"],
-        reasoning_effort=settings.get("reasoning_effort", "") or "(provider/model default)",
-        show_thinking=show_thinking,
-        stream_mode=stream_mode,
-        title_model=title_model_display,
-        cron_model=cron_model_display,
-        persona_name=persona_name,
-        token_limit_display=str(token_limit if token_limit > 0 else "unlimited"),
-        global_prompt=global_prompt_display,
-        prompt=prompt_display,
-        tts_voice=tts_voice,
-        tts_style=tts_style,
-        tts_endpoint=tts_endpoint,
-        providers_info=presets_info,
-    )
-    await ctx.reply_text(text)
+    await ctx.reply_text(build_settings_text(ctx.local_user_id, command_prefix=WECHAT_COMMAND_PREFIX))
 
 
 async def _set_command(ctx: WeChatMessageContext, *args: str) -> None:
@@ -1193,7 +1263,7 @@ async def _set_command(ctx: WeChatMessageContext, *args: str) -> None:
         if not has_api_key(user_id):
             await ctx.reply_text(build_api_key_required_message(p))
             return
-        models = await asyncio.get_running_loop().run_in_executor(None, lambda: _fetch_models(user_id))
+        models = await asyncio.get_running_loop().run_in_executor(None, lambda: fetch_models_for_user(user_id))
         if not models:
             await ctx.reply_text("Failed to fetch models. Check your API key and base_url.")
             return
@@ -1233,7 +1303,7 @@ async def _set_command(ctx: WeChatMessageContext, *args: str) -> None:
         update_user_setting(user_id, "api_key", value)
         masked = _mask_key(value)
         try:
-            models = await asyncio.get_running_loop().run_in_executor(None, lambda: _fetch_models(user_id))
+            models = await asyncio.get_running_loop().run_in_executor(None, lambda: fetch_models_for_user(user_id))
             if models:
                 await ctx.reply_text(f"api_key set to: {masked}\nVerified ({len(models)} models available)")
             else:
@@ -1363,81 +1433,18 @@ async def _set_command(ctx: WeChatMessageContext, *args: str) -> None:
 
 
 async def _show_provider_list(ctx: WeChatMessageContext, settings: dict) -> None:
-    p = WECHAT_COMMAND_PREFIX
-    presets = settings.get("api_presets", {})
-    if not presets:
-        await ctx.reply_text(build_provider_no_saved_message(p))
-        return
-    lines = ["Saved Providers:\n"]
-    for name, preset in presets.items():
-        lines.append(
-            f"[{name}]\n"
-            f"  base_url: {preset.get('base_url', '')}\n"
-            f"  api_key: {_mask_key(preset.get('api_key', ''))}\n"
-            f"  model: {preset.get('model', '')}"
-        )
-    lines.append(build_provider_list_usage_message(p))
-    await ctx.reply_text("\n".join(lines))
+    await ctx.reply_text(build_provider_list_text(settings, command_prefix=WECHAT_COMMAND_PREFIX))
 
 
 async def _handle_provider_command(ctx: WeChatMessageContext, user_id: int, settings: dict, args: list[str]) -> None:
-    p = WECHAT_COMMAND_PREFIX
-    presets = settings.get("api_presets", {})
-    if not args:
-        await _show_provider_list(ctx, settings)
-        return
-    sub = args[0].lower()
-    if sub == "list":
-        await _show_provider_list(ctx, settings)
-        return
-    if sub == "save":
-        if len(args) < 2:
-            await ctx.reply_text(f"Usage: {p}set provider save <name>")
-            return
-        name = args[1]
-        presets[name] = {
-            "api_key": settings["api_key"],
-            "base_url": settings["base_url"],
-            "model": settings["model"],
-        }
-        update_user_setting(user_id, "api_presets", presets)
-        await ctx.reply_text(
-            f"Provider '{name}' saved:\n  base_url: {settings['base_url']}\n  api_key: {_mask_key(settings['api_key'])}\n  model: {settings['model']}"
+    await ctx.reply_text(
+        apply_provider_command(
+            user_id,
+            settings,
+            args,
+            command_prefix=WECHAT_COMMAND_PREFIX,
         )
-        return
-    if sub == "delete":
-        if len(args) < 2:
-            await ctx.reply_text(f"Usage: {p}set provider delete <name>")
-            return
-        name = args[1]
-        if name not in presets:
-            await ctx.reply_text(f"Provider '{name}' not found.")
-            return
-        del presets[name]
-        update_user_setting(user_id, "api_presets", presets)
-        await ctx.reply_text(f"Provider '{name}' deleted.")
-        return
-    if sub == "load":
-        if len(args) < 2:
-            await ctx.reply_text(f"Usage: {p}set provider load <name>")
-            return
-        name = args[1]
-        if name not in presets:
-            matched = next((k for k in presets if k.lower() == name.lower()), None)
-            if matched is None:
-                available = ", ".join(presets.keys()) if presets else "(none)"
-                await ctx.reply_text(build_provider_not_found_available_message(name, available))
-                return
-            name = matched
-        preset = presets[name]
-        update_user_setting(user_id, "api_key", preset["api_key"])
-        update_user_setting(user_id, "base_url", preset["base_url"])
-        update_user_setting(user_id, "model", preset["model"])
-        await ctx.reply_text(
-            f"Loaded provider '{name}':\n  base_url: {preset['base_url']}\n  api_key: {_mask_key(preset.get('api_key', ''))}\n  model: {preset['model']}"
-        )
-        return
-    await ctx.reply_text(build_provider_usage_message(p))
+    )
 
 
 async def _usage_command(ctx: WeChatMessageContext, *args: str) -> None:
@@ -1447,26 +1454,7 @@ async def _usage_command(ctx: WeChatMessageContext, *args: str) -> None:
         reset_token_usage(user_id, persona_name)
         await ctx.reply_text(build_usage_reset_message(persona_name))
         return
-    usage = get_token_usage(user_id, persona_name)
-    token_limit = get_token_limit(user_id, persona_name)
-    prompt_tokens = usage["prompt_tokens"]
-    completion_tokens = usage["completion_tokens"]
-    total_tokens = usage["total_tokens"]
-    message = (
-        f"Token Usage (Persona: {persona_name}):\n\n"
-        f"Prompt tokens:     {prompt_tokens:,}\n"
-        f"Completion tokens: {completion_tokens:,}\n"
-        f"Total tokens:      {total_tokens:,}\n"
-    )
-    if token_limit > 0:
-        remaining = get_remaining_tokens(user_id, persona_name)
-        percentage = get_usage_percentage(user_id, persona_name) or 0
-        message += f"\nLimit:     {token_limit:,}\nRemaining: {remaining:,}\nUsage:     {percentage:.1f}%\n"
-    else:
-        message += "\nLimit: Unlimited"
-    total_all = get_total_tokens_all_personas(user_id)
-    message += f"\n\n--- All Personas ---\nTotal tokens: {total_all:,}"
-    await ctx.reply_text(message)
+    await ctx.reply_text(build_usage_text(user_id))
 
 
 async def _export_command(ctx: WeChatMessageContext) -> None:

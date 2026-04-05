@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 from typing import Sequence
 
 import discord
-import uvicorn
 from discord import asset as discord_asset
 from discord import gateway as discord_gateway
 from discord import http as discord_http
@@ -37,13 +36,21 @@ from config import (
     MAX_TEXT_CONTENT_LENGTH,
     MIME_TYPE_MAP,
     WEB_BASE_URL,
-    DEFAULT_TTS_VOICE,
-    DEFAULT_TTS_STYLE,
     SHOW_THINKING_MAX_CHARS,
 )
 from cache import init_database
-from web.app import create_app
 from web.auth import create_short_token
+from services.platform_shared import (
+    apply_provider_command,
+    build_provider_list_text,
+    build_settings_text,
+    build_usage_text,
+    fetch_models_for_user,
+    mask_key,
+    normalize_reasoning_effort,
+    normalize_stream_mode,
+    start_web_server,
+)
 from services import (
     get_user_settings,
     update_user_setting,
@@ -56,7 +63,6 @@ from services import (
     get_system_prompt,
     get_remaining_tokens,
     get_current_persona_name,
-    get_current_persona,
     get_personas,
     switch_persona,
     create_persona,
@@ -65,9 +71,6 @@ from services import (
     persona_exists,
     get_message_count,
     get_token_usage,
-    get_total_tokens_all_personas,
-    get_token_limit,
-    get_usage_percentage,
     export_to_markdown,
     set_token_limit,
     get_token_limit,
@@ -137,14 +140,9 @@ from utils.platform_parity import (
     build_persona_not_found_message,
     build_persona_prompt_overview_message,
     build_prompt_per_persona_message,
-    build_provider_list_usage_message,
-    build_provider_no_saved_message,
-    build_provider_not_found_available_message,
     build_provider_save_hint_message,
-    build_provider_usage_message,
     build_reasoning_effort_help_message,
     build_set_usage_message,
-    build_settings_summary_message,
     build_show_thinking_help_message,
     build_start_message_missing_api,
     build_start_message_returning,
@@ -183,9 +181,6 @@ AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120
 STREAM_BOUNDARY_CHARS = set(" \n\t.,!?;:)]}，。！？；：）】」》")
 STREAM_PREVIEW_PREFIX = "[...]\n"
 CRON_SCHEDULER_STARTED = False
-VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
-
-
 _DISCORD_CDN_PROXY_BASE: str | None = None
 _DISCORD_GATEWAY_PROXY_URL: str | None = None
 
@@ -314,22 +309,6 @@ def _apply_discord_network_overrides() -> None:
 
     _patch_discord_httpclient_methods()
 
-
-def start_web_server() -> None:
-    """Start the FastAPI web server (runs in a daemon thread)."""
-    app = create_app()
-    config = uvicorn.Config(
-        app,
-        host="0.0.0.0",
-        port=HEALTH_CHECK_PORT,
-        log_level="warning",
-        access_log=False,
-    )
-    server = uvicorn.Server(config)
-    logger.info("Web server started on port %d", HEALTH_CHECK_PORT)
-    server.run()
-
-
 def _discord_ctx(guild_id: int | None, channel_id: int, user_id: int) -> str:
     if guild_id is None:
         return format_log_context(platform="discord", user_id=user_id, scope="private", chat_id=channel_id)
@@ -341,29 +320,6 @@ def _discord_cmd_ctx(ctx: commands.Context) -> str:
     guild_id = ctx.guild.id if ctx.guild else None
     channel_id = ctx.channel.id
     return _discord_ctx(guild_id, channel_id, user_id)
-
-
-def _mask_key(api_key: str) -> str:
-    if not api_key:
-        return "(empty)"
-    if len(api_key) <= 12:
-        return "***"
-    return f"{api_key[:8]}...{api_key[-4:]}"
-
-
-def _normalize_stream_mode(mode: str | None) -> str:
-    current = (mode or "").strip().lower()
-    if current in {"default", "time", "chars", "off"}:
-        return current
-    return "default"
-
-
-def _normalize_reasoning_effort(value: str | None) -> str:
-    current = (value or "").strip().lower()
-    if current in VALID_REASONING_EFFORTS:
-        return current
-    return ""
-
 
 def _normalize_discord_output_text(text: str) -> str:
     return (
@@ -1072,16 +1028,6 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
             pass
         await slot_cm.__aexit__(None, None, None)
 
-
-def _fetch_models(user_id: int) -> list[str]:
-    try:
-        client = get_ai_client(user_id)
-        return client.list_models()
-    except Exception:
-        logger.exception("Failed to fetch models")
-        return []
-
-
 intents = discord.Intents.default()
 intents.message_content = True
 _apply_discord_network_overrides()
@@ -1179,49 +1125,7 @@ async def stop_command(ctx: commands.Context) -> None:
 async def settings_command(ctx: commands.Context) -> None:
     logger.info("%s /settings", _discord_cmd_ctx(ctx))
     user_id = int(ctx.author.id)
-    settings = get_user_settings(user_id)
-    persona_name = get_current_persona_name(user_id)
-    persona = get_current_persona(user_id)
-    token_limit = get_token_limit(user_id, persona_name)
-
-    prompt = persona["system_prompt"]
-    prompt_display = prompt[:80] + "..." if len(prompt) > 80 else prompt
-    global_prompt = settings.get("global_prompt", "") or ""
-    global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
-
-    tts_voice = settings.get("tts_voice", DEFAULT_TTS_VOICE)
-    tts_style = settings.get("tts_style", DEFAULT_TTS_STYLE)
-    tts_endpoint = settings.get("tts_endpoint", "") or "auto"
-    stream_mode = settings.get("stream_mode", "") or "default"
-    presets = settings.get("api_presets", {})
-    presets_info = ", ".join(presets.keys()) if presets else "(none)"
-
-    title_model_raw = settings.get("title_model", "")
-    title_model_display = title_model_raw or "(current model)"
-    cron_model_raw = settings.get("cron_model", "")
-    cron_model_display = cron_model_raw or "(current model)"
-
-    show_thinking = "on" if settings.get("show_thinking") else "off"
-    text = build_settings_summary_message(
-        DISCORD_COMMAND_PREFIX,
-        base_url=settings["base_url"],
-        masked_api_key=_mask_key(settings["api_key"]),
-        model=settings["model"],
-        temperature=settings["temperature"],
-        reasoning_effort=settings.get("reasoning_effort", "") or "(provider/model default)",
-        show_thinking=show_thinking,
-        stream_mode=stream_mode,
-        title_model=title_model_display,
-        cron_model=cron_model_display,
-        persona_name=persona_name,
-        token_limit_display=str(token_limit if token_limit > 0 else "unlimited"),
-        global_prompt=global_prompt_display,
-        prompt=prompt_display,
-        tts_voice=tts_voice,
-        tts_style=tts_style,
-        tts_endpoint=tts_endpoint,
-        providers_info=presets_info,
-    )
+    text = build_settings_text(user_id, command_prefix=DISCORD_COMMAND_PREFIX)
 
     await _send_ctx_reply(ctx, text)
 
@@ -1246,7 +1150,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
             return
 
         wait_msg = await ctx.reply("Fetching models...", mention_author=False)
-        models = await asyncio.get_running_loop().run_in_executor(None, lambda: _fetch_models(user_id))
+        models = await asyncio.get_running_loop().run_in_executor(None, lambda: fetch_models_for_user(user_id))
         if not models:
             await wait_msg.edit(content="Failed to fetch models. Check your API key and base_url.")
             return
@@ -1307,10 +1211,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
         masked = _mask_key(value)
         logger.info("%s set api_key = %s", ctx_log, masked)
         try:
-            models = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: _fetch_models(user_id),
-            )
+            models = await asyncio.get_running_loop().run_in_executor(None, lambda: fetch_models_for_user(user_id))
             if models:
                 await _send_ctx_reply(
                     ctx,
@@ -1573,23 +1474,7 @@ async def set_command(ctx: commands.Context, *args: str) -> None:
 
 
 async def _show_provider_list(ctx: commands.Context, settings: dict) -> None:
-    p = DISCORD_COMMAND_PREFIX
-    presets = settings.get("api_presets", {})
-    if not presets:
-        await _send_ctx_reply(ctx, build_provider_no_saved_message(p))
-        return
-
-    lines = ["Saved Providers:\n"]
-    for name, preset in presets.items():
-        lines.append(
-            f"[{name}]\n"
-            f"  base_url: {preset.get('base_url', '')}\n"
-            f"  api_key: {_mask_key(preset.get('api_key', ''))}\n"
-            f"  model: {preset.get('model', '')}"
-        )
-
-    lines.append(build_provider_list_usage_message(p))
-    await _send_ctx_reply(ctx, "\n".join(lines))
+    await _send_ctx_reply(ctx, build_provider_list_text(settings, command_prefix=DISCORD_COMMAND_PREFIX))
 
 
 async def _handle_provider_command(
@@ -1599,87 +1484,14 @@ async def _handle_provider_command(
     args: list[str],
     ctx_log: str,
 ) -> None:
-    p = DISCORD_COMMAND_PREFIX
-    presets = settings.get("api_presets", {})
-
-    if not args:
-        await _show_provider_list(ctx, settings)
-        return
-
-    sub = args[0].lower()
-
-    if sub == "list":
-        await _show_provider_list(ctx, settings)
-        return
-
-    if sub == "save":
-        if len(args) < 2:
-            await _send_ctx_reply(ctx, f"Usage: {p}set provider save <name>")
-            return
-
-        name = args[1]
-        presets[name] = {
-            "api_key": settings["api_key"],
-            "base_url": settings["base_url"],
-            "model": settings["model"],
-        }
-        update_user_setting(user_id, "api_presets", presets)
-        logger.info("%s provider save %s", ctx_log, name)
-        await _send_ctx_reply(
-            ctx,
-            f"Provider '{name}' saved:\n"
-            f"  base_url: {settings['base_url']}\n"
-            f"  api_key: {_mask_key(settings['api_key'])}\n"
-            f"  model: {settings['model']}",
-        )
-        return
-
-    if sub == "delete":
-        if len(args) < 2:
-            await _send_ctx_reply(ctx, f"Usage: {p}set provider delete <name>")
-            return
-
-        name = args[1]
-        if name not in presets:
-            await _send_ctx_reply(ctx, f"Provider '{name}' not found.")
-            return
-
-        del presets[name]
-        update_user_setting(user_id, "api_presets", presets)
-        logger.info("%s provider delete %s", ctx_log, name)
-        await _send_ctx_reply(ctx, f"Provider '{name}' deleted.")
-        return
-
-    if sub == "load":
-        if len(args) < 2:
-            await _send_ctx_reply(ctx, f"Usage: {p}set provider load <name>")
-            return
-
-        name = args[1]
-        if name not in presets:
-            matched = next((k for k in presets if k.lower() == name.lower()), None)
-            if matched is None:
-                available = ", ".join(presets.keys()) if presets else "(none)"
-                await _send_ctx_reply(ctx, build_provider_not_found_available_message(name, available))
-                return
-            name = matched
-
-        preset = presets[name]
-        update_user_setting(user_id, "api_key", preset["api_key"])
-        update_user_setting(user_id, "base_url", preset["base_url"])
-        update_user_setting(user_id, "model", preset["model"])
-        logger.info("%s provider load %s", ctx_log, name)
-
-        await _send_ctx_reply(
-            ctx,
-            f"Loaded provider '{name}':\n"
-            f"  base_url: {preset['base_url']}\n"
-            f"  api_key: {_mask_key(preset.get('api_key', ''))}\n"
-            f"  model: {preset['model']}",
-        )
-        return
-
-    await _send_ctx_reply(ctx, build_provider_usage_message(p))
+    response_text = apply_provider_command(
+        user_id,
+        settings,
+        args,
+        command_prefix=DISCORD_COMMAND_PREFIX,
+    )
+    logger.info("%s provider %s", ctx_log, " ".join(args) if args else "list")
+    await _send_ctx_reply(ctx, response_text)
 
 
 @bot.command(name="usage")
@@ -1693,37 +1505,7 @@ async def usage_command(ctx: commands.Context, *args: str) -> None:
         await _send_ctx_reply(ctx, build_usage_reset_message(persona_name))
         return
 
-    usage = get_token_usage(user_id, persona_name)
-    token_limit = get_token_limit(user_id, persona_name)
-
-    prompt_tokens = usage["prompt_tokens"]
-    completion_tokens = usage["completion_tokens"]
-    total_tokens = usage["total_tokens"]
-
-    message = f"Token Usage (Persona: {persona_name}):\n\n"
-    message += f"Prompt tokens:     {prompt_tokens:,}\n"
-    message += f"Completion tokens: {completion_tokens:,}\n"
-    message += f"Total tokens:      {total_tokens:,}\n"
-
-    if token_limit > 0:
-        remaining = get_remaining_tokens(user_id, persona_name)
-        percentage = get_usage_percentage(user_id, persona_name) or 0
-
-        message += f"\nLimit:     {token_limit:,}\n"
-        message += f"Remaining: {remaining:,}\n"
-        message += f"Usage:     {percentage:.1f}%\n\n"
-
-        filled = int(percentage / 5)
-        empty = 20 - filled
-        bar = "[" + "#" * filled + "-" * empty + "]"
-        message += f"{bar} {percentage:.1f}%"
-    else:
-        message += "\nLimit: Unlimited"
-
-    total_all = get_total_tokens_all_personas(user_id)
-    message += f"\n\n--- All Personas ---\nTotal tokens: {total_all:,}"
-
-    await _send_ctx_reply(ctx, message)
+    await _send_ctx_reply(ctx, build_usage_text(user_id))
 
 
 @bot.command(name="export")
@@ -2070,7 +1852,11 @@ def main() -> None:
 
     init_database()
 
-    web_thread = threading.Thread(target=start_web_server, daemon=True)
+    web_thread = threading.Thread(
+        target=start_web_server,
+        kwargs={"logger": logger, "port": HEALTH_CHECK_PORT},
+        daemon=True,
+    )
     web_thread.start()
 
     logger.info("Starting Discord bot...")
