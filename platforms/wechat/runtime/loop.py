@@ -11,12 +11,15 @@ from ..config import logger
 from ..context import WeChatMessageContext
 from ..message.extract import should_respond_in_wechat_group
 
+MAX_INBOUND_TASKS = 8
+
 
 class RuntimeLoopMixin:
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
         set_main_loop(self._loop)
         start_cron_scheduler(self)
+        inflight_tasks: set[asyncio.Task] = set()
         while True:
             try:
                 await self.login()
@@ -32,10 +35,27 @@ class RuntimeLoopMixin:
                     state.get_updates_buf = next_buf
                     self.client.state_store.save(state)
                 for message in response.get("msgs") or []:
-                    await self.handle_message(message)
+                    while len(inflight_tasks) >= MAX_INBOUND_TASKS:
+                        await asyncio.sleep(0.05)
+                    self._spawn_message_task(message, inflight_tasks)
             except Exception:
                 logger.exception("WeChat main loop failed")
                 await asyncio.sleep(5)
+
+    def _spawn_message_task(self, message: dict, inflight_tasks: set[asyncio.Task]) -> None:
+        task = asyncio.create_task(self.handle_message(message))
+        inflight_tasks.add(task)
+
+        def _on_done(done: asyncio.Task) -> None:
+            inflight_tasks.discard(done)
+            try:
+                done.result()
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.exception("WeChat inbound message task failed")
+
+        task.add_done_callback(_on_done)
 
     async def handle_message(self, message: dict) -> None:
         from ..chat.process import process_chat_message

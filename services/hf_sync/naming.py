@@ -1,4 +1,4 @@
-"""Path and key helpers for HF object storage service."""
+"""Path and key helpers for S3-style object storage service."""
 
 from __future__ import annotations
 

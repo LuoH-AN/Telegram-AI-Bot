@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from ai import get_ai_client
 from services import conversation_slot, get_system_prompt
 from services.log import record_error
-from services.runtime_queue import register_response, unregister_response
+from services.runtime_queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
 from utils.platform_parity import build_latex_guidance, build_retry_message
 
@@ -18,7 +18,6 @@ from .generation import generate_with_tools
 from .persistence import deliver_and_persist
 from .preflight import prepare_chat_request
 from .rendering import setup_render_runtime
-
 logger = logging.getLogger(__name__)
 
 def _build_messages(req: dict) -> list[dict]:
@@ -28,7 +27,6 @@ def _build_messages(req: dict) -> list[dict]:
     messages.extend(req["conversation"])
     messages.append({"role": "user", "content": req["user_content"]})
     return messages
-
 async def chat(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -50,6 +48,9 @@ async def chat(
     if req is None:
         return
     runtime = await setup_render_runtime(update, bot_message, req["ctx"])
+    cancelled = cancel_user_responses(update.effective_chat.id, req["user_id"], platform="telegram")
+    if cancelled:
+        logger.info("%s cancelled %d active Telegram response(s) due to new incoming message", req["ctx"], len(cancelled))
     request_token = update.message.message_id or int(time.time() * 1000)
     slot_key = f"telegram:{update.effective_chat.id}:{req['user_id']}:{req['session_id']}:{request_token}"
     slot_cm = conversation_slot(slot_key)

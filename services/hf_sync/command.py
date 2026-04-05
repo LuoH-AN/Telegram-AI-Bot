@@ -1,4 +1,4 @@
-"""Command handler for HF object storage operations."""
+"""Command handler for S3-style object storage operations."""
 
 from __future__ import annotations
 

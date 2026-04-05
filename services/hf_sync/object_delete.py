@@ -1,4 +1,4 @@
-"""Delete operations for HF object storage."""
+"""Delete operations for S3-style object storage."""
 
 from __future__ import annotations
 

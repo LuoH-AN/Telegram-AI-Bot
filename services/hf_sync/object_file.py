@@ -1,4 +1,4 @@
-"""File upload wrapper for HF object storage."""
+"""File upload wrapper for S3-style object storage."""
 
 from __future__ import annotations
 

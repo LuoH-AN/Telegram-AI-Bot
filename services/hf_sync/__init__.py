@@ -1,4 +1,4 @@
-"""General-purpose Hugging Face sync helpers."""
+"""General-purpose S3-style sync helpers."""
 
 from .command import run_hf_sync_command
 from .models import ObjectRecord

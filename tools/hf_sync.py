@@ -1,4 +1,4 @@
-"""HF object storage tool for AI."""
+"""S3-style object storage tool for AI."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class HFSyncTool(BaseTool):
                 "function": {
                     "name": "hf_sync",
                     "description": (
-                        "Store content as objects in HuggingFace Dataset (S3-like object storage). "
+                        "Store content as objects in S3-style object storage. "
                         "Uses the provided key directly (no forced folder). "
                         "Supports upload/upload_text/upload_b64/list/url/delete."
                     ),
@@ -90,10 +90,10 @@ class HFSyncTool(BaseTool):
             "encrypt": arguments.get("encrypt", True),
         }
         request = json.dumps(payload, ensure_ascii=False)
-        logger.info("hf_sync object action: user=%d action=%s", user_id, action)
+        logger.info("hf_sync s3 action: user=%d action=%s", user_id, action)
         try:
             result = run_hf_sync_command(user_id, request)
             return str(result.get("output") or "")
         except Exception as exc:
-            logger.exception("hf_sync object action failed: %s", action)
+            logger.exception("hf_sync s3 action failed: %s", action)
             return f"Error: action '{action}' failed - {exc}"

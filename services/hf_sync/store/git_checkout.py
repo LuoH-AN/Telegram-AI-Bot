@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 
 from .constants import (
     LFS_CONCURRENT_TRANSFERS,
@@ -20,7 +21,9 @@ def ensure_git_checkout(store) -> bool:
     repo_dir = git_local_dir(store)
     with store._lock:
         try:
+            fresh_clone = False
             if not os.path.isdir(os.path.join(repo_dir, ".git")):
+                fresh_clone = True
                 if os.path.exists(repo_dir):
                     shutil.rmtree(repo_dir)
                 os.makedirs(os.path.dirname(repo_dir), exist_ok=True)
@@ -34,12 +37,15 @@ def ensure_git_checkout(store) -> bool:
                 run_git(store, ["config", "user.name", store.username or "gemen-bot"], cwd=repo_dir)
                 email = f"{(store.username or 'gemen-bot')}@users.noreply.huggingface.co"
                 run_git(store, ["config", "user.email", email], cwd=repo_dir)
+                if shutil.which("git-lfs"):
+                    run_git(store, ["lfs", "install", "--local"], cwd=repo_dir, check=False)
+                    run_git(store, ["config", "lfs.concurrenttransfers", str(LFS_CONCURRENT_TRANSFERS)], cwd=repo_dir, check=False)
+                    run_git(store, ["config", "lfs.transfer.maxretries", str(LFS_TRANSFER_MAX_RETRIES)], cwd=repo_dir, check=False)
+                    run_git(store, ["config", "lfs.transfer.maxretrydelay", str(LFS_TRANSFER_MAX_RETRY_DELAY)], cwd=repo_dir, check=False)
 
-            if shutil.which("git-lfs"):
-                run_git(store, ["lfs", "install", "--local"], cwd=repo_dir, check=False)
-                run_git(store, ["config", "lfs.concurrenttransfers", str(LFS_CONCURRENT_TRANSFERS)], cwd=repo_dir, check=False)
-                run_git(store, ["config", "lfs.transfer.maxretries", str(LFS_TRANSFER_MAX_RETRIES)], cwd=repo_dir, check=False)
-                run_git(store, ["config", "lfs.transfer.maxretrydelay", str(LFS_TRANSFER_MAX_RETRY_DELAY)], cwd=repo_dir, check=False)
+            now = time.monotonic()
+            if not fresh_clone and store.sync_interval_seconds > 0 and (now - float(store._last_sync_at or 0.0)) < store.sync_interval_seconds:
+                return True
 
             run_git(store, ["fetch", "origin", store.branch], cwd=repo_dir, network=True)
             run_git(store, ["checkout", store.branch], cwd=repo_dir)
@@ -47,6 +53,7 @@ def ensure_git_checkout(store) -> bool:
             run_git(store, ["clean", "-fd"], cwd=repo_dir)
             if shutil.which("git-lfs"):
                 run_git(store, ["lfs", "pull", "origin", store.branch], cwd=repo_dir, network=True, check=False)
+            store._last_sync_at = time.monotonic()
             return True
         except Exception as exc:
             store._logger.warning("Failed to prepare HF git checkout for %s: %s", store.repo_id, exc)

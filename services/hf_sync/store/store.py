@@ -28,6 +28,11 @@ class HFDatasetStore:
         self.branch = (os.getenv("HF_DATASET_BRANCH", "main") or "main").strip() or "main"
         self.prefix = (os.getenv("HF_DATASET_PREFIX", "") or "").strip().strip("/")
         self.encryption_key = (os.getenv("HF_DATASET_ENCRYPTION_KEY", "") or "").strip()
+        sync_raw = (os.getenv("HF_DATASET_SYNC_INTERVAL_SECONDS", "20") or "20").strip()
+        try:
+            self.sync_interval_seconds = max(0.0, float(sync_raw))
+        except Exception:
+            self.sync_interval_seconds = 20.0
         self.repo_id = build_repo_id(self.username, self.dataset_name)
         if not self.repo_id or not self.token or not self.encryption_key:
             self._enabled = False
@@ -38,6 +43,7 @@ class HFDatasetStore:
         self._aesgcm_cls = None
         self._aesgcm = None
         self._git_repo_dir: str | None = None
+        self._last_sync_at = 0.0
 
     @property
     def enabled(self) -> bool:

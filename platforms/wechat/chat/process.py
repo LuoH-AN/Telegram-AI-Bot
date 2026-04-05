@@ -21,7 +21,7 @@ from services import (
 )
 from services.log import record_ai_interaction, record_error
 from services.refresh import ensure_user_state
-from services.runtime_queue import register_response, unregister_response
+from services.runtime_queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
 from utils.ai_helpers import estimate_tokens as _estimate_tokens
 from utils.ai_helpers import estimate_tokens_str as _estimate_tokens_str
@@ -32,8 +32,6 @@ from ..message.content import build_user_content_from_wechat_message
 from ..recent_cache import NoopPump
 from .round import run_completion_round
 from .title import generate_and_set_title
-
-
 async def process_chat_message(runtime, ctx, message: dict) -> None:
     user_id = ctx.local_user_id
     ensure_user_state(user_id)
@@ -54,6 +52,9 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
     reasoning = str(settings.get("reasoning_effort", "") or "").strip().lower()
     show_thinking = bool(settings.get("show_thinking"))
     session_id = ensure_session(user_id, persona_name)
+    cancelled = cancel_user_responses(ctx.local_chat_id, user_id, platform="wechat")
+    if cancelled:
+        logger.info("%s cancelled %d active WeChat response(s) due to new incoming message", ctx.log_context, len(cancelled))
     request_start = time.monotonic()
     messages = [{"role": "system", "content": get_system_prompt(user_id, persona_name) + "\n\n" + get_datetime_prompt() + build_latex_guidance()}] + list(get_conversation(session_id)) + [{"role": "user", "content": user_content}]
     slot_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}:{ctx.inbound_key or message.get('message_id') or int(time.time() * 1000)}"

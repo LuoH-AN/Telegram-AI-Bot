@@ -20,7 +20,6 @@ from .preflight import run_preflight
 from .runtime import ChatRuntime
 from .stream_loop import run_stream_loop
 
-
 async def process_chat_message(bot: commands.Bot, message: discord.Message) -> None:
     req = await run_preflight(bot, message)
     if req is None:
@@ -30,6 +29,9 @@ async def process_chat_message(bot: commands.Bot, message: discord.Message) -> N
     except Exception:
         pass
     runtime = ChatRuntime(message, log_ctx=req.log_ctx)
+    cancelled = cancel_user_responses(message.channel.id, req.user_id, platform="discord")
+    if cancelled:
+        logger.info("%s cancelled %d active Discord response(s) due to new incoming message", req.log_ctx, len(cancelled))
     request_token = message.id or int(time.time() * 1000)
     slot_key = f"discord:{message.channel.id}:{req.user_id}:{req.session_id}:{request_token}"
     slot_cm = conversation_slot(slot_key)

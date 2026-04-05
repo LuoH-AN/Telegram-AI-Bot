@@ -1,4 +1,4 @@
-"""Artifact URL helpers for HF object storage."""
+"""Artifact URL helpers for S3-style object storage."""
 
 from __future__ import annotations
 

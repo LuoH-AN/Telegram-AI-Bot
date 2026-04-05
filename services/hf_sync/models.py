@@ -1,4 +1,4 @@
-"""Data models for HF object storage service."""
+"""Data models for S3-style object storage service."""
 
 from __future__ import annotations
 
