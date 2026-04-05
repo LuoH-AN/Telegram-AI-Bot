@@ -9,6 +9,7 @@ from platforms.commands.basic import help_command as core_help_command
 from platforms.commands.basic import settings_command as core_settings_command
 from platforms.commands.basic import start_command as core_start_command
 from platforms.commands.basic import stop_command as core_stop_command
+from platforms.commands.basic import update_command as core_update_command
 from platforms.commands.memory import forget_command as core_forget_command
 from platforms.commands.memory import memories_command as core_memories_command
 from platforms.commands.memory import remember_command as core_remember_command
@@ -33,6 +34,10 @@ def register_commands(bot: commands.Bot) -> None:
     @bot.command(name="stop")
     async def _stop(ctx: commands.Context) -> None:
         await core_stop_command(DiscordCommandContextAdapter(ctx), platform="discord")
+
+    @bot.command(name="update")
+    async def _update(ctx: commands.Context) -> None:
+        await core_update_command(DiscordCommandContextAdapter(ctx), DISCORD_COMMAND_PREFIX)
 
     @bot.command(name="settings")
     async def _settings(ctx: commands.Context) -> None:

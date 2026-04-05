@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 HEADLESS_OFF_VALUES = {"0", "false", "no", "off", "headed"}
+UPDATE_RESTART_EXIT_CODE = 42
 
 
 @dataclass
@@ -62,4 +63,3 @@ def wait_for_first_exit(children: list[ChildProcess]) -> int:
             terminate_children(children)
             return status
         time.sleep(1)
-

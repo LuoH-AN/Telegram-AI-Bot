@@ -56,6 +56,7 @@ def build_advanced_help_section(prefix: str) -> str:
         f"{prefix}usage - show token usage\n"
         f"{prefix}clear - clear current session conversation\n"
         f"{prefix}stop - stop active response\n"
+        f"{prefix}update - pull latest code and hot-restart bot processes\n"
         f"{prefix}web - open the web dashboard\n\n"
         "Session Commands:\n"
         f"{prefix}chat - list sessions\n"

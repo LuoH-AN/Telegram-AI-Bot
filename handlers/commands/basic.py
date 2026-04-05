@@ -10,6 +10,7 @@ from platforms.commands.basic import clear_command as core_clear_command
 from platforms.commands.basic import help_command as core_help_command
 from platforms.commands.basic import start_command as core_start_command
 from platforms.commands.basic import stop_command as core_stop_command
+from platforms.commands.basic import update_command as core_update_command
 from services.refresh import ensure_user_state
 
 from .context_adapter import TelegramCommandContextAdapter
@@ -37,3 +38,8 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("%s /stop", get_log_context(update))
     await core_stop_command(TelegramCommandContextAdapter(update, context), platform="telegram")
+
+
+async def update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("%s /update", get_log_context(update))
+    await core_update_command(TelegramCommandContextAdapter(update, context), "/")

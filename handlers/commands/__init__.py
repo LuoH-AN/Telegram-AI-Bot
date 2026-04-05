@@ -1,6 +1,6 @@
 """Command handlers module."""
 
-from .basic import start, help_command, clear, stop
+from .basic import start, help_command, clear, stop, update
 from .settings import settings_command, set_command, _build_model_keyboard
 from .usage import usage_command, export_command
 from .memory import remember_command, memories_command, forget_command
@@ -13,6 +13,7 @@ __all__ = [
     "help_command",
     "clear",
     "stop",
+    "update",
     "settings_command",
     "set_command",
     "_build_model_keyboard",

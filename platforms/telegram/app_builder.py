@@ -33,6 +33,7 @@ from handlers import (
     start,
     stop,
     usage_command,
+    update,
     web_command,
 )
 from utils.rate_limiter import QueuedRateLimiter
@@ -44,6 +45,7 @@ def _register_handlers(application: Application) -> None:
         ("help", help_command),
         ("clear", clear),
         ("stop", stop),
+        ("update", update),
         ("persona", persona_command),
         ("chat", chat_command),
         ("settings", settings_command),
