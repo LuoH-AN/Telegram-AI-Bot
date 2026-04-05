@@ -19,7 +19,7 @@ reports/
 # External/runtime directories
 claude-code-skill-scrapling/
 runtime_skills/
-runtime/
+/runtime/
 agent-browser/
 blog_luoh_org.png
 
