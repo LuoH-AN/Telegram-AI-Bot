@@ -73,9 +73,26 @@ class ChatRuntime:
         return await self.render_pump.emit("status", text)
 
     def tool_event_callback(self, event: dict) -> None:
-        if event.get("type") == "tool_start":
-            tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
+        event_type = str(event.get("type") or "").strip()
+        tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
+        if event_type == "tool_batch_start":
+            count = int(event.get("count") or 0)
+            self.render_pump.emit_threadsafe(self.loop, "status", f"Preparing {count} tool call(s)...")
+        elif event_type == "tool_start":
             self.render_pump.emit_threadsafe(self.loop, "status", f"Running {tool_name}...")
+        elif event_type in {"tool_error"}:
+            self.render_pump.emit_threadsafe(self.loop, "status", f"{tool_name} failed. Retrying next step...")
+        elif event_type == "tool_end":
+            ok = bool(event.get("ok", True))
+            elapsed_ms = int(event.get("elapsed_ms") or 0)
+            cost = f"{elapsed_ms / 1000:.1f}s" if elapsed_ms > 0 else "done"
+            self.render_pump.emit_threadsafe(
+                self.loop,
+                "status",
+                f"{tool_name} {'finished' if ok else 'failed'} ({cost}).",
+            )
+        elif event_type == "tool_batch_end":
+            self.render_pump.emit_threadsafe(self.loop, "status", "Tool execution completed. Generating final response...")
 
     def clear_placeholder_reference(self) -> None:
         self.bot_message = None

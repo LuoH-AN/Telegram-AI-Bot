@@ -1,10 +1,8 @@
 from __future__ import annotations
-
 import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Awaitable, Callable
-
 from config import MAX_MESSAGE_LENGTH
 from utils import ChatEventPump, StreamOutboundAdapter, edit_message_safe, send_message_safe
 
@@ -15,7 +13,6 @@ class RenderState:
     bot_message: object | None
     final_delivery_confirmed: bool = False
     status_seed_cancelled: bool = False
-
 @dataclass
 class RenderRuntime:
     state: RenderState
@@ -26,7 +23,6 @@ class RenderRuntime:
     tool_event_callback: Callable[[dict], None]
     clear_placeholder: Callable[[], None]
     status_seed_task: asyncio.Task
-
 async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
     state = RenderState(bot_message=bot_message)
     async def _edit_placeholder(text: str) -> bool:
@@ -62,9 +58,22 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
     render_pump.start()
     loop = asyncio.get_running_loop()
     def _tool_event_callback(event: dict) -> None:
-        if event.get("type") == "tool_start":
-            tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
+        event_type = str(event.get("type") or "").strip()
+        tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
+        if event_type == "tool_batch_start":
+            count = int(event.get("count") or 0)
+            render_pump.emit_threadsafe(loop, "status", f"Preparing {count} tool call(s)...")
+        elif event_type == "tool_start":
             render_pump.emit_threadsafe(loop, "status", f"Running {tool_name}...")
+        elif event_type in {"tool_error"}:
+            render_pump.emit_threadsafe(loop, "status", f"{tool_name} failed. Retrying next step...")
+        elif event_type == "tool_end":
+            ok = bool(event.get("ok", True))
+            elapsed_ms = int(event.get("elapsed_ms") or 0)
+            cost = f"{elapsed_ms / 1000:.1f}s" if elapsed_ms > 0 else "done"
+            render_pump.emit_threadsafe(loop, "status", f"{tool_name} {'finished' if ok else 'failed'} ({cost}).")
+        elif event_type == "tool_batch_end":
+            render_pump.emit_threadsafe(loop, "status", "Tool execution completed. Generating final response...")
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
     async def _status_update(text: str) -> bool:
@@ -78,6 +87,7 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
             return
         except Exception:
             logger.debug("%s failed to seed Telegram delayed status", ctx, exc_info=True)
+
     return RenderRuntime(
         state=state,
         outbound=outbound,

@@ -3,6 +3,14 @@
 from config import DEFAULT_SYSTEM_PROMPT
 from cache import cache
 
+TOOL_PROGRESS_PROMPT = (
+    "Tool execution policy:\n"
+    "- When you need tools, keep the user informed with brief progress updates.\n"
+    "- Before a potentially slow tool call, say what you are about to run and why.\n"
+    "- After each tool result, summarize what happened and what you will do next.\n"
+    "- Keep progress updates short and practical."
+)
+
 
 def get_personas(user_id: int) -> dict[str, dict]:
     """Get all personas for a user."""
@@ -33,9 +41,8 @@ def get_system_prompt(user_id: int, persona_name: str | None = None) -> str:
     settings = cache.get_settings(user_id)
     global_prompt = settings.get("global_prompt", "") or ""
     persona_prompt = persona.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
-    if global_prompt:
-        return f"{global_prompt}\n\n{persona_prompt}"
-    return persona_prompt
+    base_prompt = f"{global_prompt}\n\n{persona_prompt}" if global_prompt else persona_prompt
+    return f"{base_prompt}\n\n{TOOL_PROGRESS_PROMPT}"
 
 
 def switch_persona(user_id: int, name: str) -> bool:
