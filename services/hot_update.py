@@ -18,11 +18,34 @@ def _run(command: list[str], *, timeout: int = 1200) -> subprocess.CompletedProc
     return subprocess.run(command, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=timeout)
 
 
+def _bootstrap_git_repo(branch: str) -> tuple[bool, str]:
+    repo_url = (os.getenv("HOT_UPDATE_REPO_URL", "") or "").strip()
+    if not repo_url:
+        return False, "HOT_UPDATE_REPO_URL is required when /app has no .git metadata."
+    for command in (
+        ["git", "init"],
+        ["git", "config", "--global", "--add", "safe.directory", str(REPO_ROOT)],
+        ["git", "remote", "remove", "origin"],
+    ):
+        _run(command, timeout=60)
+    add_remote = _run(["git", "remote", "add", "origin", repo_url], timeout=120)
+    if add_remote.returncode != 0:
+        return False, (add_remote.stderr or add_remote.stdout or "git remote add failed").strip()
+    fetch = _run(["git", "fetch", "--depth=1", "origin", branch], timeout=1200)
+    if fetch.returncode != 0:
+        return False, (fetch.stderr or fetch.stdout or "git fetch failed").strip()
+    checkout = _run(["git", "checkout", "-B", branch, "FETCH_HEAD"], timeout=300)
+    if checkout.returncode != 0:
+        return False, (checkout.stderr or checkout.stdout or "git checkout failed").strip()
+    return True, "git metadata initialized"
+
+
 def run_hot_update() -> dict:
-    branch_proc = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    if branch_proc.returncode != 0:
-        return {"ok": False, "message": (branch_proc.stderr or branch_proc.stdout or "failed to detect branch").strip()}
-    branch = (branch_proc.stdout or "").strip() or "main"
+    branch = (os.getenv("HOT_UPDATE_BRANCH", "") or "").strip() or "main"
+    if not (REPO_ROOT / ".git").exists():
+        ok, msg = _bootstrap_git_repo(branch)
+        if not ok:
+            return {"ok": False, "message": msg}
     head_before = (_run(["git", "rev-parse", "HEAD"]).stdout or "").strip()
 
     fetch_proc = _run(["git", "fetch", "origin", branch])
@@ -57,4 +80,3 @@ def schedule_process_restart(*, delay_seconds: float = 1.2) -> None:
         os._exit(UPDATE_RESTART_EXIT_CODE)
 
     threading.Thread(target=_worker, daemon=True).start()
-

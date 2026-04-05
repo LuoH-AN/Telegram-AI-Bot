@@ -1,0 +1,38 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONUNBUFFERED=1
+
+ARG REPO_URL="https://github.com/LuoH-AN/Telegram-AI-Bot.git"
+ARG REPO_BRANCH="main"
+
+WORKDIR /app
+
+# System dependencies
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      git-lfs \
+      python3 \
+      python3-pip \
+      python3-venv; \
+    git lfs install --system; \
+    rm -rf /var/lib/apt/lists/*
+
+# Clone repo
+RUN set -eux; \
+    git clone --depth=1 --branch "${REPO_BRANCH}" "${REPO_URL}" /app
+
+# Install Python dependencies
+RUN set -eux; \
+    python3 -m pip install --no-cache-dir --break-system-packages -r /app/requirements.txt
+
+EXPOSE 7860 7861 7862
+
+CMD ["python3", "/app/main.py"]
+

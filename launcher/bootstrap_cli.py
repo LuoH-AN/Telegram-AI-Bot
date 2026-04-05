@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -20,17 +21,51 @@ def _bootstrap_file() -> Path:
     return Path(raw or "/data/telegram_ai_bot_cli_bootstrap.txt").expanduser()
 
 
+def _load_commands_from_env() -> list[str]:
+    raw = (os.getenv("CLI_BOOTSTRAP_COMMANDS", "") or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except Exception:
+            pass
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def _load_commands_from_file(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return [line.strip() for line in path.read_text("utf-8", errors="ignore").splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def _merge_commands(primary: list[str], secondary: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for command in [*primary, *secondary]:
+        if command in seen:
+            continue
+        seen.add(command)
+        merged.append(command)
+    return merged
+
+
 def run_cli_bootstrap(*, root_dir: Path) -> None:
     if not _enabled():
         return
     path = _bootstrap_file()
     if not path.exists():
-        return
+        file_commands: list[str] = []
+    else:
+        file_commands = _load_commands_from_file(path)
     timeout = int((os.getenv("CLI_BOOTSTRAP_TIMEOUT_SECONDS", "1800") or "1800").strip() or "1800")
-    commands = [line.strip() for line in path.read_text("utf-8", errors="ignore").splitlines() if line.strip() and not line.strip().startswith("#")]
+    env_commands = _load_commands_from_env()
+    commands = _merge_commands(env_commands, file_commands)
     if not commands:
         return
-    logger.info("CLI bootstrap: running %d command(s) from %s", len(commands), path)
+    logger.info("CLI bootstrap: running %d command(s)", len(commands))
     for idx, command in enumerate(commands, start=1):
         try:
             completed = subprocess.run(
@@ -48,4 +83,3 @@ def run_cli_bootstrap(*, root_dir: Path) -> None:
         else:
             stderr = (completed.stderr or completed.stdout or "").strip()
             logger.warning("CLI bootstrap [%d/%d] exit=%d: %s | %s", idx, len(commands), completed.returncode, command[:120], stderr[:240])
-
