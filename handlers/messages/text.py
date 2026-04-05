@@ -134,9 +134,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
 
     await update.message.chat.send_action(ChatAction.TYPING)
     try:
-        await update.message.set_reaction("👁️")
+        await context.bot.set_message_reaction(
+            chat_id=update.effective_chat.id,
+            message_id=update.message.message_id,
+            reaction="👁️",
+            is_big=False,
+        )
     except Exception:
-        pass
+        logger.debug("%s failed to set Telegram reaction", ctx, exc_info=True)
 
     async def _edit_placeholder(text: str) -> bool:
         nonlocal bot_message
@@ -192,7 +197,24 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
     async def _status_update(text: str) -> bool:
         return await render_pump.emit("status", text)
 
-    slot_key = f"telegram:{update.effective_chat.id}:{user_id}:{session_id}"
+    status_seed_cancelled = False
+
+    async def _seed_status_after_delay() -> None:
+        nonlocal status_seed_cancelled
+        try:
+            await asyncio.sleep(3)
+            if status_seed_cancelled or final_delivery_confirmed:
+                return
+            await _status_update("Thinking...")
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.debug("%s failed to seed Telegram delayed status", ctx, exc_info=True)
+
+    status_seed_task = asyncio.create_task(_seed_status_after_delay())
+
+    request_token = update.message.message_id or int(time.time() * 1000)
+    slot_key = f"telegram:{update.effective_chat.id}:{user_id}:{session_id}:{request_token}"
     slot_cm = conversation_slot(slot_key)
     was_queued = await slot_cm.__aenter__()
     final_delivery_confirmed = False
@@ -400,6 +422,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE, *,
             await outbound.deliver_final(build_retry_message())
         record_error(user_id, str(e), "chat handler", settings.get("model"), persona_name)
     finally:
+        status_seed_cancelled = True
+        status_seed_task.cancel()
         unregister_response(slot_key)
         try:
             await render_pump.stop()

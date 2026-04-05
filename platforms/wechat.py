@@ -1016,7 +1016,8 @@ async def _process_chat_message(
     conversation = list(get_conversation(session_id))
     request_start = time.monotonic()
 
-    slot_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}"
+    request_token = ctx.inbound_key or message.get("message_id") or int(time.time() * 1000)
+    slot_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}:{request_token}"
     slot_cm = conversation_slot(slot_key)
     was_queued = await slot_cm.__aenter__()
     final_delivery_confirmed = False

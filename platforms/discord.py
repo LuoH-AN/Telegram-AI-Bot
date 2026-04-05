@@ -831,7 +831,8 @@ async def _process_chat_message(bot: commands.Bot, message: discord.Message) -> 
     async def _status_update(text: str) -> bool:
         return await render_pump.emit("status", text)
 
-    slot_key = f"discord:{message.channel.id}:{user_id}:{session_id}"
+    request_token = message.id or int(time.time() * 1000)
+    slot_key = f"discord:{message.channel.id}:{user_id}:{session_id}:{request_token}"
     slot_cm = conversation_slot(slot_key)
     was_queued = await slot_cm.__aenter__()
     final_delivery_confirmed = False
