@@ -28,6 +28,10 @@ async def deliver_and_persist(
     req: dict,
     request_start: float,
 ) -> None:
+    runtime.state.status_seed_cancelled = True
+    if runtime.status_seed_task and not runtime.status_seed_task.done():
+        runtime.status_seed_task.cancel()
+
     await runtime.render_pump.drain()
     await runtime.render_pump.stop()
     display_final = generated["display_final"]

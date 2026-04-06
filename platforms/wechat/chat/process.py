@@ -59,7 +59,7 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
     request_start = time.monotonic()
     messages = [{"role": "system", "content": get_system_prompt(user_id, persona_name) + "\n\n" + get_datetime_prompt() + build_latex_guidance()}] + list(get_conversation(session_id)) + [{"role": "user", "content": user_content}]
     loop = asyncio.get_running_loop()
-    last_tool_status = {"text": ""}
+    last_tool_status = {"text": "", "at": 0.0}
 
     async def _send_tool_status(text: str) -> None:
         try:
@@ -81,44 +81,51 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
             return
 
         def _schedule() -> None:
-            if status_text == last_tool_status["text"]:
-                return
+            now = time.monotonic()
+            if event_type != "tool_error":
+                if status_text == last_tool_status["text"]:
+                    return
+                if now - float(last_tool_status["at"]) < 1.5:
+                    return
             last_tool_status["text"] = status_text
+            last_tool_status["at"] = now
             asyncio.create_task(_send_tool_status(status_text))
 
         loop.call_soon_threadsafe(_schedule)
 
     slot_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}:{ctx.inbound_key or message.get('message_id') or int(time.time() * 1000)}"
-    slot_cm = conversation_slot(slot_key)
-    was_queued = await slot_cm.__aenter__()
+    conversation_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}"
+    response_key = slot_key
     final_delivery_confirmed = False
-    if asyncio.current_task():
-        register_response(slot_key, task=asyncio.current_task(), pump=NoopPump())
+    current_task = asyncio.current_task()
+    if current_task:
+        register_response(response_key, task=current_task, pump=NoopPump())
     typing_stop = asyncio.Event()
     typing_task = asyncio.create_task(runtime._typing_loop(ctx.reply_to_id, ctx.context_token, typing_stop))
     try:
-        if was_queued:
-            await ctx.reply_text("Previous request is still running. Queued and starting soon...")
-        generated = await run_completion_round(
-            user_id=user_id,
-            settings=settings,
-            messages=messages,
-            user_reasoning_effort=reasoning,
-            show_thinking=show_thinking,
-            tool_event_callback=_tool_event_callback,
-        )
-        await ctx.reply_text(generated["display_final"])
-        final_delivery_confirmed = True
-        add_user_message(session_id, save_msg)
-        add_assistant_message(session_id, generated["final_text"])
-        if get_session_message_count(session_id) <= 2:
-            asyncio.create_task(generate_and_set_title(user_id, session_id, save_msg, generated["final_text"]))
-        prompt_tokens = generated["prompt_tokens"] or _estimate_tokens(generated["messages"])
-        completion_tokens = generated["completion_tokens"] or _estimate_tokens_str(generated["final_text"])
-        if prompt_tokens or completion_tokens:
-            add_token_usage(user_id, prompt_tokens, completion_tokens, persona_name=persona_name)
-        latency_ms = int((time.monotonic() - request_start) * 1000)
-        record_ai_interaction(user_id, settings["model"], prompt_tokens, completion_tokens, prompt_tokens + completion_tokens, None, latency_ms, persona_name)
+        async with conversation_slot(conversation_key) as was_queued:
+            if was_queued:
+                await ctx.reply_text("Previous request is still running. Queued and starting soon...")
+            generated = await run_completion_round(
+                user_id=user_id,
+                settings=settings,
+                messages=messages,
+                user_reasoning_effort=reasoning,
+                show_thinking=show_thinking,
+                tool_event_callback=_tool_event_callback,
+            )
+            await ctx.reply_text(generated["display_final"])
+            final_delivery_confirmed = True
+            add_user_message(session_id, save_msg)
+            add_assistant_message(session_id, generated["final_text"])
+            if get_session_message_count(session_id) <= 2:
+                asyncio.create_task(generate_and_set_title(user_id, session_id, save_msg, generated["final_text"]))
+            prompt_tokens = generated["prompt_tokens"] or _estimate_tokens(generated["messages"])
+            completion_tokens = generated["completion_tokens"] or _estimate_tokens_str(generated["final_text"])
+            if prompt_tokens or completion_tokens:
+                add_token_usage(user_id, prompt_tokens, completion_tokens, persona_name=persona_name)
+            latency_ms = int((time.monotonic() - request_start) * 1000)
+            record_ai_interaction(user_id, settings["model"], prompt_tokens, completion_tokens, prompt_tokens + completion_tokens, None, latency_ms, persona_name)
     except asyncio.CancelledError:
         logger.info("%s response cancelled by /stop", ctx.log_context)
         if not final_delivery_confirmed:
@@ -134,5 +141,4 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
             await typing_task
         except Exception:
             pass
-        unregister_response(slot_key)
-        await slot_cm.__aexit__(None, None, None)
+        unregister_response(response_key)

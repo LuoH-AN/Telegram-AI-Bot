@@ -47,8 +47,25 @@ def _tool_detail_preview(tool_name: str, arguments: Any) -> str:
 
 
 def _terminal_preview(args: dict[str, Any]) -> str:
+    action = str(args.get("action") or "").strip().lower()
+    if action == "bg_list":
+        return "action=bg_list"
+    if action == "bg_check":
+        return f"action=bg_check bg_pid={args.get('bg_pid')}"
+    if action == "exec":
+        command = str(args.get("command") or "").strip()
+        cwd = str(args.get("cwd") or "").strip()
+        suffix = ""
+        if bool(args.get("background")):
+            suffix += " (background)"
+        if cwd:
+            suffix += f" [cwd={_trim(cwd, 50)}]"
+        return _trim(command, 120) + suffix if command else "action=exec"
+
     if args.get("bg_list"):
         return "bg_list=true"
+    if args.get("bg_pid") is not None:
+        return f"bg_pid={args.get('bg_pid')}"
     if args.get("bg_check") is not None:
         return f"bg_check={args.get('bg_check')}"
     command = str(args.get("command") or "").strip()
@@ -102,4 +119,3 @@ def _trim(text: str, max_len: int) -> str:
     if len(value) <= max_len:
         return value
     return value[: max(0, max_len - 3)] + "..."
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import discord
 
@@ -19,6 +20,8 @@ class ChatRuntime:
         self.log_ctx = log_ctx
         self.bot_message: discord.Message | None = None
         self.loop = asyncio.get_running_loop()
+        self._last_tool_status_text = ""
+        self._last_tool_status_at = 0.0
 
         async def _edit_placeholder(text: str) -> bool:
             if self.bot_message is None:
@@ -83,6 +86,14 @@ class ChatRuntime:
             return
         status_text = build_tool_status_text(event)
         if status_text:
+            now = time.monotonic()
+            if event_type != "tool_error":
+                if status_text == self._last_tool_status_text:
+                    return
+                if now - float(self._last_tool_status_at) < 1.5:
+                    return
+            self._last_tool_status_text = status_text
+            self._last_tool_status_at = now
             self.render_pump.emit_threadsafe(self.loop, "tool_status", status_text)
 
     def clear_placeholder_reference(self) -> None:

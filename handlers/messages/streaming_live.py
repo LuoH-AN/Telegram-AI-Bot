@@ -7,6 +7,7 @@ import logging
 
 from config import AI_STREAM_INIT_TIMEOUT, AI_STREAM_NO_OUTPUT_TIMEOUT, AI_STREAM_OUTPUT_IDLE_TIMEOUT
 
+from .rate_limit_retry import rate_limit_retry_delay_seconds
 from .streaming_chunk import build_thinking_status, process_chunk
 from .streaming_types import LiveStreamState
 
@@ -31,17 +32,36 @@ async def stream_live_response(
 ):
     loop = asyncio.get_event_loop()
     status_cb = status_update or stream_update
-    try:
-        stream = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
-                lambda: client.chat_completion(messages=messages, model=model, temperature=temperature, reasoning_effort=reasoning_effort or None, stream=True, tools=tools),
-            ),
-            timeout=AI_STREAM_INIT_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("AI stream initialization timed out after %ds", AI_STREAM_INIT_TIMEOUT)
-        return "", None, 0, "timeout", "", []
+    stream = None
+    for attempt in range(3):
+        try:
+            stream = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: client.chat_completion(messages=messages, model=model, temperature=temperature, reasoning_effort=reasoning_effort or None, stream=True, tools=tools),
+                ),
+                timeout=AI_STREAM_INIT_TIMEOUT,
+            )
+            break
+        except asyncio.TimeoutError:
+            logger.warning("AI stream initialization timed out after %ds", AI_STREAM_INIT_TIMEOUT)
+            return "", None, 0, "timeout", "", []
+        except Exception as exc:
+            retry_after = rate_limit_retry_delay_seconds(exc)
+            if retry_after is None or attempt >= 2:
+                raise
+            wait_for = max(1.0, min(12.0, float(retry_after)))
+            logger.warning(
+                "AI stream initialization rate limited, retrying in %.1fs (attempt %d/3): %s",
+                wait_for,
+                attempt + 1,
+                exc,
+            )
+            await status_cb(f"Model rate limited. Retrying in {int(wait_for)}s...")
+            await asyncio.sleep(wait_for)
+
+    if stream is None:
+        return "", None, 0, "error", "", []
 
     state = LiveStreamState(stream_start_time=loop.time(), waiting_start_time=loop.time(), waiting_active=show_waiting)
 

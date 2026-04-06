@@ -45,7 +45,7 @@ def run_background(command: str, cwd_path: Path, logger) -> str:
         logger.info("bg_job: pid=%d, cmd=%s, log=%s", pid, command[:80], log_file)
         return (
             f"Background job started.\nPID: {pid}\nLog: {log_file}\nCommand: {command}\n"
-            f"Use bg_check={pid} to check status."
+            f"Use action='bg_check' with bg_pid={pid} to check status."
         )
     except Exception as exc:
         logger.exception("bg_job start failed")
@@ -95,4 +95,3 @@ def list_bg_jobs() -> str:
         exit_info = f", exit={job['exit_code']}" if job["done"] else ""
         lines.append(f"  PID {pid}: [{status}] {elapsed}s{exit_info} - {job['command'][:60]}")
     return "\n".join(lines)
-

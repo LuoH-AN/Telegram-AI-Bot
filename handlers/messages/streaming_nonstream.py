@@ -7,6 +7,8 @@ import logging
 
 from config import AI_STREAM_INIT_TIMEOUT
 
+from .rate_limit_retry import rate_limit_retry_delay_seconds
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,28 +39,48 @@ async def non_stream_response(
             pass
 
     waiting_task = asyncio.create_task(_emit_waiting_notice()) if show_waiting else None
+    stream = None
     try:
-        stream = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
-                lambda: client.chat_completion(
-                    messages=messages,
-                    model=model,
-                    temperature=temperature,
-                    reasoning_effort=reasoning_effort or None,
-                    stream=False,
-                    tools=tools,
-                ),
-            ),
-            timeout=AI_STREAM_INIT_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("AI non-stream request timed out after %ds", AI_STREAM_INIT_TIMEOUT)
-        return "", None, 0, "timeout", "", []
+        for attempt in range(3):
+            try:
+                stream = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: client.chat_completion(
+                            messages=messages,
+                            model=model,
+                            temperature=temperature,
+                            reasoning_effort=reasoning_effort or None,
+                            stream=False,
+                            tools=tools,
+                        ),
+                    ),
+                    timeout=AI_STREAM_INIT_TIMEOUT,
+                )
+                break
+            except asyncio.TimeoutError:
+                logger.warning("AI non-stream request timed out after %ds", AI_STREAM_INIT_TIMEOUT)
+                return "", None, 0, "timeout", "", []
+            except Exception as exc:
+                retry_after = rate_limit_retry_delay_seconds(exc)
+                if retry_after is None or attempt >= 2:
+                    raise
+                wait_for = max(1.0, min(12.0, float(retry_after)))
+                logger.warning(
+                    "AI non-stream request rate limited, retrying in %.1fs (attempt %d/3): %s",
+                    wait_for,
+                    attempt + 1,
+                    exc,
+                )
+                await status_cb(f"Model rate limited. Retrying in {int(wait_for)}s...")
+                await asyncio.sleep(wait_for)
     finally:
         waiting_active = False
         if waiting_task and not waiting_task.done():
             waiting_task.cancel()
+
+    if stream is None:
+        return "", None, 0, "error", "", []
 
     full_response = ""
     usage_info = None
