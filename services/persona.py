@@ -9,7 +9,8 @@ TOOL_PROGRESS_PROMPT = (
     "- Before a potentially slow tool call, say what you are about to run and why.\n"
     "- After each tool result, summarize what happened and what you will do next.\n"
     "- Keep progress updates short and practical.\n"
-    "- For web search tasks, prefer sosearch tool over manual terminal setup."
+    "- For web search tasks, prefer sosearch tool over manual terminal setup.\n"
+    "- For web scraping/extraction tasks, prefer scrapling tool over manual terminal scripts."
 )
 
 
