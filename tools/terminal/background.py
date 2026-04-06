@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
@@ -13,10 +14,15 @@ from .state import BG_JOBS, BG_LOCK, ensure_log_dir
 def run_background(command: str, cwd_path: Path, logger) -> str:
     log_file = ensure_log_dir() / f"bg_{time.strftime('%Y%m%d_%H%M%S')}.log"
     try:
+        env = dict(os.environ)
+        env.setdefault("PIP_BREAK_SYSTEM_PACKAGES", "1")
+        env.setdefault("PIP_ROOT_USER_ACTION", "ignore")
+        env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
         with open(log_file, "w") as log_handle:
             proc = subprocess.Popen(
                 ["bash", "-lc", command],
                 cwd=str(cwd_path),
+                env=env,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
@@ -95,4 +101,3 @@ def list_background_jobs() -> str:
         exit_info = f", exit={job['exit_code']}" if job["done"] else ""
         lines.append(f"  PID {pid}: [{status}] {elapsed}s{exit_info} - {job['command'][:60]}")
     return "\n".join(lines)
-

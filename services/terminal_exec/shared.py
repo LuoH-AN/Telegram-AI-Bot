@@ -28,6 +28,11 @@ def clean_env() -> dict[str, str]:
     env.setdefault("PATH", os.environ.get("PATH", ""))
     env.setdefault("HOME", os.environ.get("HOME", "/root"))
     env.setdefault("PYTHONUNBUFFERED", "1")
+    # HF Space Ubuntu images use PEP 668 externally-managed Python by default.
+    # Enabling this here avoids random pip install failures in terminal skill runs.
+    env.setdefault("PIP_BREAK_SYSTEM_PACKAGES", "1")
+    env.setdefault("PIP_ROOT_USER_ACTION", "ignore")
+    env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
     return env
 
 
@@ -55,4 +60,3 @@ def validate_command(command: str) -> str | None:
         if pattern.search(normalized):
             return "Command rejected: contains high-risk system-level destructive operations."
     return None
-

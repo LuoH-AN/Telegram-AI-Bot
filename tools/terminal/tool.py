@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -106,10 +107,15 @@ class TerminalTool(BaseTool):
         timeout = int(arguments.get("timeout", 60))
         logger.info("skill_terminal: user=%s, command=%s, cwd=%s", user_id, command, cwd_path)
         try:
+            env = dict(os.environ)
+            env.setdefault("PIP_BREAK_SYSTEM_PACKAGES", "1")
+            env.setdefault("PIP_ROOT_USER_ACTION", "ignore")
+            env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
             result = subprocess.run(
                 command,
                 shell=True,
                 cwd=str(cwd_path),
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -143,4 +149,3 @@ class TerminalTool(BaseTool):
         if str(arguments.get("command", "")).strip():
             return "exec"
         return ""
-

@@ -2,6 +2,8 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV PIP_ROOT_USER_ACTION=ignore
 ENV PYTHONUNBUFFERED=1
 
 ARG REPO_URL="https://github.com/LuoH-AN/Telegram-AI-Bot.git"
@@ -35,4 +37,3 @@ RUN set -eux; \
 EXPOSE 7860 7861 7862
 
 CMD ["python3", "/app/main.py"]
-
