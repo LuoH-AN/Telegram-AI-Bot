@@ -23,6 +23,7 @@ from services.log import record_ai_interaction, record_error
 from services.refresh import ensure_user_state
 from services.runtime_queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
+from utils.tool_status import build_tool_status_text
 from utils.ai_helpers import estimate_tokens as _estimate_tokens
 from utils.ai_helpers import estimate_tokens_str as _estimate_tokens_str
 from utils.platform_parity import build_api_key_required_message, build_latex_guidance, build_retry_message, build_token_limit_reached_message
@@ -57,6 +58,36 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
         logger.info("%s cancelled %d active WeChat response(s) due to new incoming message", ctx.log_context, len(cancelled))
     request_start = time.monotonic()
     messages = [{"role": "system", "content": get_system_prompt(user_id, persona_name) + "\n\n" + get_datetime_prompt() + build_latex_guidance()}] + list(get_conversation(session_id)) + [{"role": "user", "content": user_content}]
+    loop = asyncio.get_running_loop()
+    last_tool_status = {"text": ""}
+
+    async def _send_tool_status(text: str) -> None:
+        try:
+            await runtime.send_text_to_peer(
+                ctx.reply_to_id,
+                text,
+                context_token=ctx.context_token,
+                dedupe_key=None,
+            )
+        except Exception:
+            logger.debug("%s failed to send WeChat tool status", ctx.log_context, exc_info=True)
+
+    def _tool_event_callback(event: dict) -> None:
+        event_type = str(event.get("type") or "").strip()
+        if event_type not in {"tool_batch_start", "tool_start", "tool_progress", "tool_error"}:
+            return
+        status_text = build_tool_status_text(event)
+        if not status_text:
+            return
+
+        def _schedule() -> None:
+            if status_text == last_tool_status["text"]:
+                return
+            last_tool_status["text"] = status_text
+            asyncio.create_task(_send_tool_status(status_text))
+
+        loop.call_soon_threadsafe(_schedule)
+
     slot_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}:{ctx.inbound_key or message.get('message_id') or int(time.time() * 1000)}"
     slot_cm = conversation_slot(slot_key)
     was_queued = await slot_cm.__aenter__()
@@ -68,7 +99,14 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
     try:
         if was_queued:
             await ctx.reply_text("Previous request is still running. Queued and starting soon...")
-        generated = await run_completion_round(user_id=user_id, settings=settings, messages=messages, user_reasoning_effort=reasoning, show_thinking=show_thinking)
+        generated = await run_completion_round(
+            user_id=user_id,
+            settings=settings,
+            messages=messages,
+            user_reasoning_effort=reasoning,
+            show_thinking=show_thinking,
+            tool_event_callback=_tool_event_callback,
+        )
         await ctx.reply_text(generated["display_final"])
         final_delivery_confirmed = True
         add_user_message(session_id, save_msg)

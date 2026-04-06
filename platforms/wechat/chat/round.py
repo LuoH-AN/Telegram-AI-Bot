@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Callable
 
 from ai import get_ai_client
 from config import SHOW_THINKING_MAX_CHARS
@@ -10,7 +11,15 @@ from handlers.messages.streaming import stream_response
 from utils import extract_thinking_blocks, filter_thinking_content, format_thinking_block
 
 
-async def run_completion_round(*, user_id: int, settings: dict, messages: list[dict], user_reasoning_effort: str, show_thinking: bool) -> dict:
+async def run_completion_round(
+    *,
+    user_id: int,
+    settings: dict,
+    messages: list[dict],
+    user_reasoning_effort: str,
+    show_thinking: bool,
+    tool_event_callback: Callable[[dict], None] | None = None,
+) -> dict:
     from tools import get_all_tools, process_tool_calls
 
     total_prompt_tokens = 0
@@ -43,7 +52,7 @@ async def run_completion_round(*, user_id: int, settings: dict, messages: list[d
             last_text_response = full
         if tool_calls:
             messages.append({"role": "assistant", "content": full or "", "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}} for tc in tool_calls]})
-            tool_results = await asyncio.to_thread(process_tool_calls, user_id, tool_calls, "all", None)
+            tool_results = await asyncio.to_thread(process_tool_calls, user_id, tool_calls, "all", tool_event_callback)
             messages.extend(tool_results)
             continue
         if finish_reason == "length":

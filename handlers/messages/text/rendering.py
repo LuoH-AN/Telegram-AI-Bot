@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable
 from config import MAX_MESSAGE_LENGTH
 from utils import ChatEventPump, StreamOutboundAdapter, edit_message_safe, send_message_safe
+from utils.tool_status import build_tool_status_text
 
 logger = logging.getLogger(__name__)
 
@@ -58,22 +59,9 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
     render_pump.start()
     loop = asyncio.get_running_loop()
     def _tool_event_callback(event: dict) -> None:
-        event_type = str(event.get("type") or "").strip()
-        tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
-        if event_type == "tool_batch_start":
-            count = int(event.get("count") or 0)
-            render_pump.emit_threadsafe(loop, "status", f"Preparing {count} tool call(s)...")
-        elif event_type == "tool_start":
-            render_pump.emit_threadsafe(loop, "status", f"Running {tool_name}...")
-        elif event_type in {"tool_error"}:
-            render_pump.emit_threadsafe(loop, "status", f"{tool_name} failed. Retrying next step...")
-        elif event_type == "tool_end":
-            ok = bool(event.get("ok", True))
-            elapsed_ms = int(event.get("elapsed_ms") or 0)
-            cost = f"{elapsed_ms / 1000:.1f}s" if elapsed_ms > 0 else "done"
-            render_pump.emit_threadsafe(loop, "status", f"{tool_name} {'finished' if ok else 'failed'} ({cost}).")
-        elif event_type == "tool_batch_end":
-            render_pump.emit_threadsafe(loop, "status", "Tool execution completed. Generating final response...")
+        status_text = build_tool_status_text(event)
+        if status_text:
+            render_pump.emit_threadsafe(loop, "status", status_text)
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
     async def _status_update(text: str) -> bool:

@@ -7,6 +7,7 @@ import asyncio
 import discord
 
 from utils import ChatEventPump, StreamOutboundAdapter, split_message
+from utils.tool_status import build_tool_status_text
 
 from ..config import DISCORD_MAX_MESSAGE_LENGTH, logger
 from ..replies import normalize_discord_output_text, safe_edit_message
@@ -73,26 +74,9 @@ class ChatRuntime:
         return await self.render_pump.emit("status", text)
 
     def tool_event_callback(self, event: dict) -> None:
-        event_type = str(event.get("type") or "").strip()
-        tool_name = str(event.get("tool_name") or "tool").strip() or "tool"
-        if event_type == "tool_batch_start":
-            count = int(event.get("count") or 0)
-            self.render_pump.emit_threadsafe(self.loop, "status", f"Preparing {count} tool call(s)...")
-        elif event_type == "tool_start":
-            self.render_pump.emit_threadsafe(self.loop, "status", f"Running {tool_name}...")
-        elif event_type in {"tool_error"}:
-            self.render_pump.emit_threadsafe(self.loop, "status", f"{tool_name} failed. Retrying next step...")
-        elif event_type == "tool_end":
-            ok = bool(event.get("ok", True))
-            elapsed_ms = int(event.get("elapsed_ms") or 0)
-            cost = f"{elapsed_ms / 1000:.1f}s" if elapsed_ms > 0 else "done"
-            self.render_pump.emit_threadsafe(
-                self.loop,
-                "status",
-                f"{tool_name} {'finished' if ok else 'failed'} ({cost}).",
-            )
-        elif event_type == "tool_batch_end":
-            self.render_pump.emit_threadsafe(self.loop, "status", "Tool execution completed. Generating final response...")
+        status_text = build_tool_status_text(event)
+        if status_text:
+            self.render_pump.emit_threadsafe(self.loop, "status", status_text)
 
     def clear_placeholder_reference(self) -> None:
         self.bot_message = None
