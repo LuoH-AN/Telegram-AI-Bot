@@ -20,7 +20,7 @@ class ChatRenderEvent:
 class ChatEventPump:
     """Single-consumer async queue for rendering chat events."""
 
-    def __init__(self, render_func: Callable[[ChatRenderEvent], Awaitable[None]]):
+    def __init__(self, render_func: Callable[[ChatRenderEvent], Awaitable[bool | None]]):
         self._render_func = render_func
         self._queue: asyncio.Queue[ChatRenderEvent | None] = asyncio.Queue()
         self._runner_task: asyncio.Task | None = None
@@ -76,7 +76,8 @@ class ChatEventPump:
                 # Deduplicate identical edits to reduce platform API pressure.
                 text = (event.text or "").rstrip() or "Thinking..."
                 if text != self._last_rendered_text:
-                    await self._render_func(ChatRenderEvent(kind=event.kind, text=text, created_at=event.created_at))
-                    self._last_rendered_text = text
+                    rendered = await self._render_func(ChatRenderEvent(kind=event.kind, text=text, created_at=event.created_at))
+                    if rendered is not False:
+                        self._last_rendered_text = text
             finally:
                 self._queue.task_done()

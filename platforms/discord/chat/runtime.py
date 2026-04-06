@@ -9,7 +9,7 @@ import discord
 from utils import ChatEventPump, StreamOutboundAdapter, split_message
 from utils.tool_status import build_tool_status_text
 
-from ..config import DISCORD_MAX_MESSAGE_LENGTH, logger
+from ..config import DISCORD_MAX_MESSAGE_LENGTH, STREAM_FORCE_UPDATE_INTERVAL, logger
 from ..replies import normalize_discord_output_text, safe_edit_message
 
 
@@ -58,11 +58,15 @@ class ChatRuntime:
             send_text=_send_text,
             delete_placeholder=_delete_placeholder,
             empty_placeholder_text="",
+            stream_edit_min_interval_seconds=STREAM_FORCE_UPDATE_INTERVAL,
         )
 
-        async def _render_event(event) -> None:
+        async def _render_event(event) -> bool:
+            if event.kind == "tool_status":
+                return await _send_text(event.text)
             if event.kind in {"stream", "status"}:
-                await self.outbound.stream_update(event.text)
+                return await self.outbound.stream_update(event.text)
+            return False
 
         self.render_pump = ChatEventPump(_render_event)
         self.render_pump.start()
@@ -74,9 +78,12 @@ class ChatRuntime:
         return await self.render_pump.emit("status", text)
 
     def tool_event_callback(self, event: dict) -> None:
+        event_type = str(event.get("type") or "").strip()
+        if event_type not in {"tool_start", "tool_error"}:
+            return
         status_text = build_tool_status_text(event)
         if status_text:
-            self.render_pump.emit_threadsafe(self.loop, "status", status_text)
+            self.render_pump.emit_threadsafe(self.loop, "tool_status", status_text)
 
     def clear_placeholder_reference(self) -> None:
         self.bot_message = None

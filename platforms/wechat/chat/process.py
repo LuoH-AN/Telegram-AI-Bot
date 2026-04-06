@@ -74,7 +74,7 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
 
     def _tool_event_callback(event: dict) -> None:
         event_type = str(event.get("type") or "").strip()
-        if event_type not in {"tool_batch_start", "tool_start", "tool_progress", "tool_error"}:
+        if event_type not in {"tool_start", "tool_error"}:
             return
         status_text = build_tool_status_text(event)
         if not status_text:

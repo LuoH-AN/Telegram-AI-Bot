@@ -3,7 +3,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Awaitable, Callable
-from config import MAX_MESSAGE_LENGTH
+from config import MAX_MESSAGE_LENGTH, STREAM_FORCE_UPDATE_INTERVAL
 from utils import ChatEventPump, StreamOutboundAdapter, edit_message_safe, send_message_safe
 from utils.tool_status import build_tool_status_text
 
@@ -51,17 +51,24 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
         send_text=_send_text,
         delete_placeholder=_delete_placeholder,
         empty_placeholder_text="",
+        stream_edit_min_interval_seconds=STREAM_FORCE_UPDATE_INTERVAL,
     )
-    async def _render_event(event) -> None:
+    async def _render_event(event) -> bool:
+        if event.kind == "tool_status":
+            return await _send_text(event.text)
         if event.kind in {"stream", "status"}:
-            await outbound.stream_update(event.text)
+            return await outbound.stream_update(event.text)
+        return False
     render_pump = ChatEventPump(_render_event)
     render_pump.start()
     loop = asyncio.get_running_loop()
     def _tool_event_callback(event: dict) -> None:
+        event_type = str(event.get("type") or "").strip()
+        if event_type not in {"tool_start", "tool_error"}:
+            return
         status_text = build_tool_status_text(event)
         if status_text:
-            render_pump.emit_threadsafe(loop, "status", status_text)
+            render_pump.emit_threadsafe(loop, "tool_status", status_text)
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
     async def _status_update(text: str) -> bool:

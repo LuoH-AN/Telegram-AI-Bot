@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ class StreamOutboundAdapter:
         send_text: Callable[[str], Awaitable[bool]],
         delete_placeholder: Callable[[], Awaitable[None]],
         empty_placeholder_text: str = "Thinking...",
+        stream_edit_min_interval_seconds: float = 1.2,
     ):
         self.max_message_length = max_message_length
         self._has_placeholder = has_placeholder
@@ -27,18 +29,28 @@ class StreamOutboundAdapter:
         self._send_text = send_text
         self._delete_placeholder = delete_placeholder
         self._empty_placeholder_text = empty_placeholder_text
+        self._stream_edit_min_interval_seconds = max(0.0, float(stream_edit_min_interval_seconds))
+        self._last_stream_edit_at = 0.0
         self.stream_attempts = 0
         self.stream_successes = 0
 
-    async def stream_update(self, text: str) -> bool:
+    async def stream_update(self, text: str, *, force: bool = False) -> bool:
         """Apply one streaming/status update to the placeholder message."""
         self.stream_attempts += 1
         if not self._has_placeholder():
+            return False
+        now = time.monotonic()
+        if (
+            (not force)
+            and self._stream_edit_min_interval_seconds > 0
+            and (now - self._last_stream_edit_at) < self._stream_edit_min_interval_seconds
+        ):
             return False
         safe_text = (text or "").rstrip() or self._empty_placeholder_text
         ok = await self._edit_placeholder(safe_text)
         if ok:
             self.stream_successes += 1
+            self._last_stream_edit_at = now
         return ok
 
     async def deliver_final(self, text: str) -> bool:
