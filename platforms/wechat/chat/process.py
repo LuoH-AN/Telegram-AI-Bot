@@ -134,6 +134,10 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
         logger.exception("%s AI API error", ctx.log_context)
         if not final_delivery_confirmed:
             await ctx.reply_text(build_retry_message())
+            try:
+                add_user_message(session_id, save_msg)
+            except Exception:
+                logger.debug("%s failed to persist user message after error", ctx.log_context, exc_info=True)
         record_error(user_id, str(exc), "wechat chat handler", settings.get("model"), persona_name)
     finally:
         typing_stop.set()

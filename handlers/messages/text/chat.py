@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ai import get_ai_client
-from services import conversation_slot, get_system_prompt
+from services import add_user_message, conversation_slot, get_system_prompt
 from services.log import record_error
 from services.runtime_queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
@@ -90,6 +90,10 @@ async def chat(
             logger.debug("%s failed to stop render pump during error handling", req["ctx"], exc_info=True)
         if not runtime.state.final_delivery_confirmed:
             await runtime.outbound.deliver_final(build_retry_message())
+            try:
+                add_user_message(req["session_id"], req["save_msg"])
+            except Exception:
+                logger.debug("%s failed to persist user message after error", req["ctx"], exc_info=True)
         record_error(req["user_id"], str(exc), "chat handler", req["settings"].get("model"), req["persona_name"])
     finally:
         runtime.state.status_seed_cancelled = True

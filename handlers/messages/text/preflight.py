@@ -36,7 +36,13 @@ def _prepare_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, ctx: 
         if quoted_text:
             sender = reply_msg.from_user
             sender_name = sender.first_name if sender else "Unknown"
-            user_message = f"[Quoted message from {sender_name}]:\n{quoted_text}\n\n{user_message}"
+            quoted_preview = quoted_text.strip()
+            if len(quoted_preview) > 800:
+                quoted_preview = quoted_preview[:800] + "..."
+            user_message = (
+                f"{user_message}\n\n"
+                f"[Reply context from {sender_name}]:\n{quoted_preview}"
+            )
     return user_message, user_message
 
 async def _set_typing_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE, ctx: str) -> None:

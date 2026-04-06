@@ -8,7 +8,7 @@ import time
 import discord
 from discord.ext import commands
 
-from services import conversation_slot, get_system_prompt
+from services import add_user_message, conversation_slot, get_system_prompt
 from services.log import record_error
 from services.runtime_queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
@@ -85,6 +85,10 @@ async def process_chat_message(bot: commands.Bot, message: discord.Message) -> N
             pass
         if not final_delivery_confirmed:
             await runtime.outbound.deliver_final(build_retry_message())
+            try:
+                add_user_message(req.session_id, req.save_msg)
+            except Exception:
+                logger.debug("%s failed to persist user message after error", req.log_ctx, exc_info=True)
         record_error(req.user_id, str(e), "discord chat handler", req.settings.get("model"), req.persona_name)
     finally:
         unregister_response(response_key)
