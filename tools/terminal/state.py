@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LOG_DIR = REPO_ROOT / "runtime" / "terminal" / "bg_logs"
 BG_JOBS: dict[int, dict] = {}
 BG_LOCK = threading.Lock()

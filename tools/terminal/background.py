@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 
-from .terminal_bg_state import BG_JOBS, BG_LOCK, ensure_log_dir
+from .state import BG_JOBS, BG_LOCK, ensure_log_dir
 
 
 def run_background(command: str, cwd_path: Path, logger) -> str:
@@ -52,7 +52,7 @@ def run_background(command: str, cwd_path: Path, logger) -> str:
         return f"Error starting background job: {exc}"
 
 
-def check_bg_job(pid: int) -> str:
+def check_background_job(pid: int) -> str:
     with BG_LOCK:
         job = BG_JOBS.get(pid)
     if not job:
@@ -81,7 +81,7 @@ def check_bg_job(pid: int) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def list_bg_jobs() -> str:
+def list_background_jobs() -> str:
     with BG_LOCK:
         if not BG_JOBS:
             return "No background jobs."
@@ -95,3 +95,4 @@ def list_bg_jobs() -> str:
         exit_info = f", exit={job['exit_code']}" if job["done"] else ""
         lines.append(f"  PID {pid}: [{status}] {elapsed}s{exit_info} - {job['command'][:60]}")
     return "\n".join(lines)
+

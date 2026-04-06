@@ -2,15 +2,17 @@
 
 import logging
 
-from .registry import registry
-from .skill_terminal import SkillTerminalTool
+from .core.registry import registry
+from .terminal import TerminalTool
 from .hf_sync import HFSyncTool
+from .sosearch import SoSearchTool
 
 logger = logging.getLogger(__name__)
 
 # Register all tools
-registry.register(SkillTerminalTool())
+registry.register(TerminalTool())
 registry.register(HFSyncTool())
+registry.register(SoSearchTool())
 
 # Public API
 get_all_tools = registry.get_definitions

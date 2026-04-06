@@ -64,3 +64,4 @@ def build_runnable(
         runnable.append((idx, tool_call, tool, tool_name, args))
 
     return results, runnable, force_serial
+

@@ -43,6 +43,8 @@ def _tool_detail_preview(tool_name: str, arguments: Any) -> str:
         return _terminal_preview(args)
     if tool_name == "hf_sync":
         return _hf_sync_preview(args)
+    if tool_name == "sosearch":
+        return _sosearch_preview(args)
     return _json_preview(args)
 
 
@@ -89,6 +91,16 @@ def _hf_sync_preview(args: dict[str, Any]) -> str:
     key = str(args.get("key") or args.get("name") or args.get("path") or args.get("prefix") or "").strip()
     if action and key:
         return _trim(f"{action} {key}", 120)
+    if action:
+        return _trim(action, 120)
+    return _json_preview(args)
+
+
+def _sosearch_preview(args: dict[str, Any]) -> str:
+    action = str(args.get("action") or "").strip().lower()
+    query = str(args.get("query") or "").strip()
+    if action == "search" and query:
+        return _trim(f"search {query}", 120)
     if action:
         return _trim(action, 120)
     return _json_preview(args)

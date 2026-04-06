@@ -30,3 +30,4 @@ class BaseTool(ABC):
     def post_process(self, user_id: int, text: str) -> str:
         """Post-process AI response text. Default no-op."""
         return text
+

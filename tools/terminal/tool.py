@@ -6,15 +6,15 @@ import logging
 import subprocess
 from pathlib import Path
 
-from .base import BaseTool
-from .terminal_persist import persist_install_command
-from .terminal_bg_ops import check_bg_job, list_bg_jobs, run_background
-from .terminal_bg_state import REPO_ROOT
+from ..core.base import BaseTool
+from .background import check_background_job, list_background_jobs, run_background
+from .persist import persist_install_command
+from .state import REPO_ROOT
 
 logger = logging.getLogger(__name__)
 
 
-class SkillTerminalTool(BaseTool):
+class TerminalTool(BaseTool):
     @property
     def name(self) -> str:
         return "terminal"
@@ -64,7 +64,7 @@ class SkillTerminalTool(BaseTool):
     def execute(self, user_id: int, tool_name: str, arguments: dict) -> str:
         action = self._resolve_action(arguments)
         if action == "bg_list":
-            return list_bg_jobs()
+            return list_background_jobs()
         if action == "bg_check":
             pid_value = arguments.get("bg_pid")
             if pid_value is None:
@@ -81,7 +81,7 @@ class SkillTerminalTool(BaseTool):
                     "Error: invalid bg_pid. Do not use guessed values like 0/1. "
                     "Use action=bg_check only with a PID returned by a previous background run."
                 )
-            return check_bg_job(pid)
+            return check_background_job(pid)
         if action != "exec":
             return (
                 "Error: invalid action. Use one of: exec, bg_list, bg_check.\n"
@@ -143,3 +143,4 @@ class SkillTerminalTool(BaseTool):
         if str(arguments.get("command", "")).strip():
             return "exec"
         return ""
+
