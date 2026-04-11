@@ -7,10 +7,10 @@ import secrets
 import threading
 from pathlib import Path
 
-from services.wechat.official import WeChatOfficialClient
 from services.wechat.runtime import set_wechat_runtime
+from services.wechat.sdk import WeChatBotAdapter
 
-from ..config import WECHAT_BOT_TYPE, WECHAT_COMMAND_PREFIX, WECHAT_LOGIN_ACCESS_TOKEN, WECHAT_STATE_DIR
+from ..config import WECHAT_COMMAND_PREFIX, WECHAT_LOGIN_ACCESS_TOKEN, WECHAT_STATE_DIR
 from ..recent_cache import RecentKeyCache
 from .ident import RuntimeIdentMixin
 from .login_poll import RuntimeLoginPollMixin
@@ -33,7 +33,7 @@ class WeChatBotRuntime(
     RuntimeLoopMixin,
 ):
     def __init__(self) -> None:
-        self.client = WeChatOfficialClient(state_dir=WECHAT_STATE_DIR, bot_type=WECHAT_BOT_TYPE)
+        self.client = WeChatBotAdapter(state_dir=WECHAT_STATE_DIR)
         self.command_prefix = WECHAT_COMMAND_PREFIX
         self._loop: asyncio.AbstractEventLoop | None = None
         self._typing_lock = asyncio.Lock()

@@ -7,7 +7,6 @@ import os
 
 from config import HEALTH_CHECK_PORT
 from utils.platform_parity import format_log_context
-from services.wechat.official import DEFAULT_BOT_TYPE
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +19,6 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 WECHAT_COMMAND_PREFIX = os.getenv("WECHAT_COMMAND_PREFIX", "/").strip() or "/"
 WECHAT_STATE_DIR = os.getenv("WECHAT_STATE_DIR", "runtime/wechat").strip() or "runtime/wechat"
 WECHAT_ENABLED = str(os.getenv("WECHAT_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
-WECHAT_BOT_TYPE = os.getenv("WECHAT_BOT_TYPE", DEFAULT_BOT_TYPE).strip() or DEFAULT_BOT_TYPE
 WECHAT_LOGIN_ACCESS_TOKEN = os.getenv("WECHAT_LOGIN_ACCESS_TOKEN", "").strip()
 WECHAT_GROUP_REPLY_ALL = str(os.getenv("WECHAT_GROUP_REPLY_ALL", "")).strip().lower() in {"1", "true", "yes", "on"}
 WECHAT_GROUP_MENTION_ALIASES = [
@@ -39,7 +37,7 @@ def wechat_ctx_for_scope(*, local_user_id: int, local_chat_id: int, is_group: bo
     return format_log_context(
         platform="wechat",
         user_id=local_user_id,
-        scope="group" if is_group else "private",
+        scope="private",
         chat_id=local_chat_id,
     )
 
@@ -50,7 +48,6 @@ __all__ = [
     "WECHAT_COMMAND_PREFIX",
     "WECHAT_STATE_DIR",
     "WECHAT_ENABLED",
-    "WECHAT_BOT_TYPE",
     "WECHAT_LOGIN_ACCESS_TOKEN",
     "WECHAT_GROUP_REPLY_ALL",
     "WECHAT_GROUP_MENTION_ALIASES",

@@ -33,8 +33,24 @@ class RuntimeSnapshotMixin:
 
     def get_login_snapshot(self) -> dict:
         state = self.client.state_store.load()
+        creds = self.client.get_credentials()
         with self._login_state_lock:
             snapshot = dict(self._login_snapshot)
-        if state.token:
+        if creds:
+            snapshot.update({"logged_in": True, "status": "connected", "message": "WeChat 已登录", "user_id": creds.user_id, "qr_url": ""})
+            return snapshot
+        if state.token and snapshot.get("logged_in"):
             snapshot.update({"logged_in": True, "status": "connected", "message": "WeChat 已登录", "user_id": state.user_id, "qr_url": ""})
+            return snapshot
+        qr_url = self.client.qr_url_cache or ""
+        if qr_url:
+            snapshot.update(
+                {
+                    "logged_in": False,
+                    "status": "wait",
+                    "message": "请打开页面链接或图片链接扫码登录",
+                    "user_id": "",
+                    "qr_url": qr_url,
+                }
+            )
         return snapshot

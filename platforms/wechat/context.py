@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .config import WECHAT_STATE_DIR, wechat_ctx_for_scope
 
@@ -19,13 +20,14 @@ class WeChatMessageContext:
     group_id: str | None = None
     context_token: str | None = None
     inbound_key: str | None = None
+    _sdk_msg: Any = field(default=None, repr=False)
 
     @property
     def log_context(self) -> str:
         return wechat_ctx_for_scope(
             local_user_id=self.local_user_id,
             local_chat_id=self.local_chat_id,
-            is_group=self.is_group,
+            is_group=False,
         )
 
     async def reply_text(self, text: str) -> None:

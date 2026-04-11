@@ -1,10 +1,10 @@
-"""Text delivery helpers."""
+"""Text delivery helpers.
+
+Uses the wechatbot-sdk's send/reply methods instead of raw HTTP calls.
+"""
 
 from __future__ import annotations
 
-import asyncio
-
-from services.wechat.official import WECHAT_TEXT_LIMIT
 from utils import split_message
 
 from ..config import logger
@@ -20,10 +20,10 @@ class RuntimeSendTextMixin:
         dedupe_key: str | None = None,
     ) -> None:
         state = self.client.state_store.load()
-        if not state.token:
+        if not (state.token or self.client.get_credentials()):
             raise RuntimeError("WeChat bot is not logged in")
-        context = context_token or self.client.state_store.resolve_context_token(peer_id)
-        chunks = split_message(text or "(Empty response)", max_length=WECHAT_TEXT_LIMIT)
+        resolved_context_token = context_token or self.client.state_store.resolve_context_token(peer_id)
+        chunks = split_message(text or "(Empty response)", max_length=4000)
         for index, chunk in enumerate(chunks or ["(Empty response)"]):
             outbound_key = f"text:{peer_id}:{dedupe_key}:{index}" if dedupe_key else None
             if self._sent_messages.remember_once(outbound_key):
@@ -31,7 +31,7 @@ class RuntimeSendTextMixin:
                 continue
             logger.info("WeChat outbound text: peer=%s dedupe_key=%s index=%s len=%s", peer_id, dedupe_key, index, len(chunk))
             self._recent_outbound_fingerprints.remember(self._outbound_fingerprint(target_id=peer_id, text=chunk, item_types=(1,)))
-            await asyncio.to_thread(self.client.send_text_message, state.token, peer_id, chunk, context_token=context)
+            await self.client.send_text(peer_id, chunk, context_token=resolved_context_token)
 
     async def send_wechat_text(self, local_user_id: int, text: str) -> None:
         peer_id = self.client.state_store.resolve_peer(local_user_id)

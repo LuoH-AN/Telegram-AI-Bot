@@ -1,4 +1,7 @@
-"""Inbound dedupe and echo-suppression helpers."""
+"""Inbound dedupe and echo-suppression helpers.
+
+Parses wechatbot-sdk IncomingMessage objects into the local envelope model.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +9,7 @@ import hashlib
 
 from ..config import logger
 from ..envelope import WeChatInboundEnvelope
-from ..message.extract import extract_text_body, strip_wechat_group_mentions
+from ..message.extract import extract_text_body
 
 
 class RuntimeIdentMixin:
@@ -36,12 +39,63 @@ class RuntimeIdentMixin:
         types = ",".join(str(item) for item in item_types) if item_types else "text"
         return f"{target_id}|{types}|{digest}"
 
+    def _parse_sdk_message(self, msg) -> WeChatInboundEnvelope:
+        """Parse an IncomingMessage from wechatbot-sdk into our envelope."""
+        raw = getattr(msg, "raw", {}) or {}
+        from_user_id = str(getattr(msg, "user_id", "") or "").strip()
+        to_user_id = str(raw.get("to_user_id") or "").strip()
+        text_body = str(getattr(msg, "text", "") or "").strip()
+        message_id = str(raw.get("message_id") or "").strip()
+        seq = str(raw.get("seq") or "").strip()
+        create_time_ms = str(raw.get("create_time_ms") or "").strip()
+        message_type = int(raw.get("message_type") or 1)
+        message_state = int(raw.get("message_state") or 0)
+
+        # Determine item_types from SDK content fields
+        item_types: list[int] = []
+        if text_body:
+            item_types.append(1)
+        if getattr(msg, "images", None):
+            item_types.append(2)
+        if getattr(msg, "voices", None):
+            item_types.append(3)
+        if getattr(msg, "files", None):
+            item_types.append(4)
+        if getattr(msg, "videos", None):
+            item_types.append(5)
+        if not item_types:
+            item_types = [1]
+
+        inbound_key = self._message_dedup_key(
+            message_id=message_id,
+            seq=seq,
+            create_time_ms=create_time_ms,
+            from_user_id=from_user_id,
+            to_user_id=to_user_id,
+            group_id=None,
+            text_body=text_body,
+        )
+        return WeChatInboundEnvelope(
+            message=raw,
+            inbound_key=inbound_key,
+            from_user_id=from_user_id,
+            to_user_id=to_user_id,
+            group_id=None,
+            reply_to_id=from_user_id,
+            text_body=text_body,
+            normalized_text=text_body,
+            item_types=tuple(item_types),
+            message_type=message_type,
+            message_state=message_state,
+            message_id=message_id,
+            seq=seq,
+        )
+
     def _parse_inbound_message(self, message: dict) -> WeChatInboundEnvelope:
+        """Legacy parser kept for backward compat; delegates to _parse_sdk_message-like logic."""
         from_user_id = str(message.get("from_user_id") or "").strip()
         to_user_id = str(message.get("to_user_id") or "").strip()
-        group_id = str(message.get("group_id") or "").strip() or None
-        text_body = extract_text_body(message.get("item_list") or [])
-        normalized = strip_wechat_group_mentions(text_body) if group_id else text_body
+        text_body = str(message.get("text") or extract_text_body(message.get("item_list") or []) or "").strip()
         message_id = str(message.get("message_id") or "").strip()
         seq = str(message.get("seq") or "").strip()
         inbound_key = self._message_dedup_key(
@@ -50,7 +104,7 @@ class RuntimeIdentMixin:
             create_time_ms=str(message.get("create_time_ms") or "").strip(),
             from_user_id=from_user_id,
             to_user_id=to_user_id,
-            group_id=group_id,
+            group_id=None,
             text_body=text_body,
         )
         return WeChatInboundEnvelope(
@@ -58,10 +112,10 @@ class RuntimeIdentMixin:
             inbound_key=inbound_key,
             from_user_id=from_user_id,
             to_user_id=to_user_id,
-            group_id=group_id,
-            reply_to_id=group_id or from_user_id,
+            group_id=None,
+            reply_to_id=from_user_id,
             text_body=text_body,
-            normalized_text=normalized,
+            normalized_text=text_body,
             item_types=tuple(int(item.get("type") or 0) for item in (message.get("item_list") or [])),
             message_type=int(message.get("message_type") or 1),
             message_state=int(message.get("message_state") or 0),

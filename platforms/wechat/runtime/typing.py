@@ -1,4 +1,7 @@
-"""Typing indicator helpers."""
+"""Typing indicator helpers.
+
+Delegates to the wechatbot-sdk's send_typing/stop_typing methods.
+"""
 
 from __future__ import annotations
 
@@ -10,14 +13,13 @@ from ..config import logger
 class RuntimeTypingMixin:
     async def safe_send_typing(self, peer_id: str, context_token: str | None, *, status: int) -> None:
         state = self.client.state_store.load()
-        if not state.token:
+        if not (state.token or self.client.get_credentials()):
             return
         try:
-            config = await asyncio.to_thread(self.client.get_config, state.token, peer_id, context_token=context_token)
-            ticket = str(config.get("typing_ticket") or "").strip()
-            if not ticket:
-                return
-            await asyncio.to_thread(self.client.send_typing, state.token, peer_id, ticket, status=status)
+            if status == 1:
+                await self.client.send_typing(peer_id, context_token=context_token)
+            else:
+                await self.client.stop_typing(peer_id, context_token=context_token)
         except Exception:
             logger.debug("Failed to update WeChat typing indicator", exc_info=True)
 

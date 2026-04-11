@@ -33,10 +33,19 @@ from ..message.content import build_user_content_from_wechat_message
 from ..recent_cache import NoopPump
 from .round import run_completion_round
 from .title import generate_and_set_title
-async def process_chat_message(runtime, ctx, message: dict) -> None:
+
+
+async def process_chat_message(runtime, ctx, message) -> None:
+    """Process an inbound WeChat message.
+
+    Args:
+        runtime: The WeChatBotRuntime instance.
+        ctx: The WeChatMessageContext for this message.
+        message: Either a dict (legacy) or an IncomingMessage from wechatbot-sdk.
+    """
     user_id = ctx.local_user_id
     ensure_user_state(user_id)
-    user_content, save_msg = await build_user_content_from_wechat_message(runtime, message, is_group=ctx.is_group)
+    user_content, save_msg = await build_user_content_from_wechat_message(runtime, message, is_group=False)
     if isinstance(user_content, str) and not user_content.strip():
         await ctx.reply_text("Please send a text message or attachment.")
         return
@@ -93,7 +102,12 @@ async def process_chat_message(runtime, ctx, message: dict) -> None:
 
         loop.call_soon_threadsafe(_schedule)
 
-    slot_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}:{ctx.inbound_key or message.get('message_id') or int(time.time() * 1000)}"
+    raw_message_id = ""
+    if isinstance(message, dict):
+        raw_message_id = str(message.get("message_id") or "")
+    else:
+        raw_message_id = str(getattr(message, "raw", {}).get("message_id") or "")
+    slot_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}:{ctx.inbound_key or raw_message_id or int(time.time() * 1000)}"
     conversation_key = f"wechat:{ctx.local_chat_id}:{user_id}:{session_id}"
     response_key = slot_key
     final_delivery_confirmed = False
