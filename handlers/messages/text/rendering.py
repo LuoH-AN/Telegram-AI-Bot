@@ -15,6 +15,7 @@ class RenderState:
     bot_message: object | None
     final_delivery_confirmed: bool = False
     status_seed_cancelled: bool = False
+    user_message_persisted: bool = False
 @dataclass
 class RenderRuntime:
     state: RenderState

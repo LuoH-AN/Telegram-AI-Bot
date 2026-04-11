@@ -46,16 +46,20 @@ async def deliver_and_persist(
         final_delivery_ok = await runtime.outbound.deliver_final(display_final)
     runtime.state.final_delivery_confirmed = final_delivery_ok
 
-    if final_delivery_ok:
+    if not runtime.state.user_message_persisted:
         add_user_message(req["session_id"], req["save_msg"])
+        runtime.state.user_message_persisted = True
+
+    has_assistant_text = generated["final_text"] != "(Empty response)"
+    if final_delivery_ok and has_assistant_text:
         add_assistant_message(req["session_id"], generated["final_text"])
         if get_session_message_count(req["session_id"]) <= 2:
             asyncio.create_task(
                 generate_and_set_title(req["user_id"], req["session_id"], req["save_msg"], generated["final_text"])
             )
-    else:
+    elif not final_delivery_ok:
         logger.error(
-            "%s final response was not delivered (stream_ack=%d/%d); skip conversation persistence",
+            "%s final response was not delivered (stream_ack=%d/%d); persisted user message only",
             req["ctx"],
             runtime.outbound.stream_successes,
             runtime.outbound.stream_attempts,

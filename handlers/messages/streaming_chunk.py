@@ -41,6 +41,7 @@ async def process_chunk(
         state.tool_calls.extend(chunk.tool_calls)
 
     now = loop.time()
+    state.last_chunk_activity = now
     if chunk.content or chunk.reasoning:
         state.last_output_activity = now
 

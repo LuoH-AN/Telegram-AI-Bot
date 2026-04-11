@@ -81,18 +81,20 @@ async def stream_live_response(
     it = iter(stream)
     try:
         while True:
-            idle_limit = AI_STREAM_NO_OUTPUT_TIMEOUT if state.last_output_activity is None else AI_STREAM_OUTPUT_IDLE_TIMEOUT
-            idle_since = state.stream_start_time if state.last_output_activity is None else state.last_output_activity
+            idle_limit = AI_STREAM_NO_OUTPUT_TIMEOUT if state.last_chunk_activity is None else AI_STREAM_OUTPUT_IDLE_TIMEOUT
+            idle_since = state.stream_start_time if state.last_chunk_activity is None else state.last_chunk_activity
             timeout_left = idle_limit - (loop.time() - idle_since)
             if timeout_left <= 0:
-                logger.warning("AI stream idle timeout (%ss, has_output=%s)", idle_limit, state.last_output_activity is not None)
-                state.finish_reason = state.finish_reason or "timeout"
+                has_output = state.last_output_activity is not None
+                logger.warning("AI stream idle timeout (%ss, has_output=%s)", idle_limit, has_output)
+                state.finish_reason = state.finish_reason or ("timeout" if has_output else "no_output_timeout")
                 break
             try:
                 chunk = await asyncio.wait_for(loop.run_in_executor(None, next, it, end), timeout=max(1.0, timeout_left))
             except asyncio.TimeoutError:
-                logger.warning("AI stream stalled: no activity for %ss (has_output=%s)", idle_limit, state.last_output_activity is not None)
-                state.finish_reason = state.finish_reason or "timeout"
+                has_output = state.last_output_activity is not None
+                logger.warning("AI stream stalled: no activity for %ss (has_output=%s)", idle_limit, has_output)
+                state.finish_reason = state.finish_reason or ("timeout" if has_output else "no_output_timeout")
                 break
             if chunk is end:
                 break

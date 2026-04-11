@@ -75,6 +75,12 @@ async def chat(
     except asyncio.CancelledError:
         logger.info("%s response cancelled by /stop", req["ctx"])
         runtime.render_pump.force_stop()
+        try:
+            if not runtime.state.user_message_persisted:
+                add_user_message(req["session_id"], req["save_msg"])
+                runtime.state.user_message_persisted = True
+        except Exception:
+            logger.debug("%s failed to persist user message after cancellation", req["ctx"], exc_info=True)
         if not runtime.state.final_delivery_confirmed and runtime.state.bot_message:
             try:
                 await runtime.state.bot_message.edit_text("(Response stopped)")
@@ -91,7 +97,9 @@ async def chat(
         if not runtime.state.final_delivery_confirmed:
             await runtime.outbound.deliver_final(build_retry_message())
             try:
-                add_user_message(req["session_id"], req["save_msg"])
+                if not runtime.state.user_message_persisted:
+                    add_user_message(req["session_id"], req["save_msg"])
+                    runtime.state.user_message_persisted = True
             except Exception:
                 logger.debug("%s failed to persist user message after error", req["ctx"], exc_info=True)
         record_error(req["user_id"], str(exc), "chat handler", req["settings"].get("model"), req["persona_name"])

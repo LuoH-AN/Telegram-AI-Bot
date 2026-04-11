@@ -31,6 +31,7 @@ async def generate_with_tools(
     last_text_response = ""
     thinking_segments: list[str] = []
     full_response = ""
+    initial_stall_retry_used = False
     user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
     user_reasoning_effort = normalize_reasoning_effort(settings.get("reasoning_effort", ""))
     show_thinking = bool(settings.get("show_thinking"))
@@ -68,6 +69,10 @@ async def generate_with_tools(
             )
             messages.append(build_assistant_tool_call_message(full_response, tool_calls))
             messages.extend(tool_results)
+            continue
+        if finish_reason == "no_output_timeout" and not initial_stall_retry_used:
+            initial_stall_retry_used = True
+            logger.warning("%s stream produced no chunks for 45s; retrying request once", ctx)
             continue
         if finish_reason == "length":
             logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)

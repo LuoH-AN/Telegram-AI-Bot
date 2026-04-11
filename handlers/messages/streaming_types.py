@@ -16,6 +16,7 @@ class LiveStreamState:
     last_update_time: float = 0.0
     last_update_length: int = 0
     stream_start_time: float = 0.0
+    last_chunk_activity: float | None = None
     last_output_activity: float | None = None
     waiting_start_time: float = 0.0
     waiting_active: bool = False
