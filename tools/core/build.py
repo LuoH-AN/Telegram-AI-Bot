@@ -10,7 +10,7 @@ from .base import BaseTool
 logger = logging.getLogger(__name__)
 
 SERIAL_ONLY_TOOL_NAMES = {
-    "save_memory", "cron_create", "cron_delete", "cron_run", "shell_exec",
+    "save_memory", "cron_create", "cron_delete", "cron_run", "shell_exec", "project_config",
 }
 
 
@@ -64,4 +64,3 @@ def build_runnable(
         runnable.append((idx, tool_call, tool, tool_name, args))
 
     return results, runnable, force_serial
-
