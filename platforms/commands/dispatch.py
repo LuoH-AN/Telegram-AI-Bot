@@ -6,6 +6,7 @@ from utils.platform_parity import build_help_message
 
 from .account import export_command, usage_command, web_command
 from .basic import clear_command, help_command, settings_command, start_command, stop_command, update_command
+from .login import login_command
 from .memory import forget_command, memories_command, remember_command
 from .persona_chat import chat_command, persona_command
 from .settings_command import set_command
@@ -71,5 +72,8 @@ async def dispatch_command(
         return
     if command == "web":
         await web_command(ctx)
+        return
+    if command == "login":
+        await login_command(ctx, command_prefix, args=args)
         return
     await ctx.reply_text(build_help_message(command_prefix))

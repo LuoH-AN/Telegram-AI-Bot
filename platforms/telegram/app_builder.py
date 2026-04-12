@@ -24,6 +24,7 @@ from handlers import (
     handle_photo,
     help_callback,
     help_command,
+    login,
     memories_command,
     model_callback,
     persona_command,
@@ -43,6 +44,7 @@ def _register_handlers(application: Application) -> None:
     for name, handler in (
         ("start", start),
         ("help", help_command),
+        ("login", login),
         ("clear", clear),
         ("stop", stop),
         ("update", update),
@@ -63,7 +65,6 @@ def _register_handlers(application: Application) -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-
 def build_application(logger) -> Application:
     builder = (
         Application.builder()

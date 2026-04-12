@@ -22,7 +22,7 @@ class RuntimeLoginStartMixin:
             return self._set_login_snapshot(
                 logged_in=True,
                 status="connected",
-                message="WeChat 已登录",
+                message="WeChat is already logged in",
                 user_id=creds.user_id,
                 qr_url="",
             )
@@ -30,7 +30,7 @@ class RuntimeLoginStartMixin:
             return self._set_login_snapshot(
                 logged_in=True,
                 status="connected",
-                message="WeChat 已登录",
+                message="WeChat is already logged in",
                 user_id=state.user_id,
                 qr_url="",
             )
@@ -39,7 +39,7 @@ class RuntimeLoginStartMixin:
         snapshot = self._set_login_snapshot(
             logged_in=False,
             status="wait" if qr_url else "pending",
-            message="请打开页面链接或图片链接扫码登录" if qr_url else "正在切换账号并等待新的二维码...",
+            message="Scan the QR code directly to log in" if qr_url else "Switching account and waiting for a new QR code...",
             user_id="",
             qr_url=qr_url,
         )
@@ -50,9 +50,7 @@ class RuntimeLoginStartMixin:
                     asyncio.run_coroutine_threadsafe(self.login(force=True), loop)
                 except Exception:
                     logger.exception("Failed to trigger forced WeChat re-login")
-        logger.info("WeChat login page: %s", snapshot["page_url"])
-        if qr_url:
-            logger.info("WeChat QR image link: %s", snapshot["public_image_url"])
+        logger.info("WeChat login status prepared: status=%s qr_ready=%s", snapshot.get("status"), bool(qr_url))
         return snapshot
 
     def force_new_login_sync(self) -> dict:

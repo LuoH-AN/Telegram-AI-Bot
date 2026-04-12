@@ -47,5 +47,6 @@ def build_help_message(prefix: str) -> str:
         f"{prefix}usage - view usage\n"
         f"{prefix}export - export conversation\n"
         f"{prefix}clear - clear conversation\n"
+        f"{prefix}login wechat - get WeChat login QR\n"
         f"{prefix}web - open dashboard"
     )

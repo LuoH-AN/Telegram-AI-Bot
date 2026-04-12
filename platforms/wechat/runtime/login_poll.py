@@ -19,13 +19,13 @@ class RuntimeLoginPollMixin:
                 user_id=creds.user_id,
                 base_url=creds.base_url,
             )
-            self._set_login_snapshot(logged_in=True, status="connected", message="WeChat 已登录", user_id=creds.user_id, qr_url="")
+            self._set_login_snapshot(logged_in=True, status="connected", message="WeChat is already logged in", user_id=creds.user_id, qr_url="")
             return
 
         self._set_login_snapshot(
             logged_in=False,
             status="pending",
-            message="正在获取登录二维码...",
+            message="Fetching WeChat login QR code...",
             user_id="",
             qr_url=self.client.qr_url_cache or "",
         )
@@ -36,7 +36,7 @@ class RuntimeLoginPollMixin:
             self._set_login_snapshot(
                 logged_in=False,
                 status="error",
-                message="登录失败，5秒后重试...",
+                message="Login failed. Retry in 5 seconds.",
                 user_id="",
                 qr_url=self.client.qr_url_cache or "",
             )
@@ -47,7 +47,7 @@ class RuntimeLoginPollMixin:
         self._set_login_snapshot(
             logged_in=True,
             status="connected",
-            message="WeChat 登录成功",
+            message="WeChat login succeeded",
             user_id=str(payload.get("ilink_user_id") or ""),
             qr_url="",
         )

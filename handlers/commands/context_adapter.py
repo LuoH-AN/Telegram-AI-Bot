@@ -36,9 +36,15 @@ class TelegramCommandContextAdapter:
             caption=caption,
         )
 
+    async def reply_photo_url(self, url: str, *, caption: str = "") -> None:
+        await self.update.message.reply_photo(photo=url, caption=caption)
+
     async def send_private_text(self, text: str) -> None:
         await self.context.bot.send_message(
             chat_id=self.local_user_id,
             text=text,
             disable_web_page_preview=True,
         )
+
+    async def send_private_photo_url(self, url: str, *, caption: str = "") -> None:
+        await self.context.bot.send_photo(chat_id=self.local_user_id, photo=url, caption=caption)

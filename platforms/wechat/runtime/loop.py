@@ -65,7 +65,7 @@ class RuntimeLoopMixin:
                 user_id=creds.user_id,
                 base_url=creds.base_url,
             )
-            self._set_login_snapshot(logged_in=True, status="connected", message="WeChat 已登录", user_id=creds.user_id, qr_url="")
+            self._set_login_snapshot(logged_in=True, status="connected", message="WeChat is already logged in", user_id=creds.user_id, qr_url="")
             return
         await self.login()
 
