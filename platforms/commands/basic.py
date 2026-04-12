@@ -12,6 +12,7 @@ from services import (
     has_api_key,
     reset_token_usage,
     run_hot_update,
+    run_safe_restart,
     schedule_process_restart,
 )
 from services.platform import apply_provider_command, build_provider_list_text
@@ -59,6 +60,16 @@ async def update_command(ctx, command_prefix: str) -> None:
         f"Commit: {result.get('old', '')[:7]} -> {result.get('new', '')[:7]}\n"
         "Restarting bot processes now..."
     )
+    schedule_process_restart()
+
+
+async def restart_command(ctx) -> None:
+    await ctx.reply_text("Syncing runtime state before restart...")
+    result = await asyncio.to_thread(run_safe_restart)
+    if not result.get("ok"):
+        await ctx.reply_text(f"Restart cancelled:\n{result.get('message')}")
+        return
+    await ctx.reply_text("State synced. Restarting bot processes now...")
     schedule_process_restart()
 
 

@@ -6,6 +6,7 @@ from platforms.commands.account import usage_command as core_usage_command
 from platforms.commands.account import web_command as core_web_command
 from platforms.commands.basic import clear_command as core_clear_command
 from platforms.commands.basic import help_command as core_help_command
+from platforms.commands.basic import restart_command as core_restart_command
 from platforms.commands.basic import settings_command as core_settings_command
 from platforms.commands.basic import start_command as core_start_command
 from platforms.commands.basic import stop_command as core_stop_command
@@ -33,6 +34,9 @@ def register_commands(bot: commands.Bot) -> None:
     @bot.command(name="stop")
     async def _stop(ctx: commands.Context) -> None:
         await core_stop_command(DiscordCommandContextAdapter(ctx), platform="discord")
+    @bot.command(name="restart")
+    async def _restart(ctx: commands.Context) -> None:
+        await core_restart_command(DiscordCommandContextAdapter(ctx))
     @bot.command(name="update")
     async def _update(ctx: commands.Context) -> None:
         await core_update_command(DiscordCommandContextAdapter(ctx), DISCORD_COMMAND_PREFIX)

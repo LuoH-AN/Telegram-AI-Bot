@@ -68,6 +68,7 @@ from .skills import (
 from .skill_terminal import run_skill_terminal
 from .terminal_exec import execute_terminal_command
 from .hot_update import run_hot_update, schedule_process_restart
+from .hot_update import run_safe_restart
 def ensure_session(user_id: int, persona_name: str = None) -> int:
     return _cache.ensure_session_id(user_id, persona_name)
 

@@ -41,6 +41,7 @@ def build_help_message(prefix: str) -> str:
         f"{prefix}settings - view settings\n"
         f"{prefix}set <key> <value> - modify settings\n"
         f"{prefix}stop - stop active response\n"
+        f"{prefix}restart - restart bot processes safely\n"
         f"{prefix}remember <text> - add memory\n"
         f"{prefix}memories - view memories\n"
         f"{prefix}forget <num|all> - delete memory\n"

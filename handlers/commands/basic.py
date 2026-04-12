@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 from handlers.common import get_log_context
 from platforms.commands.basic import clear_command as core_clear_command
 from platforms.commands.basic import help_command as core_help_command
+from platforms.commands.basic import restart_command as core_restart_command
 from platforms.commands.basic import start_command as core_start_command
 from platforms.commands.basic import stop_command as core_stop_command
 from platforms.commands.basic import update_command as core_update_command
@@ -44,6 +45,12 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("%s /update", get_log_context(update))
     await core_update_command(TelegramCommandContextAdapter(update, context), "/")
+
+
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("%s /restart", get_log_context(update))
+    ensure_user_state(update.effective_user.id)
+    await core_restart_command(TelegramCommandContextAdapter(update, context))
 
 
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

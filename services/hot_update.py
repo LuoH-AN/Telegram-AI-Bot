@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 
+from cache import sync_to_database
 from launcher import UPDATE_RESTART_EXIT_CODE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -80,3 +81,11 @@ def schedule_process_restart(*, delay_seconds: float = 1.2) -> None:
         os._exit(UPDATE_RESTART_EXIT_CODE)
 
     threading.Thread(target=_worker, daemon=True).start()
+
+
+def run_safe_restart() -> dict:
+    try:
+        sync_to_database()
+    except Exception as exc:
+        return {"ok": False, "message": f"Failed to sync data before restart: {exc}"}
+    return {"ok": True, "message": "State synced successfully."}
