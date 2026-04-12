@@ -6,6 +6,7 @@ from .core.registry import registry
 from .terminal import TerminalTool
 from .hf_sync import HFSyncTool
 from .project_config import ProjectConfigTool
+from .quick_deploy import QuickDeployTool
 from .scrapling import ScraplingTool
 from .sosearch import SoSearchTool
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 registry.register(TerminalTool())
 registry.register(HFSyncTool())
 registry.register(ProjectConfigTool())
+registry.register(QuickDeployTool())
 registry.register(ScraplingTool())
 registry.register(SoSearchTool())
 

@@ -14,6 +14,7 @@ from web.routes.dashboard.cron import router as cron_router
 from web.routes.dashboard.memories import router as memories_router
 from web.routes.dashboard.models import router as models_router
 from web.routes.integration.artifacts import router as artifacts_router
+from web.routes.integration.deployments import router as deployments_router
 from web.routes.integration.wechat import router as wechat_router
 from web.live_logs import install_live_log_handler
 from web.app_middleware import install_api_request_logger
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
         memories_router,
         models_router,
         artifacts_router,
+        deployments_router,
         wechat_router,
     ):
         app.include_router(router)

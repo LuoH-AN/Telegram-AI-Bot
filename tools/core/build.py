@@ -10,7 +10,7 @@ from .base import BaseTool
 logger = logging.getLogger(__name__)
 
 SERIAL_ONLY_TOOL_NAMES = {
-    "save_memory", "cron_create", "cron_delete", "cron_run", "shell_exec", "project_config",
+    "save_memory", "cron_create", "cron_delete", "cron_run", "shell_exec", "project_config", "quick_deploy",
 }
 
 
