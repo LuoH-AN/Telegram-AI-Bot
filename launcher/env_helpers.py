@@ -9,10 +9,11 @@ def _trim(value: str | None) -> str:
     return (value or "").strip()
 
 
-def get_ports() -> tuple[str, str]:
+def get_ports() -> tuple[str, str, str]:
     return (
         os.getenv("TELEGRAM_PORT", "7860"),
         os.getenv("WECHAT_PORT", "7862"),
+        os.getenv("ONEBOT_PORT", "7864"),
     )
 
 
@@ -55,3 +56,7 @@ def is_configured_token(token: str | None) -> bool:
 
 def is_wechat_enabled() -> bool:
     return _trim(os.getenv("WECHAT_ENABLED")).lower() in {"1", "true", "yes", "on"}
+
+
+def is_onebot_enabled() -> bool:
+    return _trim(os.getenv("ONEBOT_ENABLED")).lower() in {"1", "true", "yes", "on"}

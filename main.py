@@ -1,4 +1,4 @@
-"""Unified launcher for Telegram / WeChat runtimes."""
+"""Unified launcher for Telegram / WeChat / OneBot runtimes."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from launcher import (
     get_ports,
     is_configured_token,
     is_wechat_enabled,
+    is_onebot_enabled,
     run_cli_bootstrap,
     start_child,
     terminate_children,
@@ -24,7 +25,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 
 
 def _start_children() -> list:
-    telegram_port, wechat_port = get_ports()
+    telegram_port, wechat_port, onebot_port = get_ports()
     children = []
     if is_configured_token(os.getenv("TELEGRAM_BOT_TOKEN")):
         children.append(start_child("Telegram", "platforms.telegram", root_dir=ROOT_DIR, port=telegram_port))
@@ -35,6 +36,11 @@ def _start_children() -> list:
         children.append(start_child("WeChat", "platforms.wechat", root_dir=ROOT_DIR, port=wechat_port))
     else:
         print(">>> WeChat disabled (WECHAT_ENABLED is not enabled)", flush=True)
+
+    if is_onebot_enabled():
+        children.append(start_child("OneBot/QQ", "platforms.onebot", root_dir=ROOT_DIR, port=onebot_port))
+    else:
+        print(">>> OneBot/QQ disabled (ONEBOT_ENABLED is not enabled)", flush=True)
     return children
 
 
