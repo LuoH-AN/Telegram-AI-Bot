@@ -6,8 +6,8 @@ import asyncio
 import logging
 from typing import Any, Callable, Coroutine
 
-from .constants import LOW_PRIORITY_ENDPOINTS, QUEUED_ENDPOINTS, to_chat_key
-from .types import QueueItem
+from .config import LOW_PRIORITY_ENDPOINTS, QUEUED_ENDPOINTS, to_chat_key
+from .item import QueueItem
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from .constants import EDIT_ENDPOINTS
+from .config import EDIT_ENDPOINTS
 
 
 class RateLimiterWorkerMixin:

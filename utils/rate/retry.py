@@ -9,7 +9,7 @@ from typing import Any, Callable, Coroutine
 
 from telegram.error import RetryAfter
 
-from .constants import EDIT_ENDPOINTS
+from .config import EDIT_ENDPOINTS
 
 logger = logging.getLogger(__name__)
 

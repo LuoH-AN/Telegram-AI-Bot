@@ -1,5 +1,5 @@
 """Queued Telegram rate limiter with RetryAfter requeue support."""
 
-from .queued import QueuedRateLimiter
+from .limiter import QueuedRateLimiter
 
 __all__ = ["QueuedRateLimiter"]

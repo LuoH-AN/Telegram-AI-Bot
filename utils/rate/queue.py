@@ -6,7 +6,7 @@ import asyncio
 import heapq
 import logging
 
-from .types import QueueItem
+from .item import QueueItem
 
 logger = logging.getLogger(__name__)
 

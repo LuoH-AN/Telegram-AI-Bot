@@ -7,7 +7,7 @@ import itertools
 
 from telegram.ext import BaseRateLimiter
 
-from .constants import EDIT_ENDPOINTS, to_chat_key
+from .config import EDIT_ENDPOINTS, to_chat_key
 
 
 class QueuedRateLimiterBase(BaseRateLimiter[int]):

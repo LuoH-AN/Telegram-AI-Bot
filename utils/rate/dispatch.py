@@ -6,7 +6,7 @@ import asyncio
 
 from telegram.error import RetryAfter
 
-from .constants import EDIT_ENDPOINTS
+from .config import EDIT_ENDPOINTS
 
 
 class RateLimiterDispatchMixin:
