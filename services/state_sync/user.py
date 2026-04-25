@@ -4,9 +4,9 @@ import logging
 
 from cache import sync_to_database
 
-from .db_refresh import refresh_cache_from_db
-from .dirty_state import has_local_dirty_state
-from .refresh_policy import should_refresh
+from .db import refresh_cache_from_db
+from .dirty import has_local_dirty_state
+from .policy import should_refresh
 
 logger = logging.getLogger(__name__)
 
