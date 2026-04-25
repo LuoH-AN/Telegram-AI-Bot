@@ -7,10 +7,10 @@ import time
 from .store import get_hf_dataset_store
 
 from .artifact import _artifact_view_url
-from .index_store import _load_object_index
-from .models import ObjectRecord
-from .naming import _meta_key_for_path, _normalize_object_key
-from .object_write_batch import commit_object_triplet
+from .batch import commit_object_triplet
+from .index import _load_object_index
+from .record import ObjectRecord
+from .name import _meta_key_for_path, _normalize_object_key
 
 
 def put_storage_object(

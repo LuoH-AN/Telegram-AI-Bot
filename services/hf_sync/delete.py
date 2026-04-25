@@ -11,8 +11,8 @@ from .store.git_commit import commit_git_change
 from .store.git_common import git_local_dir, run_git
 from .store.paths import prefixed_path
 
-from .index_store import _load_object_index
-from .naming import _normalize_object_key
+from .index import _load_object_index
+from .name import _normalize_object_key
 
 
 def delete_storage_object(user_id: int, *, name: str) -> bool:

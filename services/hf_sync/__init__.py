@@ -1,14 +1,14 @@
 """General-purpose S3-style sync helpers."""
 
 from .command import run_hf_sync_command
-from .models import ObjectRecord
-from .naming import (
+from .record import ObjectRecord
+from .name import (
     _normalize_object_key,
     _meta_key_for_path,
     _object_index_path,
     _resolve_path,
 )
-from .objects import (
+from .object import (
     _artifact_view_url,
     _load_object_index,
     _save_object_index,

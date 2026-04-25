@@ -5,7 +5,7 @@ from __future__ import annotations
 from config import WEB_BASE_URL
 from web.auth import create_artifact_token
 
-from .models import ObjectRecord
+from .record import ObjectRecord
 
 
 def _artifact_view_url(record: ObjectRecord, *, user_id: int) -> str:

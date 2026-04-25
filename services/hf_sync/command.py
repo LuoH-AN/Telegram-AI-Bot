@@ -4,16 +4,16 @@ from __future__ import annotations
 import base64
 import json
 
-from .command_help import _help_text
-from .command_url import resolve_url_output
-from .naming import _normalize_object_key
-from .objects import (
-    delete_storage_object,
+from .delete import delete_storage_object
+from .file import put_storage_file
+from .help import _help_text
+from .name import _normalize_object_key
+from .object import (
     list_storage_objects,
-    put_storage_file,
     put_storage_object,
 )
 from .store import get_hf_dataset_store
+from .url import resolve_url_output
 
 
 def _as_bool(value, default: bool = False) -> bool:

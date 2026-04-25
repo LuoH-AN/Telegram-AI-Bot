@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import mimetypes
 
-from .naming import _resolve_path
-from .object_write import put_storage_object
+from .name import _resolve_path
+from .write import put_storage_object
 
 
 def put_storage_file(

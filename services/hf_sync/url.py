@@ -6,8 +6,8 @@ import json
 
 from .store import get_hf_dataset_store
 
-from .models import ObjectRecord
-from .objects import _artifact_view_url
+from .record import ObjectRecord
+from .object import _artifact_view_url
 
 
 def resolve_url_output(user_id: int, object_key: str, items: list[dict]) -> tuple[bool, str]:

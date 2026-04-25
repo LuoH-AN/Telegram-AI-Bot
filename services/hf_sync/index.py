@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .store import get_hf_dataset_store
 
-from .naming import _object_index_path
+from .name import _object_index_path
 
 
 def _load_object_index(user_id: int) -> list[dict]:
