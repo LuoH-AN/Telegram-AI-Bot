@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def _create_task_client(user_id: int, model_spec: str, settings: dict):
     from ai import get_ai_client
-    from ai.openai_client import create_openai_client
+    from ai.openai import create_openai_client
 
     api_key = settings["api_key"]
     base_url = settings["base_url"]

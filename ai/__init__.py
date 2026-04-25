@@ -2,7 +2,7 @@
 
 from services import get_user_settings
 from .base import AIClient, StreamChunk, ToolCall
-from .openai_client import OpenAIClient, create_openai_client
+from .openai import OpenAIClient, create_openai_client
 
 
 def get_ai_client(user_id: int) -> AIClient:
