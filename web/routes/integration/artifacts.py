@@ -32,6 +32,15 @@ def _candidate_paths(path: str) -> list[str]:
         _add("." + raw)
     if raw.startswith("/.hf_sync/"):
         _add(raw[1:])
+    # S3 storage paths
+    if raw.startswith("/.s3/"):
+        _add(raw[1:])
+    if raw.startswith(".s3/"):
+        _add(raw)
+    if raw.startswith("/s3/"):
+        _add("." + raw)
+    if raw.startswith("s3/"):
+        _add("." + raw)
     return candidates
 
 

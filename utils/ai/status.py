@@ -41,8 +41,8 @@ def _tool_detail_preview(tool_name: str, arguments: Any) -> str:
     args = arguments if isinstance(arguments, dict) else {}
     if tool_name == "terminal":
         return _terminal_preview(args)
-    if tool_name == "hf_sync":
-        return _hf_sync_preview(args)
+    if tool_name == "s3":
+        return _s3_preview(args)
     if tool_name == "sosearch":
         return _sosearch_preview(args)
     if tool_name == "scrapling":
@@ -83,18 +83,27 @@ def _terminal_preview(args: dict[str, Any]) -> str:
     return _trim(command, 120) + suffix
 
 
-def _hf_sync_preview(args: dict[str, Any]) -> str:
+def _s3_preview(args: dict[str, Any]) -> str:
     action = str(args.get("action") or "").strip()
-    if action in {"copy", "move"}:
-        src = str(args.get("src_key") or args.get("source") or args.get("src") or "").strip()
-        dst = str(args.get("dst_key") or args.get("target") or args.get("dst") or "").strip()
-        text = f"{action} {src} -> {dst}".strip()
-        return _trim(text, 120)
-    key = str(args.get("key") or args.get("name") or args.get("path") or args.get("prefix") or "").strip()
-    if action and key:
-        return _trim(f"{action} {key}", 120)
+    bucket = str(args.get("bucket") or "").strip()
+    key = str(args.get("key") or "").strip()
+    if action == "get_url":
+        return f"get_url {bucket}/{key}" if bucket and key else "get_url"
+    if action in {"copy_object", "move_object"}:
+        src = f"{args.get('src_bucket', '')}/{args.get('src_key', '')}"
+        dst = f"{args.get('dst_bucket', '')}/{args.get('dst_key', '')}"
+        return f"{action} {src} -> {dst}"
+    if action == "put_object" and key:
+        size_hint = ""
+        if args.get("text"):
+            size_hint = f" ({len(str(args['text']))} chars)"
+        elif args.get("content_b64"):
+            size_hint = " (base64)"
+        return f"put {bucket}/{key}{size_hint}" if bucket else f"put {key}{size_hint}"
+    if action and bucket:
+        return f"{action} {bucket}/{key}" if key else f"{action} {bucket}"
     if action:
-        return _trim(action, 120)
+        return action
     return _json_preview(args)
 
 

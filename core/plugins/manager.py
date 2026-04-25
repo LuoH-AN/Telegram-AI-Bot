@@ -30,7 +30,7 @@ _BUILTIN_TOOL_NAMES = {
     "scrapling",
     "project_config",
     "quick_deploy",
-    "hf_sync",
+    "s3",
 }
 
 
@@ -64,7 +64,10 @@ class PluginManager:
         self._initialized = False
 
     def discover(self) -> None:
-        """Scan all plugin directories and register their tools."""
+        """Scan all plugin directories and register their tools. Idempotent and reentrant-safe."""
+        if self._initialized:
+            return
+        self._initialized = True  # Set before running to prevent re-entry
         manifests: list[tuple[PluginManifest, Path]] = []
 
         # Scan built-in roots
