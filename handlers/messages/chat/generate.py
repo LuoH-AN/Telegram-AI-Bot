@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from config import SHOW_THINKING_MAX_CHARS, STREAM_UPDATE_MODE
-from utils import filter_thinking_content
+from utils.ai import filter_thinking_content
 
 from ..stream import stream_response
 from .tool import build_assistant_tool_call_message

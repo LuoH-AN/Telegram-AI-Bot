@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from config import VALID_REASONING_EFFORTS
-from utils import extract_thinking_blocks, filter_thinking_content, format_thinking_block
+from utils.ai import extract_thinking_blocks, filter_thinking_content, format_thinking_block
 
 
 def make_thinking_prefix(seconds: int | float) -> str:

@@ -6,7 +6,7 @@ import base64
 from pathlib import Path
 
 from config import MAX_FILE_SIZE, MAX_TEXT_CONTENT_LENGTH
-from utils import decode_file_content, is_image_file, is_likely_text, is_text_file
+from utils.files import decode_file_content, is_image_file, is_likely_text, is_text_file
 
 
 def append_downloaded_file(

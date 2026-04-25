@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from utils import is_image_file
+from utils.files import is_image_file
 
 from ..config import WECHAT_COMMAND_PREFIX, WECHAT_GROUP_MENTION_ALIASES, WECHAT_GROUP_REPLY_ALL, WECHAT_VIDEO_SUFFIXES
 

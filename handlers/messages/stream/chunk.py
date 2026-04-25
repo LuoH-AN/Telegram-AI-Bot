@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from utils import filter_thinking_content, extract_thinking_blocks, format_thinking_block
+from utils.ai import filter_thinking_content, extract_thinking_blocks, format_thinking_block
 
 from .policy import STREAM_BOUNDARY_CHARS, should_update_stream
 

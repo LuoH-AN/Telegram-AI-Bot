@@ -8,7 +8,7 @@ from typing import Callable
 from ai import get_ai_client
 from config import SHOW_THINKING_MAX_CHARS
 from handlers.messages.stream import stream_response
-from utils import extract_thinking_blocks, filter_thinking_content, format_thinking_block
+from utils.ai import extract_thinking_blocks, filter_thinking_content, format_thinking_block
 
 
 async def run_completion_round(

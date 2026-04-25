@@ -5,8 +5,8 @@ import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 from config import MAX_MESSAGE_LENGTH, STREAM_FORCE_UPDATE_INTERVAL
-from utils import ChatEventPump, StreamOutboundAdapter, edit_message_safe, send_message_safe
-from utils.tool_status import build_tool_status_text
+from utils.stream import ChatEventPump, StreamOutboundAdapter, edit_message_safe, send_message_safe
+from utils.ai import build_tool_status_text
 
 logger = logging.getLogger(__name__)
 

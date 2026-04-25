@@ -5,7 +5,7 @@ Uses the wechatbot-sdk's send/reply methods instead of raw HTTP calls.
 
 from __future__ import annotations
 
-from utils import split_message
+from utils.format import split_message
 
 from ..config import logger
 

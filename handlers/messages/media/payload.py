@@ -6,7 +6,7 @@ import base64
 from dataclasses import dataclass
 
 from config import MAX_FILE_SIZE, MAX_TEXT_CONTENT_LENGTH, MIME_TYPE_MAP
-from utils import decode_file_content, get_file_extension, is_image_file, is_likely_text, is_text_file
+from utils.files import decode_file_content, get_file_extension, is_image_file, is_likely_text, is_text_file
 from utils.platform import build_analyze_uploaded_files_message
 
 

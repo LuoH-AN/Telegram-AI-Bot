@@ -18,7 +18,8 @@ def execute_ai_and_send(
     reasoning_effort: str,
 ) -> None:
     from services import get_system_prompt
-    from utils import filter_thinking_content, get_datetime_prompt
+    from utils.ai import filter_thinking_content
+from utils.files import get_datetime_prompt
 
     system_prompt = get_system_prompt(user_id)
     system_prompt += "\n\n" + get_datetime_prompt()

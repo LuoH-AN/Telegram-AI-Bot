@@ -22,10 +22,10 @@ from services import (
 from services.log import record_ai_interaction, record_error
 from services.refresh import ensure_user_state
 from services.queue import cancel_user_responses, register_response, unregister_response
-from utils import get_datetime_prompt
-from utils.tool_status import build_tool_status_text
-from utils.ai_helpers import estimate_tokens as _estimate_tokens
-from utils.ai_helpers import estimate_tokens_str as _estimate_tokens_str
+from utils.files import get_datetime_prompt
+from utils.ai import build_tool_status_text
+from utils.ai import estimate_tokens as _estimate_tokens
+from utils.ai import estimate_tokens_str as _estimate_tokens_str
 from utils.platform import build_api_key_required_message, build_latex_guidance, build_retry_message, build_token_limit_reached_message
 
 from ..config import logger

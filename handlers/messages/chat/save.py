@@ -13,8 +13,8 @@ from services import (
     get_session_message_count,
 )
 from services.log import record_ai_interaction
-from utils.ai_helpers import estimate_tokens as _estimate_tokens
-from utils.ai_helpers import estimate_tokens_str as _estimate_tokens_str
+from utils.ai import estimate_tokens as _estimate_tokens
+from utils.ai import estimate_tokens_str as _estimate_tokens_str
 
 from .title import generate_and_set_title
 

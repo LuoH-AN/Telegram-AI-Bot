@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from utils.provider import resolve_provider_model
+from utils.resolve import resolve_provider_model
 
 logger = logging.getLogger(__name__)
 
