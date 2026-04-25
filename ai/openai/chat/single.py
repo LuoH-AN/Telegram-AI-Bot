@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 
-from ai.base import StreamChunk, ToolCall
+from ai.types import StreamChunk, ToolCall
 
 logger = logging.getLogger(__name__)
 

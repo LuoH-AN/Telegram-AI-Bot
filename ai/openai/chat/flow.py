@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 from typing import Iterator
-from ai.base import StreamChunk
+from ai.types import StreamChunk
 
 from .request import build_chat_kwargs, create_chat_response
 from .single import build_nonstream_chunk

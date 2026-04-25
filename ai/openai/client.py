@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from openai import OpenAI
 
-from ai.base import AIClient, StreamChunk
+from ai.types import AIClient, StreamChunk
 
 from .chat.flow import run_chat_completion
 from .models import list_models_with_logging

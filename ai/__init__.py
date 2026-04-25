@@ -1,7 +1,7 @@
 """AI client module with factory function."""
 
 from services import get_user_settings
-from .base import AIClient, StreamChunk, ToolCall
+from .types import AIClient, StreamChunk, ToolCall
 from .openai import OpenAIClient, create_openai_client
 
 

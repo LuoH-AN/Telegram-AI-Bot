@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator
 
-from ai.base import StreamChunk, ToolCall
+from ai.types import StreamChunk, ToolCall
 
 from .utils import _text_size
 
