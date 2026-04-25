@@ -6,7 +6,7 @@ import json
 
 from database import get_connection, get_dict_cursor
 
-from ..constants import DEFAULT_BASE_URL
+from ..config import DEFAULT_BASE_URL
 from .model import WeChatAccountState
 
 

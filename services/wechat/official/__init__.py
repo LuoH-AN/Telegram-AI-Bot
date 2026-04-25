@@ -1,7 +1,7 @@
 """Official Weixin channel protocol helpers."""
 
 from .client import WeChatOfficialClient
-from .constants import DEFAULT_BOT_TYPE, WECHAT_TEXT_LIMIT
+from .config import DEFAULT_BOT_TYPE, WECHAT_TEXT_LIMIT
 from .ids import local_chat_id_for_wechat, local_user_id_for_wechat
 
 __all__ = [

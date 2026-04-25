@@ -11,7 +11,7 @@ from .base import ClientBaseMixin
 from .download import ClientMediaDownloadMixin
 from .message import ClientMessagesMixin
 from .send import ClientMediaSendMixin
-from ..constants import DEFAULT_BASE_URL, DEFAULT_BOT_TYPE, DEFAULT_CDN_BASE_URL
+from ..config import DEFAULT_BASE_URL, DEFAULT_BOT_TYPE, DEFAULT_CDN_BASE_URL
 from ..state import WeChatStateStore
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..constants import DEFAULT_BASE_URL
+from ..config import DEFAULT_BASE_URL
 
 
 @dataclass

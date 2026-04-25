@@ -11,7 +11,7 @@ from pathlib import Path
 import requests
 
 from .mime import get_mime_from_filename
-from ..constants import WECHAT_MEDIA_MAX_BYTES
+from ..config import WECHAT_MEDIA_MAX_BYTES
 from ..crypto import aes_ecb_encrypt, aes_ecb_padded_size
 
 

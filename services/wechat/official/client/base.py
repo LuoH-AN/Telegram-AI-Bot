@@ -6,7 +6,7 @@ import json
 import secrets
 from urllib.parse import urljoin
 
-from ..constants import ILINK_APP_CLIENT_VERSION, ILINK_APP_ID
+from ..config import ILINK_APP_CLIENT_VERSION, ILINK_APP_ID
 
 
 class ClientBaseMixin:
