@@ -47,7 +47,7 @@ class OneBotClient:
             headers["Authorization"] = f"Bearer {self.access_token}"
 
         logger.info("Connecting to NapCat at %s", self.ws_url)
-        self._ws = await websockets.connect(self.ws_url, extra_headers=headers)
+        self._ws = await websockets.connect(self.ws_url, additional_headers=headers)
         self._connected = True
         logger.info("Connected to NapCat")
         self._recv_task = asyncio.create_task(self._recv_loop())
