@@ -1,6 +1,6 @@
 """Configuration module."""
 
-from .constants import (
+from .app import (
     MAX_MESSAGE_LENGTH,
     DB_SYNC_INTERVAL,
     MODELS_PER_PAGE,

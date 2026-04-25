@@ -739,7 +739,7 @@ ai/
 
 - `config/env.py`
 - `config/util.py`
-- `config/constants.py`
+- `config/app.py`
 
 ---
 
