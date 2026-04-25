@@ -7,12 +7,12 @@ from pathlib import Path
 
 import requests
 
-from .client_base import ClientBaseMixin
-from .client_media_download import ClientMediaDownloadMixin
-from .client_media_send import ClientMediaSendMixin
-from .client_messages import ClientMessagesMixin
-from .constants import DEFAULT_BASE_URL, DEFAULT_BOT_TYPE, DEFAULT_CDN_BASE_URL
-from .state_store import WeChatStateStore
+from .base import ClientBaseMixin
+from .download import ClientMediaDownloadMixin
+from .message import ClientMessagesMixin
+from .send import ClientMediaSendMixin
+from ..constants import DEFAULT_BASE_URL, DEFAULT_BOT_TYPE, DEFAULT_CDN_BASE_URL
+from ..state import WeChatStateStore
 
 logger = logging.getLogger(__name__)
 

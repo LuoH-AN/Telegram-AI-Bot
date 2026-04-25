@@ -19,8 +19,8 @@ from wechatbot import WeChatBot
 from wechatbot.types import Credentials, IncomingMessage
 
 from services.wechat.official.ids import local_user_id_for_wechat
-from services.wechat.official.state_models import WeChatAccountState
-from services.wechat.official.state_store_db import load_state_from_db, save_state_to_db
+from services.wechat.official.state.db import load_state_from_db, save_state_to_db
+from services.wechat.official.state.model import WeChatAccountState
 
 logger = logging.getLogger(__name__)
 

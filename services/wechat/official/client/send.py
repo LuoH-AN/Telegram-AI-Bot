@@ -10,9 +10,9 @@ from pathlib import Path
 
 import requests
 
-from .constants import WECHAT_MEDIA_MAX_BYTES
-from .crypto import aes_ecb_encrypt, aes_ecb_padded_size
-from .mime_types import get_mime_from_filename
+from .mime import get_mime_from_filename
+from ..constants import WECHAT_MEDIA_MAX_BYTES
+from ..crypto import aes_ecb_encrypt, aes_ecb_padded_size
 
 
 class ClientMediaSendMixin:

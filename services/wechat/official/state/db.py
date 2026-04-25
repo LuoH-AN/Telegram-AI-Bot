@@ -6,8 +6,8 @@ import json
 
 from database import get_connection, get_dict_cursor
 
-from .constants import DEFAULT_BASE_URL
-from .state_models import WeChatAccountState
+from ..constants import DEFAULT_BASE_URL
+from .model import WeChatAccountState
 
 
 def load_state_from_db(account_key: str, logger) -> WeChatAccountState:

@@ -6,9 +6,9 @@ import logging
 import threading
 from pathlib import Path
 
-from .ids import local_user_id_for_wechat
-from .state_models import WeChatAccountState
-from .state_store_db import load_state_from_db, save_state_to_db
+from ..ids import local_user_id_for_wechat
+from .db import load_state_from_db, save_state_to_db
+from .model import WeChatAccountState
 
 
 class WeChatStateStore:

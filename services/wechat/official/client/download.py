@@ -7,8 +7,8 @@ from pathlib import Path
 
 import requests
 
-from .crypto import aes_ecb_decrypt, parse_aes_key_base64
-from .mime_types import get_mime_from_filename
+from .mime import get_mime_from_filename
+from ..crypto import aes_ecb_decrypt, parse_aes_key_base64
 
 
 class ClientMediaDownloadMixin:
