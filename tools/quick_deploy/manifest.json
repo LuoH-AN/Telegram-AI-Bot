@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "name": "quick_deploy",
+  "version": "1.0.0",
+  "description": "Deploy the bot to various platforms (HuggingFace Spaces, etc.) with one command.",
+  "author": "",
+  "repository": "",
+  "dependencies": [],
+  "entry_point": "tools.quick_deploy.tool:QuickDeployTool",
+  "capabilities": ["deploy", "status"],
+  "platforms": ["telegram", "wechat", "onebot"]
+}

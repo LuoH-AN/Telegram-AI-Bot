@@ -1,26 +1,15 @@
-"""Tools module — register tools and expose public API."""
+"""Tools module — backed by the plugin system.
 
-import logging
+All public API calls are forwarded to the PluginRegistry singleton
+so that existing call sites continue to work unchanged.
+"""
 
-from .core.registry import registry
-from .terminal import TerminalTool
-from .hf_sync import HFSyncTool
-from .project_config import ProjectConfigTool
-from .quick_deploy import QuickDeployTool
-from .scrapling import ScraplingTool
-from .sosearch import SoSearchTool
+from core.plugins import registry, get_plugin_manager
 
-logger = logging.getLogger(__name__)
+# Trigger plugin discovery on first tools import
+get_plugin_manager().discover()
 
-# Register all tools
-registry.register(TerminalTool())
-registry.register(HFSyncTool())
-registry.register(ProjectConfigTool())
-registry.register(QuickDeployTool())
-registry.register(ScraplingTool())
-registry.register(SoSearchTool())
-
-# Public API
+# Re-export the same public API as before — backed by PluginRegistry
 get_all_tools = registry.get_definitions
 process_tool_calls = registry.process_tool_calls
 get_tool_instructions = registry.get_instructions

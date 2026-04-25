@@ -11,6 +11,7 @@ from .memory import forget_command, memories_command, remember_command
 from .chat import chat_command
 from .persona import persona_command
 from .settings import set_command
+from core.plugins import dispatch_skill_command
 
 
 async def dispatch_command(
@@ -79,5 +80,9 @@ async def dispatch_command(
         return
     if command == "login":
         await login_command(ctx, command_prefix, args=args)
+        return
+    if command == "skill":
+        reply = await dispatch_skill_command(ctx, args)
+        await ctx.reply_text(reply)
         return
     await ctx.reply_text(build_help_message(command_prefix))

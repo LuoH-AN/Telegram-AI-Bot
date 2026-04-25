@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "name": "project_config",
+  "version": "1.0.0",
+  "description": "Read and write project configuration files (CLAUDE.md, .env, etc.) with safety checks.",
+  "author": "",
+  "repository": "",
+  "dependencies": [],
+  "entry_point": "tools.project_config.tool:ProjectConfigTool",
+  "capabilities": ["read", "write", "list"],
+  "platforms": ["telegram", "wechat", "onebot"]
+}
