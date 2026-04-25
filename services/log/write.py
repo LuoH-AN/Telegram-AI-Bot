@@ -3,7 +3,7 @@
 import json
 import logging
 
-from database.connection import get_connection
+from database.db import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -66,4 +66,3 @@ def record_terminal_command(user_id: int, *, command: str, exit_code: int, cwd: 
            VALUES (%s, 'terminal_command', %s, %s)""",
         (user_id, command, json.dumps(detail, ensure_ascii=False)),
     )
-

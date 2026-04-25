@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from database.connection import get_connection
+from database.db import get_connection
 
 from .query import _build_where
 
@@ -55,4 +55,3 @@ def keep_latest_logs(user_id: int, keep_latest: int, log_type: str | None = None
         return int(deleted)
     finally:
         conn.close()
-

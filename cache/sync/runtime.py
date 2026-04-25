@@ -8,7 +8,7 @@ import time
 
 from config import DB_SYNC_INTERVAL
 from database import get_connection
-from database.schema import create_tables
+from database.tables import create_tables
 
 logger = logging.getLogger(__name__)
 

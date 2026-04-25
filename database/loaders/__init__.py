@@ -1,7 +1,7 @@
 """Shared DB-row-to-dict parse functions."""
 
-from .settings import parse_settings_row
-from .records import (
+from .config import parse_settings_row
+from .rows import (
     parse_conversation_row,
     parse_cron_task_row,
     parse_memory_row,
@@ -22,4 +22,3 @@ __all__ = [
     "parse_skill_state_row",
     "parse_cron_task_row",
 ]
-

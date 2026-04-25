@@ -1,7 +1,7 @@
 """Database-to-cache refresh implementation."""
 
 from cache import cache
-from database.connection import get_connection, get_dict_cursor
+from database.db import get_connection, get_dict_cursor
 from database.loaders import (
     parse_conversation_row,
     parse_persona_row,
@@ -81,4 +81,3 @@ def refresh_cache_from_db(user_id: int) -> None:
                 )
     finally:
         conn.close()
-

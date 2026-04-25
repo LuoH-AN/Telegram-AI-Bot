@@ -1,6 +1,6 @@
 """Read and delete operations for log rows."""
 
-from database.connection import get_connection, get_dict_cursor
+from database.db import get_connection, get_dict_cursor
 
 
 def _build_where(user_id: int, log_type: str | None = None) -> tuple[str, tuple]:
@@ -34,4 +34,3 @@ def delete_log_by_id(user_id: int, log_id: int) -> bool:
         return deleted
     finally:
         conn.close()
-

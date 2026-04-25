@@ -470,9 +470,9 @@ ai/
 
 ### `database/` 做什么
 
-- `connection.py`
+- `db.py`
   - 获取 PostgreSQL 连接
-- `schema.py`
+- `tables.py`
   - 建表入口
 - `schema_sql/`
   - 按领域拆分建表 SQL

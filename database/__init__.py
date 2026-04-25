@@ -1,7 +1,7 @@
 """Database module."""
 
-from .connection import get_connection, get_dict_cursor
-from .schema import create_tables
+from .db import get_connection, get_dict_cursor
+from .tables import create_tables
 from .loaders import (
     parse_settings_row,
     parse_persona_row,
