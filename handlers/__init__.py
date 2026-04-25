@@ -25,7 +25,7 @@ from .commands import (
 from .messages import chat, handle_photo, handle_document
 
 # Callbacks
-from .callbacks import model_callback, help_callback
+from .callback import model_callback, help_callback
 
 # Common
 from .common import should_respond_in_group

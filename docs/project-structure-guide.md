@@ -599,7 +599,7 @@ ai/
   - Telegram 命令包装层
 - `handlers/messages/`
   - 文本、图片、文档消息处理
-- `handlers/common_parts/`
+- `handlers/common/`
   - 群组判断、媒体预处理、日志上下文
 
 要点：
