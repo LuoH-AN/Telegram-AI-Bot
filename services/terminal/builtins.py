@@ -6,9 +6,9 @@ import os
 import re
 import shlex
 
-from services.terminal_session import TerminalSessionState
+from .state import TerminalSessionState
 
-from .shared import REPO_ROOT, resolve_cwd
+from .utils import REPO_ROOT, resolve_cwd
 
 
 def apply_shell_builtin(command: str, session: TerminalSessionState) -> dict | None:
@@ -55,4 +55,3 @@ def apply_shell_builtin(command: str, session: TerminalSessionState) -> dict | N
     if normalized in {"reset", "reset-session"}:
         return {"ok": True, "exit_code": 0, "stdout": "", "stderr": ""}
     return None
-

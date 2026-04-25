@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from services.terminal_exec import DEFAULT_TIMEOUT_SECONDS, REPO_ROOT
+from .utils import DEFAULT_TIMEOUT_SECONDS, REPO_ROOT
 
 MAX_TERMINAL_STEPS = 8
 SKILL_TERMINAL_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
@@ -75,4 +75,3 @@ def coerce_step(payload: dict | None, fallback_error: str) -> dict:
     if done and not final_message:
         final_message = summary or "Skill terminal process completed."
     return {"done": done, "command": command, "cwd": cwd, "summary": summary, "final_message": final_message}
-

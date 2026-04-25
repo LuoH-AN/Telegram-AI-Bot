@@ -5,10 +5,10 @@ from __future__ import annotations
 import subprocess
 
 from services.log import record_terminal_command
-from services.terminal_session import get_terminal_session, reset_terminal_session, save_terminal_session
 
 from .builtins import apply_shell_builtin
-from .shared import clean_env, resolve_cwd, truncate_output, validate_command
+from .state import get_terminal_session, reset_terminal_session, save_terminal_session
+from .utils import clean_env, resolve_cwd, truncate_output, validate_command
 
 
 def _session_payload(session) -> dict:
@@ -77,4 +77,3 @@ def execute_terminal_command(user_id: int, command: str, *, cwd: str | None = No
         save_terminal_session(user_id, session, session_name=session_name)
         record_terminal_command(user_id, command=command, exit_code=124, cwd=str(resolved_cwd), stdout=stdout, stderr=stderr)
         return _final_payload(False, command, str(resolved_cwd), session_name, 124, stdout, stderr, session)
-

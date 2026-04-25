@@ -1,8 +1,7 @@
 """Direct shell-mode helpers for skill terminal."""
 
-from services.terminal_exec import execute_terminal_command
-
-from .common import SKILL_TERMINAL_TIMEOUT_SECONDS
+from .plan import SKILL_TERMINAL_TIMEOUT_SECONDS
+from .run import execute_terminal_command
 
 DIRECT_PREFIXES = ("cmd:", "exec:", "shell:")
 TERMINAL_HELP_TEXT = (
@@ -63,4 +62,3 @@ def run_direct_terminal(user_id: int, goal: str) -> dict:
         }],
         "result": result,
     }
-

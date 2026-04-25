@@ -1,12 +1,14 @@
-"""Terminal workflow for direct shell usage and AI-guided task execution."""
+"""Terminal services."""
 
 from __future__ import annotations
 
 import json
 
 from .agent import run_agent_terminal
+from .run import execute_terminal_command
 from .direct import TERMINAL_HELP_TEXT, looks_like_direct_command, run_direct_terminal
-from services.terminal_session import get_terminal_session, reset_terminal_session
+from .state import get_terminal_session, reset_terminal_session
+from .utils import DEFAULT_TIMEOUT_SECONDS, MAX_OUTPUT_CHARS, REPO_ROOT
 from services.user import get_user_settings
 
 
@@ -39,5 +41,10 @@ def run_skill_terminal(user_id: int, goal: str) -> dict:
     return run_agent_terminal(user_id, goal, settings)
 
 
-__all__ = ["run_skill_terminal"]
-
+__all__ = [
+    "REPO_ROOT",
+    "DEFAULT_TIMEOUT_SECONDS",
+    "MAX_OUTPUT_CHARS",
+    "execute_terminal_command",
+    "run_skill_terminal",
+]

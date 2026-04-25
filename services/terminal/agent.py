@@ -7,9 +7,8 @@ import logging
 
 from openai import OpenAI
 
-from services.terminal_exec import execute_terminal_command
-
-from .common import MAX_TERMINAL_STEPS, SKILL_TERMINAL_TIMEOUT_SECONDS, build_messages, coerce_step, safe_json_loads
+from .plan import MAX_TERMINAL_STEPS, SKILL_TERMINAL_TIMEOUT_SECONDS, build_messages, coerce_step, safe_json_loads
+from .run import execute_terminal_command
 
 logger = logging.getLogger(__name__)
 
@@ -55,4 +54,3 @@ def run_agent_terminal(user_id: int, goal: str, settings: dict) -> dict:
 
     logger.warning("skill_terminal exceeded max steps for user %s", user_id)
     return {"ok": False, "message": "Skill terminal reached maximum steps, task not completed.", "steps": steps}
-
