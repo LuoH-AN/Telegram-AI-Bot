@@ -14,10 +14,10 @@ from services.runtime_queue import cancel_user_responses, register_response, unr
 from utils import get_datetime_prompt
 from utils.platform_parity import build_latex_guidance, build_retry_message
 
-from .generation import generate_with_tools
-from .persistence import deliver_and_persist
-from .preflight import prepare_chat_request
-from .rendering import setup_render_runtime
+from .generate import generate_with_tools
+from .prepare import prepare_chat_request
+from .render import setup_render_runtime
+from .save import deliver_and_persist
 logger = logging.getLogger(__name__)
 
 def _build_messages(req: dict) -> list[dict]:

@@ -6,7 +6,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context, preflight_media_request
-from handlers.messages.document_payload import build_document_payload
+from handlers.messages.media.payload import build_document_payload
 from utils.platform_parity import build_retry_message
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         payload = await build_document_payload(grouped_messages, context, caption=caption)
 
-        from handlers.messages.text import chat
+        from handlers.messages.chat import chat
 
         await chat(
             update,

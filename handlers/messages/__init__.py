@@ -1,8 +1,7 @@
 """Message handlers module."""
 
-from .text import chat
-from .photo import handle_photo
-from .document import handle_document
+from .chat import chat
+from .media import handle_document, handle_photo
 
 __all__ = [
     "chat",

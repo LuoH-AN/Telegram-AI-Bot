@@ -68,7 +68,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if caption:
             save_msg += f" {caption}"
 
-        from handlers.messages.text import chat
+        from handlers.messages.chat import chat
         await chat(
             update,
             context,

@@ -9,8 +9,8 @@ from config import SHOW_THINKING_MAX_CHARS, STREAM_UPDATE_MODE
 from utils import filter_thinking_content
 
 from ..stream import stream_response
-from .generation_tools import build_assistant_tool_call_message
-from .helpers import append_thinking_segments, build_final_display, normalize_reasoning_effort
+from .tool import build_assistant_tool_call_message
+from .utils import append_thinking_segments, build_final_display, normalize_reasoning_effort
 
 logger = logging.getLogger(__name__)
 
