@@ -21,7 +21,7 @@ from services import (
 )
 from services.log import record_ai_interaction, record_error
 from services.refresh import ensure_user_state
-from services.runtime_queue import cancel_user_responses, register_response, unregister_response
+from services.queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
 from utils.tool_status import build_tool_status_text
 from utils.ai_helpers import estimate_tokens as _estimate_tokens

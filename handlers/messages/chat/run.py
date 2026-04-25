@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from ai import get_ai_client
 from services import add_user_message, conversation_slot, get_system_prompt
 from services.log import record_error
-from services.runtime_queue import cancel_user_responses, register_response, unregister_response
+from services.queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
 from utils.platform_parity import build_latex_guidance, build_retry_message
 
