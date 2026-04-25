@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 
-from .constants import LFS_LOG_TAIL_LINES
+from ..config import LFS_LOG_TAIL_LINES
 
 
 def ensure_git_backend(store) -> bool:

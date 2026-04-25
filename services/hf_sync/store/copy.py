@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 import shutil
 
-from .git_checkout import ensure_git_checkout
-from .git_commit import commit_git_change
-from .git_common import git_local_dir, run_git
-from .paths import prefixed_path
+from .git.checkout import ensure_git_checkout
+from .git.commit import commit_git_change
+from .git.common import git_local_dir, run_git
+from .path import prefixed_path
 
 
 def copy_path(
@@ -105,4 +105,3 @@ def _cleanup_empty_parent_dirs(repo_dir: str, directory: str) -> None:
         except OSError:
             return
         current = os.path.dirname(current)
-

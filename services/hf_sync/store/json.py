@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .bytes_ops import get_bytes, put_bytes
-from .paths import prefixed_path
+from .bytes import get_bytes, put_bytes
+from .path import prefixed_path
 
 
 def get_json(store, path: str, *, allow_plaintext: bool = False) -> Any | None:

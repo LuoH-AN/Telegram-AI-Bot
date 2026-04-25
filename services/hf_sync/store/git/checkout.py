@@ -6,12 +6,12 @@ import os
 import shutil
 import time
 
-from .constants import (
+from ..config import (
     LFS_CONCURRENT_TRANSFERS,
     LFS_TRANSFER_MAX_RETRIES,
     LFS_TRANSFER_MAX_RETRY_DELAY,
 )
-from .git_common import ensure_git_backend, git_local_dir, git_repo_url, run_git
+from .common import ensure_git_backend, git_local_dir, git_repo_url, run_git
 
 
 def ensure_git_checkout(store) -> bool:

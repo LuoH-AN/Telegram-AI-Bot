@@ -8,7 +8,7 @@ import json
 import logging
 import os
 
-from .constants import ENC_MAGIC, LFS_POINTER_PREFIX
+from .config import ENC_MAGIC, LFS_POINTER_PREFIX
 
 logger = logging.getLogger(__name__)
 

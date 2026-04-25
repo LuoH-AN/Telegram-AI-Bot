@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 
-from .git_checkout import ensure_git_checkout
-from .git_common import git_local_dir
-from .paths import prefixed_path
+from .git.checkout import ensure_git_checkout
+from .git.common import git_local_dir
+from .path import prefixed_path
 
 
 def list_paths(store, *, prefix: str = "", limit: int = 200, recursive: bool = True) -> list[dict]:

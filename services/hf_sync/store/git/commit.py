@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 import time
 
-from .constants import LFS_PUSH_RETRIES, LFS_PUSH_RETRY_BACKOFF_SECONDS
-from .git_common import git_local_dir, is_lfs_push_error, read_lfs_log_excerpt, run_git
+from ..config import LFS_PUSH_RETRIES, LFS_PUSH_RETRY_BACKOFF_SECONDS
+from .common import git_local_dir, is_lfs_push_error, read_lfs_log_excerpt, run_git
 
 
 def commit_git_change(store, filename: str, commit_message: str) -> bool:

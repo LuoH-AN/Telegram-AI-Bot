@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from .store import HFDatasetStore
+from .dataset import HFDatasetStore
 
 _store_lock = threading.Lock()
 _store: HFDatasetStore | None = None

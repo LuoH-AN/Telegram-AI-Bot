@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 
 from .crypto import decrypt_payload, encrypt_payload
-from .git_checkout import ensure_git_checkout
-from .git_commit import commit_git_change
-from .git_common import git_local_dir, run_git
-from .paths import prefixed_path
+from .git.checkout import ensure_git_checkout
+from .git.commit import commit_git_change
+from .git.common import git_local_dir, run_git
+from .path import prefixed_path
 
 
 def get_bytes(store, path: str, *, allow_plaintext: bool = True) -> bytes | None:

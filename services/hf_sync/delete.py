@@ -6,10 +6,10 @@ import json
 import os
 
 from .store import get_hf_dataset_store
-from .store.git_checkout import ensure_git_checkout
-from .store.git_commit import commit_git_change
-from .store.git_common import git_local_dir, run_git
-from .store.paths import prefixed_path
+from .store.git.checkout import ensure_git_checkout
+from .store.git.commit import commit_git_change
+from .store.git.common import git_local_dir, run_git
+from .store.path import prefixed_path
 
 from .index import _load_object_index
 from .name import _normalize_object_key

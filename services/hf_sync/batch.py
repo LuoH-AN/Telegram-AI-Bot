@@ -6,10 +6,10 @@ import json
 import os
 
 from .store.crypto import encrypt_payload
-from .store.git_checkout import ensure_git_checkout
-from .store.git_commit import commit_git_change
-from .store.git_common import git_local_dir, run_git
-from .store.paths import prefixed_path
+from .store.git.checkout import ensure_git_checkout
+from .store.git.commit import commit_git_change
+from .store.git.common import git_local_dir, run_git
+from .store.path import prefixed_path
 
 
 def commit_object_triplet(store, *, object_name: str, data: bytes, encrypt: bool, content_path: str, meta_path: str, meta: dict, index_path: str, index_items: list[dict]) -> bool:
@@ -38,4 +38,3 @@ def commit_object_triplet(store, *, object_name: str, data: bytes, encrypt: bool
         except Exception as exc:
             store._logger.warning("HF store batch write failed for %s: %s", object_name, exc)
             return False
-

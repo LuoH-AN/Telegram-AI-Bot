@@ -7,13 +7,13 @@ import os
 import threading
 from typing import Any
 
-from .bytes_ops import get_bytes, put_bytes
-from .constants import FALSY, TRUTHY
-from .delete_ops import delete_path, delete_prefix
-from .list_ops import exists_path, head_path, list_paths
-from .copy_ops import copy_path, move_path
-from .json_ops import get_json, put_json, resolve_repo_url
-from .paths import build_repo_id
+from .bytes import get_bytes, put_bytes
+from .config import FALSY, TRUTHY
+from .copy import copy_path, move_path
+from .delete import delete_path, delete_prefix
+from .json import get_json, put_json, resolve_repo_url
+from .list import exists_path, head_path, list_paths
+from .path import build_repo_id
 
 logger = logging.getLogger(__name__)
 
