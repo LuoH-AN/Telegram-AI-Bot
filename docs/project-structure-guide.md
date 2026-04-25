@@ -737,8 +737,8 @@ ai/
 
 关键文件：
 
-- `config/settings.py`
-- `config/settings_helpers.py`
+- `config/env.py`
+- `config/util.py`
 - `config/constants.py`
 
 ---

@@ -4,7 +4,7 @@ import os
 
 from dotenv import load_dotenv
 
-from .settings_helpers import (
+from .util import (
     apply_env_text,
     build_default_jwt_secret,
     build_default_settings,

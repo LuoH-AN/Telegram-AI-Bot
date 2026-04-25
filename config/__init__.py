@@ -21,7 +21,7 @@ from .constants import (
     MAX_CRON_TASKS_PER_USER,
     VALID_REASONING_EFFORTS,
 )
-from .settings import (
+from .env import (
     DATABASE_URL,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_API_BASE,

@@ -4,7 +4,7 @@
 MAX_MESSAGE_LENGTH = 4096
 
 # Streaming update interval fallback (seconds).
-# Runtime value is environment-configurable in config/settings.py.
+# Runtime value is environment-configurable in config/env.py.
 STREAM_UPDATE_INTERVAL = 0.35
 
 # Database sync interval (seconds)
