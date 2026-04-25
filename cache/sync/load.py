@@ -6,10 +6,7 @@ import logging
 
 from database import get_connection, get_dict_cursor
 
-from .load_cron_skills import run_cron_skills_load
-from .load_sessions import run_sessions_load
-from .load_settings_personas import run_settings_personas_load
-from .load_tokens_memories import run_tokens_memories_load
+from . import cron, memory, persona, session, settings, skill, token
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +15,12 @@ def load_from_database(cache) -> None:
     try:
         with get_connection() as conn:
             with get_dict_cursor(conn) as cur:
-                run_settings_personas_load(cur, cache)
-                run_sessions_load(cur, cache)
-                run_tokens_memories_load(cur, cache)
-                run_cron_skills_load(cur, cache)
+                settings.load(cur, cache)
+                persona.load(cur, cache)
+                session.load(cur, cache)
+                token.load(cur, cache)
+                memory.load(cur, cache)
+                cron.load(cur, cache)
+                skill.load(cur, cache)
     except Exception:
         logger.exception("Failed to load from database")

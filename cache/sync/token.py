@@ -1,11 +1,17 @@
-"""Sync token usage and memories."""
+"""Token cache sync."""
 
 from __future__ import annotations
 
-import json
+from database.loaders import parse_token_row
 
 
-def sync_tokens(cur, cache, dirty: dict) -> None:
+def load(cur, cache) -> None:
+    cur.execute("SELECT * FROM user_persona_tokens")
+    for row in cur.fetchall():
+        cache.set_token_usage(row["user_id"], row["persona_name"], parse_token_row(row))
+
+
+def sync(cur, cache, dirty: dict) -> None:
     for user_id, persona_name in dirty["tokens"]:
         token = cache.get_token_usage(user_id, persona_name)
         cur.execute(
@@ -27,17 +33,3 @@ def sync_tokens(cur, cache, dirty: dict) -> None:
                 token.get("token_limit", 0),
             ),
         )
-
-
-def sync_memories(cur, dirty: dict) -> None:
-    for user_id in dirty["cleared_memories"]:
-        cur.execute("DELETE FROM user_memories WHERE user_id = %s", (user_id,))
-    for memory_id in dirty["deleted_memory_ids"]:
-        cur.execute("DELETE FROM user_memories WHERE id = %s", (memory_id,))
-    for mem in dirty["new_memories"]:
-        embedding = json.dumps(mem["embedding"]) if mem.get("embedding") else None
-        cur.execute(
-            "INSERT INTO user_memories (user_id, content, source, embedding) VALUES (%s, %s, %s, %s) RETURNING id",
-            (mem["user_id"], mem["content"], mem["source"], embedding),
-        )
-        mem["id"] = cur.fetchone()[0]
