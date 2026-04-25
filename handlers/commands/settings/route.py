@@ -12,8 +12,8 @@ from platforms.commands.basic import settings_command as core_settings_command
 from platforms.commands.settings import set_command as core_set_command
 from services.refresh import ensure_user_state
 
-from .context import TelegramCommandContextAdapter
-from .models import _build_model_keyboard, show_model_list
+from ..context import TelegramCommandContextAdapter
+from .model import _build_model_keyboard, show_model_list
 
 logger = logging.getLogger(__name__)
 
