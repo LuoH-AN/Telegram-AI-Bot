@@ -7,7 +7,7 @@ from typing import Iterator
 
 from ai.base import StreamChunk, ToolCall
 
-from .helpers import _text_size
+from .utils import _text_size
 
 
 @dataclass

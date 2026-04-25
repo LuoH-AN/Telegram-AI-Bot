@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 
-from .helpers import _is_reasoning_param_error, _shorten_text
+from .utils import _is_reasoning_param_error, _shorten_text
 
 logger = logging.getLogger(__name__)
 

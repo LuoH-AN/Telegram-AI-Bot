@@ -12,8 +12,8 @@ from openai import OpenAI
 
 from ai.base import AIClient, StreamChunk
 
-from .chat_api import run_chat_completion
-from .models_api import list_models_with_logging
+from .chat.flow import run_chat_completion
+from .models import list_models_with_logging
 
 logger = logging.getLogger(__name__)
 
