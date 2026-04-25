@@ -10,7 +10,7 @@ from platforms.commands.memory import forget_command as core_forget_command
 from platforms.commands.memory import memories_command as core_memories_command
 from platforms.commands.memory import remember_command as core_remember_command
 
-from .context_adapter import TelegramCommandContextAdapter
+from .context import TelegramCommandContextAdapter
 
 logger = logging.getLogger(__name__)
 

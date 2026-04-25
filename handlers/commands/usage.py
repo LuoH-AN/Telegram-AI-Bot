@@ -10,7 +10,7 @@ from platforms.commands.account import export_command as core_export_command
 from platforms.commands.account import usage_command as core_usage_command
 from services.refresh import ensure_user_state
 
-from .context_adapter import TelegramCommandContextAdapter
+from .context import TelegramCommandContextAdapter
 
 logger = logging.getLogger(__name__)
 

@@ -8,9 +8,9 @@ from services.log import record_web_action
 from services.session import delete_session
 from web.auth import get_current_user
 
-from .helpers import require_owned_session
-from .models import SessionClearBody, SessionRename
-from .router import router
+from .utils import require_owned_session
+from .schema import SessionClearBody, SessionRename
+from .route import router
 
 
 @router.post("/{session_id}/switch")
@@ -91,4 +91,3 @@ async def delete_session_route(
         persona_name=persona_name,
     )
     return {"ok": True}
-

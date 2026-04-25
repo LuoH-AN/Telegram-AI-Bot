@@ -5,9 +5,9 @@ from fastapi import Depends, HTTPException
 from services import get_user_settings, update_user_setting
 from services.log import record_web_action
 from web.auth import get_current_user
-from web.routes.dashboard.providers_schema import ProviderUpdate, resolve_provider_name
+from .schema import ProviderUpdate, resolve_provider_name
 
-from .providers import router
+from .route import router
 
 
 @router.put("/{name}")
@@ -54,4 +54,3 @@ async def load_provider(name: str, user_id: int = Depends(get_current_user)):
         update_user_setting(user_id, "api_key", preset["api_key"])
     record_web_action(user_id, "provider.load", {"provider": matched})
     return {"ok": True}
-

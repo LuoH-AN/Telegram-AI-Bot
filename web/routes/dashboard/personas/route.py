@@ -15,7 +15,7 @@ from services import (
 )
 from services.log import record_web_action
 from web.auth import get_current_user
-from web.routes.dashboard.personas_schema import PersonaCreate, PersonaUpdate, normalize_persona_name
+from .schema import PersonaCreate, PersonaUpdate, normalize_persona_name
 
 router = APIRouter(prefix="/api/personas", tags=["personas"])
 

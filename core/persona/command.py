@@ -1,10 +1,10 @@
 """Persona command dispatcher."""
 
-from .create_persona import create_persona_text
-from .delete_persona import delete_persona_text
-from .list_personas import build_persona_list_text
-from .switch_persona import switch_persona_text
-from .update_persona_prompt import update_persona_prompt_text
+from .create import create_persona_text
+from .delete import delete_persona_text
+from .list import build_persona_list_text
+from .switch import switch_persona_text
+from .prompt import update_persona_prompt_text
 
 
 def run_persona_command(
@@ -24,4 +24,3 @@ def run_persona_command(
     if subcmd == "prompt":
         return update_persona_prompt_text(user_id, args, command_prefix=command_prefix)
     return switch_persona_text(user_id, args[0], command_prefix=command_prefix)
-

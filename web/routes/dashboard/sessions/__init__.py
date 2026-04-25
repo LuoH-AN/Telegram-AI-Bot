@@ -1,7 +1,6 @@
-"""Sessions API routes."""
+"""Sessions routes package."""
 
-from .router import router
-from . import content, create_list, manage
+from .route import router
+from . import list, read, write
 
-__all__ = ["router", "content", "create_list", "manage"]
-
+__all__ = ["router", "list", "read", "write"]

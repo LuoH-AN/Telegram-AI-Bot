@@ -2,11 +2,11 @@
 
 from services import get_current_persona_name
 
-from .create_session import create_session_text
-from .delete_session import delete_session_text
-from .list_sessions import build_session_list_text
-from .rename_session import rename_session_text
-from .switch_session import switch_session_text
+from .create import create_session_text
+from .delete import delete_session_text
+from .list import build_session_list_text
+from .rename import rename_session_text
+from .switch import switch_session_text
 
 
 def run_chat_command(
@@ -46,4 +46,3 @@ def run_chat_command(
         subcmd,
         command_prefix=command_prefix,
     )
-

@@ -15,7 +15,7 @@ from platforms.commands.basic import update_command as core_update_command
 from platforms.commands.login import login_command as core_login_command
 from services.refresh import ensure_user_state
 
-from .context_adapter import TelegramCommandContextAdapter
+from .context import TelegramCommandContextAdapter
 
 logger = logging.getLogger(__name__)
 

@@ -8,9 +8,9 @@ from services.log import record_web_action
 from services.refresh import ensure_user_state
 from web.auth import get_current_user
 
-from .helpers import require_persona, session_to_payload
-from .models import SessionCreate
-from .router import router
+from .utils import require_persona, session_to_payload
+from .schema import SessionCreate
+from .route import router
 
 
 @router.get("")
@@ -49,4 +49,3 @@ async def create_session_route(
         persona_name=persona_name,
     )
     return {"ok": True, "session": session_to_payload(session, current_after)}
-

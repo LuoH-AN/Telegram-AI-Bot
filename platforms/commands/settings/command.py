@@ -5,11 +5,11 @@ from __future__ import annotations
 from services import get_user_settings
 from utils.platform_parity import build_set_usage_message, build_unknown_set_key_message
 
-from .basic import handle_provider_command, show_provider_list
-from .settings_basic import handle_set_core
-from .settings_help import handle_set_without_value
-from .settings_model import handle_specialized_model_set
-from .settings_runtime import handle_set_runtime
+from ..basic import handle_provider_command, show_provider_list
+from .basic import handle_set_core
+from .help import handle_set_without_value
+from .model import handle_specialized_model_set
+from .runtime import handle_set_runtime
 
 
 async def set_command(

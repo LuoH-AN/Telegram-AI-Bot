@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 from handlers.common import get_log_context
 from platforms.commands.account import web_command as core_web_command
 
-from .context_adapter import TelegramCommandContextAdapter
+from .context import TelegramCommandContextAdapter
 
 logger = logging.getLogger(__name__)
 

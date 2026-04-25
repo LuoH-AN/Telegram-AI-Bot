@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from services import get_user_settings, update_user_setting
 from services.log import record_web_action
 from web.auth import get_current_user
-from web.routes.dashboard.providers_schema import (
+from .schema import (
     ProviderCreate,
     ProviderSaveCurrent,
     mask_key,
@@ -73,6 +73,3 @@ async def save_current_provider(
     update_user_setting(user_id, "api_presets", presets)
     record_web_action(user_id, "provider.save_current", {"provider": name})
     return {"ok": True}
-
-
-from . import providers_manage

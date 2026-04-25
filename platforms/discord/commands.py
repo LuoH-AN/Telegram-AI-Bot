@@ -5,6 +5,7 @@ from platforms.commands.account import export_command as core_export_command
 from platforms.commands.account import usage_command as core_usage_command
 from platforms.commands.account import web_command as core_web_command
 from platforms.commands.basic import clear_command as core_clear_command
+from platforms.commands.chat import chat_command as core_chat_command
 from platforms.commands.basic import help_command as core_help_command
 from platforms.commands.basic import restart_command as core_restart_command
 from platforms.commands.basic import settings_command as core_settings_command
@@ -15,9 +16,8 @@ from platforms.commands.login import login_command as core_login_command
 from platforms.commands.memory import forget_command as core_forget_command
 from platforms.commands.memory import memories_command as core_memories_command
 from platforms.commands.memory import remember_command as core_remember_command
-from platforms.commands.persona_chat import chat_command as core_chat_command
-from platforms.commands.persona_chat import persona_command as core_persona_command
-from platforms.commands.settings_command import set_command as core_set_command
+from platforms.commands.persona import persona_command as core_persona_command
+from platforms.commands.settings import set_command as core_set_command
 from .command_context import DiscordCommandContextAdapter
 from .config import DISCORD_COMMAND_PREFIX
 def register_commands(bot: commands.Bot) -> None:

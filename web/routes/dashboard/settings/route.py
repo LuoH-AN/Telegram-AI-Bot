@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from services import get_user_settings, update_user_setting
 from services.log import record_web_action
 from web.auth import get_current_user
-from web.routes.dashboard.settings_schema import ALLOWED_FIELDS, SettingsUpdate, mask_key
+from .schema import ALLOWED_FIELDS, SettingsUpdate, mask_key
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
