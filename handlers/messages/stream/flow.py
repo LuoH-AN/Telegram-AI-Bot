@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from .streaming_nonstream import non_stream_response
-from .streaming_live import stream_live_response
-from .streaming_policy import should_update_stream as _should_update_stream
+from .live import stream_live_response
+from .policy import should_update_stream as _should_update_stream
+from .single import non_stream_response
 
 
 async def stream_response(

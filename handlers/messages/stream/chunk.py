@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from utils import filter_thinking_content, extract_thinking_blocks, format_thinking_block
 
-from .streaming_policy import STREAM_BOUNDARY_CHARS, should_update_stream
+from .policy import STREAM_BOUNDARY_CHARS, should_update_stream
 
 
 def build_thinking_block(full_response: str, full_reasoning: str, *, seconds: int | None, show_thinking: bool, max_chars: int) -> str:

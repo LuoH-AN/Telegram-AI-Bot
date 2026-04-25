@@ -7,7 +7,7 @@ from typing import Callable
 
 from ai import get_ai_client
 from config import SHOW_THINKING_MAX_CHARS
-from handlers.messages.streaming import stream_response
+from handlers.messages.stream import stream_response
 from utils import extract_thinking_blocks, filter_thinking_content, format_thinking_block
 
 

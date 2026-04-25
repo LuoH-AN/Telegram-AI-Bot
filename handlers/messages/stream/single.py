@@ -7,7 +7,7 @@ import logging
 
 from config import AI_STREAM_INIT_TIMEOUT
 
-from .rate_limit_retry import rate_limit_retry_delay_seconds
+from .retry import rate_limit_retry_delay_seconds
 
 logger = logging.getLogger(__name__)
 
