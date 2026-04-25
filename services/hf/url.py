@@ -1,4 +1,4 @@
-"""URL resolution branch for hf_sync commands."""
+"""URL resolution branch for HF object commands."""
 
 from __future__ import annotations
 

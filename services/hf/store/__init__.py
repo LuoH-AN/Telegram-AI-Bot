@@ -1,4 +1,4 @@
-"""HF dataset storage backend used by hf_sync."""
+"""HF dataset storage backend."""
 
 from .dataset import HFDatasetStore
 from .instance import get_hf_dataset_store

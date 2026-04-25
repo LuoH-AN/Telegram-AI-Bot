@@ -6,7 +6,7 @@ import json
 import logging
 
 from ..core.base import BaseTool
-from services.hf_sync import run_hf_sync_command
+from services.hf import run_hf_sync_command
 
 logger = logging.getLogger(__name__)
 _VALID_ACTIONS = {
@@ -152,4 +152,3 @@ class HFSyncTool(BaseTool):
         except Exception as exc:
             logger.exception("hf_sync s3 action failed: %s", action)
             return f"Error: action '{action}' failed - {exc}"
-

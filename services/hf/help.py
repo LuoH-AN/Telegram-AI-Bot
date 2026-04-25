@@ -1,4 +1,4 @@
-"""Help text for hf_sync command interface."""
+"""Help text for the HF object command interface."""
 
 
 def _help_text() -> str:

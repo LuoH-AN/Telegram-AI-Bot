@@ -1,8 +1,8 @@
 """Compatibility exports for HF dataset store.
 
-Primary implementation lives under services.hf_sync.store.
+Primary implementation lives under services.hf.store.
 """
 
-from services.hf_sync.store import HFDatasetStore, get_hf_dataset_store
+from services.hf.store import HFDatasetStore, get_hf_dataset_store
 
 __all__ = ["HFDatasetStore", "get_hf_dataset_store"]

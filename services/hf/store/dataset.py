@@ -1,4 +1,4 @@
-"""Store class facade used by hf_sync."""
+"""Store facade used by the HF object service."""
 
 from __future__ import annotations
 

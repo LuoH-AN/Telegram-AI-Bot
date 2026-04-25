@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from services.hf_sync.store import get_hf_dataset_store
+from services.hf.store import get_hf_dataset_store
 from web.auth import verify_artifact_token
 
 router = APIRouter(tags=["artifacts"])
@@ -52,4 +52,3 @@ async def get_artifact(token: str):
         headers = {"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "private, max-age=300"}
         return Response(content=data, media_type=content_type, headers=headers)
     raise HTTPException(status_code=404, detail="Artifact not found")
-
