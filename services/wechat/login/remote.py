@@ -8,7 +8,7 @@ import aiohttp
 
 from launcher import get_ports
 
-from .login_access import get_wechat_login_access_token
+from .access import get_wechat_login_access_token
 
 
 def _base_url() -> str:

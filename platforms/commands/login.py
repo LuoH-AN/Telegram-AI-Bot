@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from services.wechat.remote_login import start_wechat_login
+from services.wechat.login import start_wechat_login
 
 
 async def login_command(ctx, command_prefix: str, *, args: list[str]) -> None:

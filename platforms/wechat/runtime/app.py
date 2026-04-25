@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 from services.wechat.runtime import set_wechat_runtime
-from services.wechat.login_access import get_wechat_login_access_token
+from services.wechat.login import get_wechat_login_access_token
 from services.wechat.sdk import WeChatBotAdapter
 
 from ..config import WECHAT_COMMAND_PREFIX, WECHAT_STATE_DIR
