@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import threading
 
-from .conversations import ConversationsMixin
+from .conversation import ConversationsMixin
 from .cron import CronMixin
 from .dirty import DirtyMixin
-from .memories import MemoriesMixin
-from .personas import PersonasMixin
-from .sessions_current import SessionsCurrentMixin
-from .sessions_store import SessionsStoreMixin
+from .memory import MemoriesMixin
+from .persona import PersonasMixin
+from .session.current import SessionsCurrentMixin
+from .session.store import SessionsStoreMixin
 from .settings import SettingsMixin
-from .skills import SkillsMixin
-from .state_caches import init_cache_maps
-from .state_dirty import init_dirty_state
-from .tokens import TokensMixin
+from .skill import SkillsMixin
+from .state.maps import init_cache_maps
+from .state.dirty import init_dirty_state
+from .token import TokensMixin
 
 
 class CacheManager(

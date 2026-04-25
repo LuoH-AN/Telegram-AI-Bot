@@ -1,6 +1,6 @@
 """In-memory cache manager."""
 
-from .core import CacheManager
+from .cache import CacheManager
 
 cache = CacheManager()
 
