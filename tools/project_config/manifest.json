@@ -2,11 +2,11 @@
   "schema_version": "1.0",
   "name": "project_config",
   "version": "1.0.0",
-  "description": "Read and write project configuration files (CLAUDE.md, .env, etc.) with safety checks.",
+  "description": "Read and write project configuration files (CLAUDE.md, .env, etc.) and user database records (settings, personas, sessions, conversations, skills).",
   "author": "",
   "repository": "",
   "dependencies": [],
   "entry_point": "tools.project_config.tool:ProjectConfigTool",
-  "capabilities": ["read", "write", "list"],
+  "capabilities": ["file_read", "file_write", "file_list", "db_get", "db_set", "db_list"],
   "platforms": ["telegram", "wechat", "onebot"]
 }
