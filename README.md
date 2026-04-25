@@ -1,6 +1,6 @@
 # Telegram-AI-Bot (Gemen)
 
-一个支持 **Telegram / Discord / WeChat** 的 AI Bot 项目，带有统一启动入口、Web Dashboard、Persona（角色）与 Session（会话）管理、记忆系统、TTS 配置和定时任务。
+一个支持 **Telegram / WeChat** 的 AI Bot 项目，带有统一启动入口、Web Dashboard、Persona（角色）与 Session（会话）管理、记忆系统、TTS 配置和定时任务。
 
 ## 功能概览
 
@@ -18,7 +18,7 @@
 ## 技术栈
 
 - Python 3.11+
-- `python-telegram-bot` / `discord.py`
+- `python-telegram-bot`
 - FastAPI + Uvicorn
 - PostgreSQL + `psycopg2-binary`
 - OpenAI Compatible API
@@ -28,7 +28,7 @@
 ```text
 .
 ├── main.py                   # 统一启动入口
-├── platforms/                # 平台运行时（Telegram / Discord / WeChat）
+├── platforms/                # 平台运行时（Telegram / WeChat）
 ├── web/                      # FastAPI Web Dashboard
 ├── handlers/                 # Telegram handlers（命令、消息、回调）
 ├── services/                 # 业务逻辑层
@@ -62,7 +62,6 @@ cp .env.example .env
 
 - `DATABASE_URL`
 - `TELEGRAM_BOT_TOKEN`（启 Telegram 时）
-- `DISCORD_BOT_TOKEN`（启 Discord 时）
 - `WECHAT_ENABLED=1`（启 WeChat 时）
 - `OPENAI_API_KEY`（也支持每个用户在 Bot 内单独配置）
 
@@ -80,16 +79,15 @@ python main.py
 
 说明：
 
-- `main.py` 会按环境变量自动拉起 Telegram / Discord / WeChat
+- `main.py` 会按环境变量自动拉起 Telegram / WeChat
 - 每个平台会使用自己的 `PORT`
 - 默认端口：
   - Telegram：`7860`
-  - Discord：`7861`
   - WeChat：`7862`
 
 ## 常用命令
 
-Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
+Telegram 使用 `/` 前缀。
 
 - `start`
 - `help`
@@ -137,7 +135,6 @@ Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
 
 - 基础：`PORT`, `DATABASE_URL`
 - Telegram：`TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_BASE`
-- Discord：`DISCORD_BOT_TOKEN`, `DISCORD_COMMAND_PREFIX`
 - 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`, `OPENAI_REASONING_EFFORT`
 - TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
 - 其他：`SHOW_THINKING`, `PORT`
@@ -148,7 +145,7 @@ Telegram 使用 `/` 前缀，Discord 使用 `!`（可配置）。
 
 - 新增业务逻辑优先放到 `services/`
 - 新增模型能力优先走 `ai/` 抽象层
-- Bot 文案优先复用 `utils/platform_parity.py`，保持 Telegram/Discord 一致
+- Bot 文案优先复用 `utils/platform_parity.py`，保持平台文案一致
 - 修改缓存结构时同步检查 `cache/` 与相关数据库 loader/sync 逻辑
 - 若要扩展工具能力，优先从当前 `tools/` 与 `services/` 实现继续演进
 

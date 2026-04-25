@@ -4,7 +4,7 @@
 
 ## 1. 项目一句话概述
 
-这是一个支持 **Telegram / Discord / WeChat** 的多平台 AI Bot 项目，核心能力包括：
+这是一个支持 **Telegram / WeChat** 的多平台 AI Bot 项目，核心能力包括：
 
 - 多平台消息接入
 - 基于 OpenAI Compatible API 的对话与工具调用
@@ -18,14 +18,13 @@
 
 - Python 3.11+
 - `python-telegram-bot`
-- `discord.py`
 - FastAPI + Uvicorn
 - PostgreSQL + `psycopg2-binary`
 - OpenAI Compatible API
 
 从仓库规模看，当前大约有：
 
-- `416` 个 Python 文件
+- `404` 个 Python 文件
 - `20` 个 Markdown 文件
 - 前端为原生静态页面，无单独前端工程
 
@@ -46,7 +45,6 @@
 ```text
 main.py
 ├── Telegram 子进程  -> Telegram Bot + Web Dashboard + 内存缓存 + Cron
-├── Discord 子进程   -> Discord Bot  + Web Dashboard + 内存缓存 + Cron
 └── WeChat 子进程    -> WeChat Bot   + Web Dashboard + 内存缓存 + Cron
 ```
 
@@ -61,7 +59,7 @@ main.py
 
 - 部署简单，但结构偏耦合
 - 跨进程状态一致性不是“实时强一致”，更像“数据库为准 + 缓存按需刷新”
-- 如果三端都启用，你实际上会有三个 Dashboard 入口（不同端口）
+- 如果两端都启用，你实际上会有两个 Dashboard 入口（不同端口）
 
 ---
 
@@ -72,7 +70,7 @@ main.py
 - `main.py`
   - 统一入口
   - 读取 `.env`
-  - 根据 `TELEGRAM_BOT_TOKEN` / `DISCORD_BOT_TOKEN` / `WECHAT_ENABLED` 决定启哪些平台
+  - 根据 `TELEGRAM_BOT_TOKEN` / `WECHAT_ENABLED` 决定启哪些平台
   - 为每个平台分配端口
   - 启动子进程
   - 负责 `/update` 后的整进程重启
@@ -83,7 +81,7 @@ main.py
   - `env_helpers.py`
     - 解析 `ENV_TEXT` / `ENV_CONTENT`
     - 识别 token 是否已配置
-    - 返回 Telegram / Discord / WeChat 的端口
+    - 返回 Telegram / WeChat 的端口
   - `process_helpers.py`
     - 启动/停止子进程
     - 等待任一子进程退出
@@ -93,7 +91,7 @@ main.py
 
 ### 3.3 每个平台启动时都会做什么
 
-以 Telegram / Discord / WeChat 为例，逻辑都非常接近：
+以 Telegram / WeChat 为例，逻辑都非常接近：
 
 1. `init_database()`
 2. 启动内嵌 Web Server
@@ -103,7 +101,6 @@ main.py
 关键入口文件：
 
 - `platforms/telegram/app.py`
-- `platforms/discord/app.py`
 - `platforms/wechat/app.py`
 
 ---
@@ -116,7 +113,7 @@ main.py
 .
 ├── main.py                    # 统一启动入口
 ├── launcher/                  # 多子进程启动、环境注入、bootstrap
-├── platforms/                 # Telegram / Discord / WeChat 平台接入层
+├── platforms/                 # Telegram / WeChat 平台接入层
 ├── handlers/                  # Telegram 侧 handler 与通用消息处理
 ├── services/                  # 业务服务层
 ├── ai/                        # OpenAI Compatible 客户端封装
@@ -141,12 +138,12 @@ main.py
 | 目录 | Python 文件数 | 作用 |
 | --- | ---: | --- |
 | `services/` | 103 | 业务逻辑主层 |
-| `platforms/` | 67 | 三个平台运行时 |
+| `platforms/` | 48 | 两个平台运行时 |
 | `utils/` | 46 | 通用工具 |
 | `handlers/` | 40 | Telegram handlers 与通用消息流 |
 | `tools/` | 40 | 工具系统 |
 | `cache/` | 36 | 内存缓存与 DB 同步 |
-| `web/` | 32 | Dashboard API |
+| `web/` | 35 | Dashboard API |
 | `core/` | 19 | 纯命令逻辑 |
 | `database/` | 13 | 建表/连接/加载器 |
 | `ai/` | 10 | AI 客户端封装 |
@@ -163,19 +160,18 @@ main.py
 
 ## 5.1 平台接入层：`platforms/`
 
-这是“把 Telegram / Discord / WeChat 接进来”的地方。
+这是“把 Telegram / WeChat 接进来”的地方。
 
 ### 目录结构
 
 ```text
 platforms/
-├── commands/          # 三端共享的命令入口逻辑
+├── commands/          # 共享的命令入口逻辑
 ├── telegram/          # Telegram 启动与注册
-├── discord/           # Discord 事件与命令
 └── wechat/            # WeChat 自定义 runtime
 ```
 
-### 三个平台的差异
+### 两个平台的差异
 
 #### Telegram
 
@@ -189,16 +185,6 @@ Telegram 这一侧比较“传统”：
 - 命令通过 `CommandHandler`
 - 文本消息通过 `MessageHandler`
 - 图片 / 文档分别有独立 handler
-
-#### Discord
-
-- 用 `discord.py`
-- 入口：`platforms/discord/app.py`
-- 事件：`platforms/discord/events.py`
-- 命令：`platforms/discord/commands.py`
-- 聊天流在 `platforms/discord/chat/`
-
-Discord 这一侧比 Telegram 更偏“平台独立”，很多聊天逻辑放在 `platforms/discord/chat/`。
 
 #### WeChat
 
@@ -216,7 +202,7 @@ WeChat 不是简单的 SDK 事件回调，而是一个比较完整的 runtime：
 - 文件发送 / 文本发送
 - 打字状态
 
-**结论：WeChat 是三端里最“重”的接入层。**
+**结论：WeChat 是两端里最“重”的接入层。**
 
 ---
 
@@ -236,10 +222,9 @@ WeChat 不是简单的 SDK 事件回调，而是一个比较完整的 runtime：
 
 ### 这层的价值
 
-它让三端命令复用了一套核心逻辑：
+它让多端命令复用了一套核心逻辑：
 
 - Telegram 只是做 adapter
-- Discord 只是做 adapter
 - WeChat 的文本命令也走同一套 dispatcher
 
 如果你未来要加一个新平台，这层是可以继续复用的。
@@ -560,7 +545,7 @@ ai/
 
 - 会读 `.env`
 - 会应用 `ENV_TEXT`
-- 会按条件启动 Telegram / Discord / WeChat
+- 会按条件启动 Telegram / WeChat
 - 某个子进程退出时会把其他子进程一起停掉
 
 适合改这里的场景：
@@ -596,7 +581,7 @@ ai/
 适合改这里的场景：
 
 - 新增平台
-- 修改 Telegram / Discord / WeChat 的接入行为
+- 修改 Telegram / WeChat 的接入行为
 - 改平台专属消息格式、回复策略、群组触发条件
 
 ---
@@ -620,7 +605,7 @@ ai/
 要点：
 
 - Telegram 的消息流大量写在这里
-- Discord / WeChat 则更多在各自 `platforms/*/chat/`
+- WeChat 则更多在各自 `platforms/*/chat/`
 
 ---
 
@@ -1095,12 +1080,12 @@ WeChat 的文本/文件/语音解析逻辑主要在：
 
 ### 风险 1：多进程缓存不天然强一致
 
-Telegram、Discord、WeChat 各自一个进程，各自一份缓存。
+Telegram、WeChat 各自一个进程，各自一份缓存。
 
 这意味着：
 
 - 你在 Telegram 进程内的 Web 改了设置
-- Discord 进程不一定立刻知道
+- WeChat 进程不一定立刻知道
 - 需要依赖数据库刷新逻辑
 
 ### 风险 2：Web 也嵌在平台进程中
@@ -1199,11 +1184,6 @@ Telegram、Discord、WeChat 各自一个进程，各自一份缓存。
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_API_BASE`
-
-### Discord
-
-- `DISCORD_BOT_TOKEN`
-- `DISCORD_COMMAND_PREFIX`
 
 ### WeChat
 
@@ -1351,7 +1331,6 @@ Telegram、Discord、WeChat 各自一个进程，各自一份缓存。
 - `platforms/commands/`
 - `core/`
 - Telegram 绑定：`handlers/commands/`
-- Discord 绑定：`platforms/discord/commands.py`
 - WeChat 绑定：`platforms/wechat/commands/dispatch.py`
 
 ## 15.2 新增一个 Dashboard 功能页
@@ -1487,14 +1466,14 @@ Telegram、Discord、WeChat 各自一个进程，各自一份缓存。
 当前：
 
 - Telegram 的聊天流程更多在 `handlers/`
-- Discord / WeChat 更多在 `platforms/*/chat`
+- WeChat 更多在 `platforms/*/chat`
 
 规划上可以考虑：
 
 - 抽一个统一的 chat orchestration 层
 - 平台只保留 adapter 和 outbound 差异
 
-这会让三端行为更统一。
+这会让多端行为更统一。
 
 ## 16.6 补测试，优先补服务层和路由层
 

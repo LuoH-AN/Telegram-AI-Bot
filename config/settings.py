@@ -18,12 +18,6 @@ apply_env_text()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-DISCORD_COMMAND_PREFIX = os.getenv("DISCORD_COMMAND_PREFIX", "!")
-DISCORD_API_BASE = os.getenv("DISCORD_API_BASE", "").rstrip("/")
-DISCORD_GATEWAY_BASE = os.getenv("DISCORD_GATEWAY_BASE", "").rstrip("/")
-DISCORD_CDN_BASE = os.getenv("DISCORD_CDN_BASE", "").rstrip("/")
-DISCORD_INVITE_BASE = os.getenv("DISCORD_INVITE_BASE", "").rstrip("/")
 TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE", "").rstrip("/")
 
 TELEGRAM_SEND_GLOBAL_RATE = float(os.getenv("TELEGRAM_SEND_GLOBAL_RATE", "25"))
@@ -74,4 +68,3 @@ def get_default_persona() -> dict:
 
 def get_default_token_usage() -> dict:
     return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "token_limit": 0}
-

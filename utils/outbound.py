@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class StreamOutboundAdapter:
-    """Platform-agnostic outbound helper used by Telegram/Discord renderers."""
+    """Platform-agnostic outbound helper used by platform renderers."""
 
     def __init__(
         self,

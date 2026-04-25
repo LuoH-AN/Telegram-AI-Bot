@@ -1,4 +1,4 @@
-"""Unified launcher for Telegram / Discord / WeChat runtimes."""
+"""Unified launcher for Telegram / WeChat runtimes."""
 
 from __future__ import annotations
 
@@ -24,17 +24,12 @@ ROOT_DIR = Path(__file__).resolve().parent
 
 
 def _start_children() -> list:
-    telegram_port, discord_port, wechat_port = get_ports()
+    telegram_port, wechat_port = get_ports()
     children = []
     if is_configured_token(os.getenv("TELEGRAM_BOT_TOKEN")):
         children.append(start_child("Telegram", "platforms.telegram", root_dir=ROOT_DIR, port=telegram_port))
     else:
         print(">>> Telegram disabled (TELEGRAM_BOT_TOKEN is not configured)", flush=True)
-
-    if is_configured_token(os.getenv("DISCORD_BOT_TOKEN")):
-        children.append(start_child("Discord", "platforms.discord", root_dir=ROOT_DIR, port=discord_port))
-    else:
-        print(">>> Discord disabled (DISCORD_BOT_TOKEN is not configured)", flush=True)
 
     if is_wechat_enabled():
         children.append(start_child("WeChat", "platforms.wechat", root_dir=ROOT_DIR, port=wechat_port))
@@ -61,7 +56,7 @@ def main() -> int:
             current_children = _start_children()
             if not current_children:
                 print(
-                    ">>> No bot process configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN, or enable WECHAT_ENABLED=1.",
+                    ">>> No bot process configured. Set TELEGRAM_BOT_TOKEN and/or enable WECHAT_ENABLED=1.",
                     flush=True,
                 )
                 return 1

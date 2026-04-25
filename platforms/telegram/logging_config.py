@@ -9,7 +9,6 @@ def configure_platform_logging() -> logging.Logger:
         level=logging.INFO,
     )
     logger = logging.getLogger("platforms.telegram")
-    for name in ("httpx", "httpcore", "telegram", "discord", "openai", "uvicorn", "uvicorn.access"):
+    for name in ("httpx", "httpcore", "telegram", "openai", "uvicorn", "uvicorn.access"):
         logging.getLogger(name).setLevel(logging.WARNING)
     return logger
-

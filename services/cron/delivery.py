@@ -13,8 +13,6 @@ logger = logging.getLogger(__name__)
 def _detect_platform(bot) -> str:
     if hasattr(bot, "send_message"):
         return "Telegram"
-    if hasattr(bot, "fetch_user"):
-        return "Discord DM"
     if hasattr(bot, "send_wechat_text"):
         return "WeChat"
     return "this platform"
@@ -34,24 +32,6 @@ def _send_telegram(bot, chat_id: int, text: str, loop) -> None:
         future.result(timeout=60)
 
 
-def _send_discord(bot, chat_id: int, text: str, loop) -> None:
-    from utils.formatters import split_message
-
-    chunks = split_message(text, max_length=2000)
-
-    async def _dm() -> None:
-        user = bot.get_user(chat_id)
-        if user is None:
-            user = await bot.fetch_user(chat_id)
-        if user is None:
-            raise RuntimeError(f"Discord user {chat_id} not found")
-        for chunk in chunks:
-            await user.send(chunk)
-
-    future = asyncio.run_coroutine_threadsafe(_dm(), loop)
-    future.result(timeout=60)
-
-
 def _send_wechat(bot, chat_id: int, text: str, loop) -> None:
     future = asyncio.run_coroutine_threadsafe(bot.send_wechat_text(chat_id, text), loop)
     future.result(timeout=60)
@@ -65,8 +45,6 @@ def _send_message(bot, chat_id: int, text: str) -> None:
 
     if hasattr(bot, "send_message"):
         _send_telegram(bot, chat_id, text, loop)
-    elif hasattr(bot, "fetch_user"):
-        _send_discord(bot, chat_id, text, loop)
     elif hasattr(bot, "send_wechat_text"):
         _send_wechat(bot, chat_id, text, loop)
     else:

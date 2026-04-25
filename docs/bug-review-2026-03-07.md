@@ -3,7 +3,7 @@
 ## 执行概览
 
 - 已执行 `python -m compileall -q .`，通过。
-- 已对核心模块做导入检查：`bot`、`discord_bot`、`tools.*`、`web.app`、`services.conversation_service`、`handlers`、`config`，均可导入。
+- 已对核心模块做导入检查：`bot`、`tools.*`、`web.app`、`services.conversation_service`、`handlers`、`config`，均可导入。
 - 当前未发现语法错误或显式 import 崩溃。
 - 当前更值得关注的是并发、一致性、媒体分组和错误暴露这几类逻辑问题。
 

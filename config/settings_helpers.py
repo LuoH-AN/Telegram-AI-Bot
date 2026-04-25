@@ -57,7 +57,6 @@ def build_default_jwt_secret() -> str:
         or os.getenv("DATABASE_URL", "").strip()
         or os.getenv("WEB_BASE_URL", "").strip()
         or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-        or os.getenv("DISCORD_BOT_TOKEN", "").strip()
         or os.getenv("OPENAI_API_KEY", "").strip()
         or "gemen-local-dev-secret"
     )
@@ -90,4 +89,3 @@ def build_default_settings(
         "cron_model": "",
         "global_prompt": "",
     }
-
