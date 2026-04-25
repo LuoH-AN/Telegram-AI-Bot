@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from config import WEB_BASE_URL
 
-from .paths import manifest_path
+from .path import manifest_path
 from .slug import normalize_slug
 
 

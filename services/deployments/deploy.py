@@ -5,8 +5,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from .meta import load_manifest, now_iso, save_manifest
-from .paths import REPO_ROOT, SKIP_NAMES, deployment_dir, resolve_source_path
+from .manifest import load_manifest, now_iso, save_manifest
+from .path import REPO_ROOT, SKIP_NAMES, deployment_dir, resolve_source_path
 from .slug import normalize_slug
 
 

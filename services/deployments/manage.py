@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import shutil
 
-from .meta import deployment_url, load_manifest
-from .paths import DEPLOY_ROOT, deployment_dir, ensure_deploy_root
+from .manifest import deployment_url, load_manifest
+from .path import DEPLOY_ROOT, deployment_dir, ensure_deploy_root
 from .slug import normalize_slug
 
 
