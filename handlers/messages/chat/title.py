@@ -6,7 +6,7 @@ import logging
 
 from cache import cache
 from services import generate_session_title
-from utils.platform_parity import format_log_context
+from utils.platform import format_log_context
 
 logger = logging.getLogger(__name__)
 

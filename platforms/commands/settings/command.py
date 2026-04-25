@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from services import get_user_settings
-from utils.platform_parity import build_set_usage_message, build_unknown_set_key_message
+from utils.platform import build_set_usage_message, build_unknown_set_key_message
 
 from ..basic import handle_provider_command, show_provider_list
 from .basic import handle_set_core

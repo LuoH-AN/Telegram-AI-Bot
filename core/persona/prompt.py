@@ -1,7 +1,7 @@
 """Persona prompt update use case."""
 
 from services import get_current_persona, get_current_persona_name, update_current_prompt
-from utils.platform_parity import build_persona_prompt_overview_message
+from utils.platform import build_persona_prompt_overview_message
 
 
 def update_persona_prompt_text(

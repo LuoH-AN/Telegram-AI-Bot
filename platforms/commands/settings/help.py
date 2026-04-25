@@ -6,7 +6,7 @@ import asyncio
 
 from services import has_api_key
 from services.platform import fetch_models_for_user
-from utils.platform_parity import (
+from utils.platform import (
     build_api_key_required_message,
     build_global_prompt_help_message,
     build_reasoning_effort_help_message,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .constants import _build_set_key_lines
+from ..config import _build_set_key_lines
 
 
 def build_persona_help_section(prefix: str) -> str:

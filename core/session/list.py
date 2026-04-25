@@ -1,7 +1,7 @@
 """Render session list text."""
 
 from services import get_current_session_id, get_session_message_count, get_sessions
-from utils.platform_parity import build_chat_commands_message, build_chat_no_sessions_message
+from utils.platform import build_chat_commands_message, build_chat_no_sessions_message
 
 
 def build_session_list_text(

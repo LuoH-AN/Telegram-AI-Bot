@@ -10,7 +10,7 @@ from services import (
     persona_exists,
     switch_persona,
 )
-from utils.platform_parity import build_persona_not_found_message
+from utils.platform import build_persona_not_found_message
 
 
 def switch_persona_text(

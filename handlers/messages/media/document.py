@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 
 from handlers.common import get_log_context, preflight_media_request
 from handlers.messages.media.payload import build_document_payload
-from utils.platform_parity import build_retry_message
+from utils.platform import build_retry_message
 
 logger = logging.getLogger(__name__)
 

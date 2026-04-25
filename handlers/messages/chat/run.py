@@ -12,7 +12,7 @@ from services import add_user_message, conversation_slot, get_system_prompt
 from services.log import record_error
 from services.queue import cancel_user_responses, register_response, unregister_response
 from utils import get_datetime_prompt
-from utils.platform_parity import build_latex_guidance, build_retry_message
+from utils.platform import build_latex_guidance, build_retry_message
 
 from .generate import generate_with_tools
 from .prepare import prepare_chat_request

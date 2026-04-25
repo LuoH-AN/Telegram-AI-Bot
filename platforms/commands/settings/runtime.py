@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from config import VALID_REASONING_EFFORTS
 from services import get_current_persona_name, set_token_limit, update_user_setting
-from utils.platform_parity import build_show_thinking_help_message, build_stream_mode_help_message
+from utils.platform import build_show_thinking_help_message, build_stream_mode_help_message
 
 
 async def handle_set_runtime(

@@ -6,7 +6,7 @@ import logging
 import os
 
 from config import HEALTH_CHECK_PORT
-from utils.platform_parity import format_log_context
+from utils.platform import format_log_context
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -145,7 +145,7 @@ Telegram 使用 `/` 前缀。
 
 - 新增业务逻辑优先放到 `services/`
 - 新增模型能力优先走 `ai/` 抽象层
-- Bot 文案优先复用 `utils/platform_parity.py`，保持平台文案一致
+- Bot 文案优先复用 `utils/platform/`，保持平台文案一致
 - 修改缓存结构时同步检查 `cache/` 与相关数据库 loader/sync 逻辑
 - 若要扩展工具能力，优先从当前 `tools/` 与 `services/` 实现继续演进
 

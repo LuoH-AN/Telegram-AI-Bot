@@ -26,7 +26,7 @@ from utils import get_datetime_prompt
 from utils.tool_status import build_tool_status_text
 from utils.ai_helpers import estimate_tokens as _estimate_tokens
 from utils.ai_helpers import estimate_tokens_str as _estimate_tokens_str
-from utils.platform_parity import build_api_key_required_message, build_latex_guidance, build_retry_message, build_token_limit_reached_message
+from utils.platform import build_api_key_required_message, build_latex_guidance, build_retry_message, build_token_limit_reached_message
 
 from ..config import logger
 from ..message.content import build_user_content_from_wechat_message

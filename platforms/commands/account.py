@@ -6,7 +6,7 @@ from pathlib import Path
 
 from services import export_to_markdown, get_current_persona_name, reset_token_usage
 from services.platform import build_usage_text
-from utils.platform_parity import (
+from utils.platform import (
     build_usage_reset_message,
     build_web_dashboard_message,
     build_web_dm_failed_message,

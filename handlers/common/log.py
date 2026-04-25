@@ -3,7 +3,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from utils.platform_parity import format_log_context
+from utils.platform import format_log_context
 
 
 def get_log_context(update: Update) -> str:

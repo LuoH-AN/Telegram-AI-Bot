@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 from ai import get_openai_client
 from config import MODELS_PER_PAGE
 from services import get_user_settings, has_api_key
-from utils.platform_parity import build_api_key_required_message
+from utils.platform import build_api_key_required_message
 
 logger = logging.getLogger(__name__)
 

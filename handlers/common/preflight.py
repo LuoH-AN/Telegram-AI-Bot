@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 
 from services import ensure_session, get_current_persona_name, get_remaining_tokens, has_api_key
 from services.refresh import ensure_user_state
-from utils.platform_parity import build_api_key_required_message, build_retry_message, build_token_limit_reached_message
+from utils.platform import build_api_key_required_message, build_retry_message, build_token_limit_reached_message
 
 from .group import build_media_caption, collect_media_group_messages
 from .log import should_respond_in_group

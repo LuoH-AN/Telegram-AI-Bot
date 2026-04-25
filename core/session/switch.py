@@ -1,7 +1,7 @@
 """Session switch use case."""
 
 from services import get_session_message_count, get_sessions, switch_session
-from utils.platform_parity import build_chat_unknown_subcommand_message
+from utils.platform import build_chat_unknown_subcommand_message
 
 
 def switch_session_text(

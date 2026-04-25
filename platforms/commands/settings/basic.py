@@ -6,7 +6,7 @@ import asyncio
 
 from services import update_user_setting
 from services.platform import fetch_models_for_user, mask_key
-from utils.platform_parity import (
+from utils.platform import (
     build_api_key_verify_failed_message,
     build_api_key_verify_no_models_message,
     build_prompt_per_persona_message,

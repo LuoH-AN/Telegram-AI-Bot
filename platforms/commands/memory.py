@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from services import add_memory, clear_memories, delete_memory, get_memories
-from utils.platform_parity import (
+from utils.platform import (
     build_forget_invalid_target_message,
     build_forget_usage_message,
     build_invalid_memory_number_message,

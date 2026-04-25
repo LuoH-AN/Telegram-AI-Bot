@@ -10,7 +10,7 @@ from services import (
     get_usage_percentage,
     get_user_settings,
 )
-from utils.platform_parity import build_settings_summary_message
+from utils.platform import build_settings_summary_message
 
 from .app import mask_key
 

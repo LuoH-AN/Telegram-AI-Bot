@@ -1,7 +1,7 @@
 """Persona creation use case."""
 
 from services import create_persona, switch_persona
-from utils.platform_parity import build_persona_created_message, build_persona_new_usage_message
+from utils.platform import build_persona_created_message, build_persona_new_usage_message
 
 
 def create_persona_text(

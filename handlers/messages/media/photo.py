@@ -11,7 +11,7 @@ from handlers.common import (
     get_log_context,
     preflight_media_request,
 )
-from utils.platform_parity import (
+from utils.platform import (
     build_retry_message,
 )
 

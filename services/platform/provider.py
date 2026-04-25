@@ -1,7 +1,7 @@
 """Provider preset text/action helpers for shared platform commands."""
 
 from services import update_user_setting
-from utils.platform_parity import (
+from utils.platform import (
     build_provider_list_usage_message,
     build_provider_no_saved_message,
     build_provider_not_found_available_message,

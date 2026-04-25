@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from services import update_user_setting
-from utils.platform_parity import build_provider_save_hint_message
+from utils.platform import build_provider_save_hint_message
 
 
 async def handle_specialized_model_set(

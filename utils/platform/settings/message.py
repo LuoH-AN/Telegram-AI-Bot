@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .constants import SET_COMMAND_KEYS, _build_set_key_lines
+from ..config import SET_COMMAND_KEYS, _build_set_key_lines
 
 
 def build_set_usage_message(prefix: str) -> str:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from utils.platform_parity import build_help_message
+from utils.platform import build_help_message
 
 from .account import export_command, usage_command, web_command
 from .basic import clear_command, help_command, restart_command, settings_command, start_command, stop_command, update_command

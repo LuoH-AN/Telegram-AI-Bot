@@ -17,7 +17,7 @@ from services import (
 )
 from services.platform import apply_provider_command, build_provider_list_text
 from services.queue import cancel_user_responses
-from utils.platform_parity import build_help_message, build_start_message_missing_api, build_start_message_returning
+from utils.platform import build_help_message, build_start_message_missing_api, build_start_message_returning
 
 
 async def start_command(ctx, command_prefix: str) -> None:

@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 from services import get_user_settings, update_user_setting
 from handlers.common import get_log_context
 from handlers.commands.settings import _build_model_keyboard
-from utils.platform_parity import (
+from utils.platform import (
     build_advanced_help_section,
     build_memory_help_section,
     build_persona_help_section,

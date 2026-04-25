@@ -8,7 +8,7 @@ from services import (
     get_session_count,
     get_token_usage,
 )
-from utils.platform_parity import build_persona_commands_message
+from utils.platform import build_persona_commands_message
 
 
 def build_persona_list_text(user_id: int, *, command_prefix: str) -> str:
