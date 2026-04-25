@@ -1,6 +1,6 @@
 """Shared platform services."""
 
-from .runtime import (
+from .app import (
     fetch_models_for_user,
     mask_key,
     normalize_reasoning_effort,
@@ -8,7 +8,7 @@ from .runtime import (
     start_web_server,
 )
 from .provider import apply_provider_command, build_provider_list_text
-from .settings import build_settings_text, build_usage_text
+from .view import build_settings_text, build_usage_text
 
 __all__ = [
     "start_web_server",

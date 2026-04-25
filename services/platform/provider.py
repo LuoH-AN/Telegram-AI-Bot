@@ -8,7 +8,7 @@ from utils.platform_parity import (
     build_provider_usage_message,
 )
 
-from .runtime import mask_key
+from .app import mask_key
 
 
 def build_provider_list_text(settings: dict, *, command_prefix: str) -> str:

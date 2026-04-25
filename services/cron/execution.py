@@ -9,10 +9,10 @@ from datetime import datetime
 from cache.manager import cache
 from config import VALID_REASONING_EFFORTS
 
-from .client_factory import _create_task_client
+from .client import _create_task_client
 from .delivery import _send_message
 from .state import CST, running_tasks, running_tasks_lock
-from .task_response import execute_ai_and_send
+from .task import execute_ai_and_send
 
 logger = logging.getLogger(__name__)
 

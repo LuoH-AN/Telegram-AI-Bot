@@ -44,4 +44,3 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
     except Exception as exc:
         logger.warning("Failed to generate session title: %s", exc)
         return None
-
