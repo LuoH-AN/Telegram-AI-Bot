@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .style import strip_style_blocks
+from ..style import strip_style_blocks
 
 
 def preprocess_html(html_content: str) -> str:

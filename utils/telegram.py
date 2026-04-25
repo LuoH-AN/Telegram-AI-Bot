@@ -7,7 +7,7 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest, RetryAfter
 
 from config import MAX_MESSAGE_LENGTH
-from .formatters import markdown_to_telegram_html, split_message
+from .format import markdown_to_telegram_html, split_message
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .markdown_table import markdown_table_to_html
+from .table import markdown_table_to_html
 
 
 def extract_markdown_placeholders(text: str) -> tuple[str, list, list, list, list, list]:

@@ -1,8 +1,8 @@
 """Text formatting utilities."""
 
-from .html_markdown import html_to_markdown
+from .html import html_to_markdown
 from .latex import latex_to_unicode
-from .markdown_telegram import markdown_to_telegram_html
+from .markdown import markdown_to_telegram_html
 from .split import split_message
 from .style import strip_style_blocks
 

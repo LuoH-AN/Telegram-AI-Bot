@@ -5,10 +5,10 @@ from __future__ import annotations
 import html
 import re
 
-from .latex import latex_to_unicode
-from .markdown_blocks import transform_markdown_blocks
-from .markdown_extract import extract_markdown_placeholders
-from .markdown_restore import restore_markdown_placeholders
+from ..latex import latex_to_unicode
+from .block import transform_markdown_blocks
+from .extract import extract_markdown_placeholders
+from .restore import restore_markdown_placeholders
 
 
 def markdown_to_telegram_html(text: str) -> str:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .latex_maps import LATEX_SYMBOLS, SUBSCRIPT_MAP, SUPERSCRIPT_MAP
+from .map import LATEX_SYMBOLS, SUBSCRIPT_MAP, SUPERSCRIPT_MAP
 
 
 def convert_latex_content(latex: str) -> str:

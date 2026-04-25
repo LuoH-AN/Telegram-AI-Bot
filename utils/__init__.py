@@ -5,7 +5,7 @@ from .filters import (
     extract_thinking_blocks,
     format_thinking_block,
 )
-from .formatters import (
+from .format import (
     markdown_to_telegram_html,
     split_message,
     latex_to_unicode,

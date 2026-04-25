@@ -20,7 +20,7 @@ def _detect_platform(bot) -> str:
 
 def _send_telegram(bot, chat_id: int, text: str, loop) -> None:
     from telegram.constants import ParseMode
-    from utils.formatters import markdown_to_telegram_html, split_message
+    from utils.format import markdown_to_telegram_html, split_message
 
     html_text = markdown_to_telegram_html(text)
     chunks = split_message(html_text, max_length=4096)

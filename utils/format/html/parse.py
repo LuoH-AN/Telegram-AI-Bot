@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .html_utils import get_attr, process_text, resolve_url
+from .util import get_attr, process_text, resolve_url
 
 
 def parse_html_to_markdown(html_content: str, *, base_url: str = "") -> str:

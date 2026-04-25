@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from .html_cleanup import preprocess_html
-from .html_parse import parse_html_to_markdown
-from .html_tables import finalize_markdown
+from .clean import preprocess_html
+from .parse import parse_html_to_markdown
+from .table import finalize_markdown
 
 
 def html_to_markdown(html_content: str, base_url: str = "") -> str:

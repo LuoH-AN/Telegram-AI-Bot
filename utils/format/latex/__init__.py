@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .latex_convert import convert_latex_content
+from .convert import convert_latex_content
 
 
 def latex_to_unicode(text: str) -> str:
