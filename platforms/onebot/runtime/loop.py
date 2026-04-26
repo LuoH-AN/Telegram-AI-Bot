@@ -100,7 +100,8 @@ class RuntimeLoopMixin:
 
         from ..group_config import get_group_mode
 
-        if ctx.is_group and get_group_mode(int(inbound.group_id)) == "shared":
+        is_group = inbound.is_group
+        if is_group and get_group_mode(int(inbound.group_id)) == "shared":
             session_user_id = int(inbound.group_id)
         else:
             session_user_id = local_user_id
