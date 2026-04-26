@@ -19,12 +19,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Import at module level to avoid lazy-import timing issues with onebot_runtime
-from platforms.onebot.runtime.app import onebot_runtime as _runtime_ref, _RUNTIME_REGISTRY
-
-# Store reference immediately
-_ONEBI_RUNTIME = _runtime_ref
-
 
 class FastAPIOneBotBridge:
     """Bridge between FastAPI WebSocket and OneBotRuntime event handling."""
@@ -80,7 +74,7 @@ class FastAPIOneBotBridge:
             return
 
         logger.info("OneBot bridge: forwarding event to runtime")
-        logger.info("Bridge: registry=%s runtime=%s", _RUNTIME_REGISTRY, _RUNTIME_REGISTRY.get("onebot"))
+        from platforms.onebot.runtime.app import _RUNTIME_REGISTRY
         onebot_runtime = _RUNTIME_REGISTRY.get("onebot")
         if onebot_runtime is None:
             logger.warning("Bridge: onebot_runtime not in registry, cannot handle event")
