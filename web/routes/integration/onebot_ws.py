@@ -10,7 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import sys
+import threading
 import time
+import traceback
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -73,20 +77,42 @@ class FastAPIOneBotBridge:
                     future.set_result(msg.get("data"))
             return
 
-        logger.info("OneBot bridge: forwarding event to runtime")
-        import os, sys, threading
-        logger.info("Bridge: pid=%s thread=%s", os.getpid(), threading.current_thread().name)
-        onebot_keys = [k for k in sys.modules if 'onebot' in k.lower()]
-        logger.info("Bridge: sys.modules onebot keys: %s", onebot_keys)
-        for k in onebot_keys:
-            logger.info("Bridge: sys.modules[%s] id=%s", k, id(sys.modules[k]))
+        # === COMPREHENSIVE DIAGNOSTIC LOG ===
+        logger.info("=" * 60)
+        logger.info("[DIAG-BRIDGE] pid=%s thread=%s", os.getpid(), threading.current_thread().name)
+        # Dump all onebot-related sys.modules entries with ids
+        for k in sorted(sys.modules):
+            if 'onebot' in k.lower():
+                logger.info("[DIAG-BRIDGE] sys.modules[%s] = id=%s", k, id(sys.modules[k]))
+        # Check platforms.onebot.runtime.app directly
+        rt_mod = sys.modules.get("platforms.onebot.runtime.app")
+        logger.info("[DIAG-BRIDGE] platforms.onebot.runtime.app in sys.modules: %s, id=%s, onebot_runtime=%r",
+                     rt_mod is not None, id(rt_mod) if rt_mod else "N/A",
+                     getattr(rt_mod, 'onebot_runtime', 'MISSING') if rt_mod else "N/A")
+        # Check services.onebot.runtime directly
+        svc_mod = sys.modules.get("services.onebot.runtime")
+        logger.info("[DIAG-BRIDGE] services.onebot.runtime in sys.modules: %s, id=%s, _runtime=%r",
+                     svc_mod is not None, id(svc_mod) if svc_mod else "N/A",
+                     getattr(svc_mod, '_runtime', 'MISSING') if svc_mod else "N/A")
+        # Check _RUNTIME_INIT_COUNT to see if __init__ was ever called
+        if rt_mod:
+            logger.info("[DIAG-BRIDGE] _RUNTIME_INIT_COUNT=%s", getattr(rt_mod, '_RUNTIME_INIT_COUNT', 'MISSING'))
+        # Now do the actual import and compare
         from platforms.onebot.runtime.app import onebot_runtime
-        logger.info("Bridge: imported onebot_runtime=%r from module id=%s", onebot_runtime, id(sys.modules["platforms.onebot.runtime.app"]))
+        logger.info("[DIAG-BRIDGE] after import: onebot_runtime=%r, module id=%s (==sys.modules? %s)",
+                     onebot_runtime, id(sys.modules["platforms.onebot.runtime.app"]),
+                     id(sys.modules["platforms.onebot.runtime.app"]) == id(rt_mod) if rt_mod else "N/A")
+        # Fallback
+        from services.onebot.runtime import get_onebot_runtime
+        fallback = get_onebot_runtime()
+        logger.info("[DIAG-BRIDGE] get_onebot_runtime()=%r", fallback)
+        # Call stack
+        logger.info("[DIAG-BRIDGE] call stack:\n%s", "".join(traceback.format_stack()))
+        logger.info("=" * 60)
+        # === END DIAGNOSTIC ===
+
         if onebot_runtime is None:
-            # Also try the services registry as fallback
-            from services.onebot.runtime import get_onebot_runtime
-            onebot_runtime = get_onebot_runtime()
-            logger.info("Bridge: fallback get_onebot_runtime()=%r", onebot_runtime)
+            onebot_runtime = fallback
         if onebot_runtime is None:
             logger.warning("Bridge: onebot_runtime is None, cannot handle event")
             return
