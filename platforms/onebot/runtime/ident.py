@@ -27,7 +27,7 @@ class RuntimeIdentMixin:
         sub_type = str(event.get("sub_type", ""))
 
         if post_type == "message":
-            return self._parse_message_event(event)
+            return self._parse_message_event(event, post_type, message_type, sub_type)
         elif post_type == "meta_event":
             logger.debug("Ignoring meta_event: %s", event.get("meta_event_type"))
             raise ValueError("meta_event ignored")
@@ -38,7 +38,7 @@ class RuntimeIdentMixin:
             logger.debug("Unknown post_type: %s", post_type)
             raise ValueError(f"Unknown post_type: {post_type}")
 
-    def _parse_message_event(self, event: dict) -> OneBotInboundEnvelope:
+    def _parse_message_event(self, event: dict, post_type: str = "", sub_type: str = "") -> OneBotInboundEnvelope:
         """Parse a message event from OneBot 11."""
         raw_message = event.get("message", []) or []
         if isinstance(raw_message, list):
