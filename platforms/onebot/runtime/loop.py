@@ -47,10 +47,20 @@ class RuntimeLoopMixin:
 
         while True:
             try:
-                await self.client.connect()
-                logger.info("OneBot/NapCat connection established")
-                while self.client.connected:
-                    await asyncio.sleep(1)
+                if hasattr(self.client, "start_server"):
+                    await self.client.start_server()
+                    logger.info("OneBot/NapCat server listening, waiting for connection...")
+                    # In server mode, wait for the first connection
+                    while not self.client.connected:
+                        await asyncio.sleep(1)
+                    logger.info("OneBot/NapCat connection established")
+                    while self.client.connected:
+                        await asyncio.sleep(1)
+                else:
+                    await self.client.connect()
+                    logger.info("OneBot/NapCat connection established")
+                    while self.client.connected:
+                        await asyncio.sleep(1)
             except asyncio.CancelledError:
                 raise
             except Exception:

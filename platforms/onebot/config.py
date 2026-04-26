@@ -18,8 +18,14 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 # OneBot/NapCat connection settings
 ONEBOT_ENABLED = str(os.getenv("ONEBOT_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
+ONEBOT_MODE = str(os.getenv("ONEBOT_MODE", "client")).strip().lower()  # "client" or "server"
+# Client mode: we connect TO NapCat's WebSocket server
 ONEBOT_WS_URL = os.getenv("ONEBOT_WS_URL", "ws://127.0.0.1:6099").strip()
 ONEBOT_HTTP_URL = os.getenv("ONEBOT_HTTP_URL", "http://127.0.0.1:3000").strip()
+# Server mode: we listen as WebSocket server for NapCat to connect to
+# Port derived from ONEBOT_WS_URL for server mode (host:port)
+ONEBOT_SERVER_HOST = os.getenv("ONEBOT_SERVER_HOST", "0.0.0.0").strip()
+ONEBOT_SERVER_PORT = int(os.getenv("ONEBOT_SERVER_PORT", "8082").strip())
 ONEBOT_ACCESS_TOKEN = os.getenv("ONEBOT_ACCESS_TOKEN", "").strip()
 
 # QQ-specific settings
@@ -50,8 +56,11 @@ __all__ = [
     "logger",
     "HEALTH_CHECK_PORT",
     "ONEBOT_ENABLED",
+    "ONEBOT_MODE",
     "ONEBOT_WS_URL",
     "ONEBOT_HTTP_URL",
+    "ONEBOT_SERVER_HOST",
+    "ONEBOT_SERVER_PORT",
     "ONEBOT_ACCESS_TOKEN",
     "QQ_COMMAND_PREFIX",
     "QQ_STATE_DIR",
