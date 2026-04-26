@@ -41,6 +41,11 @@ QQ_GROUP_MENTION_ALIASES = [
     for item in os.getenv("QQ_GROUP_MENTION_ALIASES", "AI,ai,Bot,bot,助手,机器人").split(",")
     if item.strip()
 ]
+QQ_ADMIN_IDS = [
+    int(x.strip())
+    for x in os.getenv("QQ_ADMIN_IDS", "").split(",")
+    if x.strip().isdigit()
+]
 
 
 def onebot_ctx(local_user_id: int) -> str:
@@ -70,6 +75,7 @@ __all__ = [
     "QQ_STATE_DIR",
     "QQ_GROUP_REPLY_ALL",
     "QQ_GROUP_MENTION_ALIASES",
+    "QQ_ADMIN_IDS",
     "onebot_ctx",
     "onebot_ctx_for_scope",
 ]

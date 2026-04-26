@@ -16,15 +16,25 @@ class OneBotMessageContext:
     reply_to_id: str
     local_user_id: int
     local_chat_id: int
+    session_user_id: int = 0
     is_group: bool = False
     group_id: str | None = None
     context_token: str | None = None
     inbound_key: str | None = None
     raw_event: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.session_user_id == 0:
+            self.session_user_id = self.local_user_id
+
     @property
     def log_context(self) -> str:
         return f"[onebot:{self.local_user_id}]"
+
+    @property
+    def is_admin(self) -> bool:
+        from .config import QQ_ADMIN_IDS
+        return self.local_user_id in QQ_ADMIN_IDS
 
     async def reply_text(self, text: str) -> None:
         await self.runtime.send_text_to_peer(

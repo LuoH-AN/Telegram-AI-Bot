@@ -29,3 +29,6 @@ from .skill import (
     CREATE_USER_SKILL_ARTIFACTS_TABLE,
     CREATE_WECHAT_RUNTIME_STATE_TABLE,
 )
+from .onebot import (
+    CREATE_ONEBOT_GROUP_CONFIG_TABLE,
+)

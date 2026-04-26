@@ -43,6 +43,7 @@ async def process_chat_message(runtime, ctx, inbound) -> None:
         inbound: The OneBotInboundEnvelope for this message.
     """
     user_id = ctx.local_user_id
+    session_user_id = ctx.session_user_id
     ensure_user_state(user_id)
 
     user_content = inbound.text_body
@@ -63,7 +64,7 @@ async def process_chat_message(runtime, ctx, inbound) -> None:
     settings = get_user_settings(user_id)
     reasoning = str(settings.get("reasoning_effort", "") or "").strip().lower()
     show_thinking = bool(settings.get("show_thinking"))
-    session_id = ensure_session(user_id, persona_name)
+    session_id = ensure_session(session_user_id, persona_name)
     platform_str = "onebot"
     cancelled = cancel_user_responses(ctx.local_chat_id, user_id, platform=platform_str)
     if cancelled:

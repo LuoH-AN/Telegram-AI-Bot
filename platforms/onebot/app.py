@@ -9,6 +9,7 @@ from cache import init_database
 from services.platform import start_web_server
 
 from .config import ONEBOT_ENABLED, logger
+from .group_config import load_group_modes
 from .runtime import OneBotRuntime
 
 __all__ = ["OneBotRuntime", "main"]
@@ -20,6 +21,7 @@ def main() -> None:
         return
 
     init_database()
+    load_group_modes()
 
     # Create runtime BEFORE starting the web server so that
     # the FastAPI /onebot/ws endpoint can reference it when

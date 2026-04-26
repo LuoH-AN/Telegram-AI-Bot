@@ -85,4 +85,8 @@ async def dispatch_command(
         reply = await dispatch_skill_command(ctx, args)
         await ctx.reply_text(reply)
         return
+    if command == "groupmode":
+        from platforms.onebot.commands.group_mode import groupmode_command
+        await groupmode_command(ctx)
+        return
     await ctx.reply_text(build_help_message(command_prefix))

@@ -98,7 +98,14 @@ class RuntimeLoopMixin:
         local_user_id = inbound.user_id
         local_chat_id = inbound.group_id if inbound.is_group else inbound.user_id
 
-        ctx = self._build_context(inbound, local_user_id, local_chat_id)
+        from ..group_config import get_group_mode
+
+        if ctx.is_group and get_group_mode(int(inbound.group_id)) == "shared":
+            session_user_id = int(inbound.group_id)
+        else:
+            session_user_id = local_user_id
+
+        ctx = self._build_context(inbound, local_user_id, local_chat_id, session_user_id)
 
         if inbound.normalized_text.startswith(self.command_prefix):
             await dispatch_command(ctx, inbound.normalized_text)
@@ -106,7 +113,7 @@ class RuntimeLoopMixin:
 
         await process_chat_message(self, ctx, inbound)
 
-    def _build_context(self, inbound, local_user_id: int, local_chat_id: int):
+    def _build_context(self, inbound, local_user_id: int, local_chat_id: int, session_user_id: int):
         from ..context import OneBotMessageContext
 
         return OneBotMessageContext(
@@ -115,6 +122,7 @@ class RuntimeLoopMixin:
             reply_to_id=inbound.reply_to_id,
             local_user_id=local_user_id,
             local_chat_id=local_chat_id,
+            session_user_id=session_user_id,
             is_group=inbound.is_group,
             group_id=inbound.group_id,
             context_token=None,
