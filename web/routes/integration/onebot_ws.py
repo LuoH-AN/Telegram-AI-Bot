@@ -57,11 +57,13 @@ class FastAPIOneBotBridge:
             logger.info("NapCat WebSocket disconnected")
 
     async def _handle_message(self, msg: dict) -> None:
-        logger.info("OneBot bridge received: post_type=%s message_type=%s", msg.get("post_type"), msg.get("message_type"))
+        logger.info("OneBot bridge msg: post_type=%s echo=%s", msg.get("post_type"), "echo" in msg)
         if msg.get("post_type") == "meta_event" and msg.get("meta_event_type") == "heartbeat":
+            logger.info("OneBot bridge: ignoring meta_event heartbeat")
             return
 
         if "echo" in msg:
+            logger.info("OneBot bridge: handling API echo response")
             echo = str(msg["echo"])
             future = self._pending.pop(echo, None)
             if future and not future.done():
@@ -71,12 +73,19 @@ class FastAPIOneBotBridge:
                     future.set_result(msg.get("data"))
             return
 
+        logger.info("OneBot bridge: forwarding event to runtime")
         from platforms.onebot.runtime.app import onebot_runtime
-        if onebot_runtime is not None and hasattr(onebot_runtime, "handle_event"):
-            try:
-                await onebot_runtime.handle_event(msg)
-            except Exception:
-                logger.exception("Event handler error")
+        logger.info("Bridge: onebot_runtime=%s", onebot_runtime)
+        if onebot_runtime is None:
+            logger.warning("Bridge: onebot_runtime is None, cannot handle event")
+            return
+        if not hasattr(onebot_runtime, "handle_event"):
+            logger.warning("Bridge: onebot_runtime has no handle_event method")
+            return
+        try:
+            await onebot_runtime.handle_event(msg)
+        except Exception:
+            logger.exception("Event handler error")
 
     async def _send_api(self, action: str, params: dict | None = None) -> Any:
         if not self._connected or not self._ws:
