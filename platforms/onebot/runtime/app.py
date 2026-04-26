@@ -66,3 +66,7 @@ class OneBotRuntime(
             )
         set_onebot_runtime(self)
         onebot_runtime = self
+        import sys
+        logger.info("Runtime registered: module=%s, id=%s, sys.modules id=%s",
+                     id(sys.modules["platforms.onebot.runtime.app"]),
+                     id(self), id(sys.modules["platforms.onebot.runtime.app"]))
