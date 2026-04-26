@@ -117,5 +117,3 @@ async def onebot_websocket_endpoint(websocket: WebSocket) -> None:
         logger.info("NapCat WebSocket disconnected")
     except Exception:
         logger.exception("Error in OneBot WebSocket endpoint")
-    finally:
-        await websocket.close()
