@@ -74,8 +74,14 @@ class FastAPIOneBotBridge:
             return
 
         logger.info("OneBot bridge: forwarding event to runtime")
+        import os, sys, threading
+        logger.info("Bridge: pid=%s thread=%s", os.getpid(), threading.current_thread().name)
+        onebot_keys = [k for k in sys.modules if 'onebot' in k.lower()]
+        logger.info("Bridge: sys.modules onebot keys: %s", onebot_keys)
+        for k in onebot_keys:
+            logger.info("Bridge: sys.modules[%s] id=%s", k, id(sys.modules[k]))
         from platforms.onebot.runtime.app import onebot_runtime
-        logger.info("Bridge: onebot_runtime=%r, id=%s, module=%s", onebot_runtime, id(onebot_runtime) if onebot_runtime else "N/A", id(__import__("platforms.onebot.runtime.app", fromlist=["onebot_runtime"])) if onebot_runtime is None else "N/A")
+        logger.info("Bridge: imported onebot_runtime=%r from module id=%s", onebot_runtime, id(sys.modules["platforms.onebot.runtime.app"]))
         if onebot_runtime is None:
             # Also try the services registry as fallback
             from services.onebot.runtime import get_onebot_runtime
