@@ -27,7 +27,7 @@ class RuntimeIdentMixin:
         sub_type = str(event.get("sub_type", ""))
 
         if post_type == "message":
-            return self._parse_message_event(event, post_type, message_type, sub_type)
+            return self._parse_message_event(event, post_type, sub_type)
         elif post_type == "meta_event":
             logger.debug("Ignoring meta_event: %s", event.get("meta_event_type"))
             raise ValueError("meta_event ignored")
