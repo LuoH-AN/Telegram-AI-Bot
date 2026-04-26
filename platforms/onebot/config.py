@@ -18,12 +18,16 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 # OneBot/NapCat connection settings
 ONEBOT_ENABLED = str(os.getenv("ONEBOT_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
-ONEBOT_MODE = str(os.getenv("ONEBOT_MODE", "client")).strip().lower()  # "client" or "server"
+# Connection mode:
+#   "client"      - we connect to NapCat's WebSocket server (NapCat = server)
+#   "server"      - we run as WebSocket server, NapCat connects to us (NapCat = client)
+#   "ws"          - WebSocket endpoint via FastAPI web server, NapCat connects to /onebot/ws
+ONEBOT_MODE = str(os.getenv("ONEBOT_MODE", "client")).strip().lower()
 # Client mode: we connect TO NapCat's WebSocket server
 ONEBOT_WS_URL = os.getenv("ONEBOT_WS_URL", "ws://127.0.0.1:6099").strip()
 ONEBOT_HTTP_URL = os.getenv("ONEBOT_HTTP_URL", "http://127.0.0.1:3000").strip()
-# Server mode: we listen as WebSocket server for NapCat to connect to
-# Port derived from ONEBOT_WS_URL for server mode (host:port)
+# Server/WS mode: we listen as WebSocket server
+# ONEBOT_SERVER_HOST and ONEBOT_SERVER_PORT used by "server" mode
 ONEBOT_SERVER_HOST = os.getenv("ONEBOT_SERVER_HOST", "0.0.0.0").strip()
 ONEBOT_SERVER_PORT = int(os.getenv("ONEBOT_SERVER_PORT", "8082").strip())
 ONEBOT_ACCESS_TOKEN = os.getenv("ONEBOT_ACCESS_TOKEN", "").strip()

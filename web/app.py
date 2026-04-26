@@ -16,6 +16,7 @@ from web.routes.dashboard.models import router as models_router
 from web.routes.integration.artifacts import router as artifacts_router
 from web.routes.integration.deployments import router as deployments_router
 from web.routes.integration.wechat import router as wechat_router
+from web.routes.integration.onebot_ws import router as onebot_ws_router
 from web.live_logs import install_live_log_handler
 from web.app_middleware import install_api_request_logger
 from web.app_routes import mount_static, register_auth_routes, register_health_routes, register_logs_routes
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
         artifacts_router,
         deployments_router,
         wechat_router,
+        onebot_ws_router,
     ):
         app.include_router(router)
     install_api_request_logger(app, logger)

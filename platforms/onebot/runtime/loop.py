@@ -10,7 +10,7 @@ import asyncio
 
 from services.cron import set_main_loop, start_cron_scheduler
 
-from ..config import logger
+from ..config import logger, ONEBOT_MODE
 
 MAX_INBOUND_TASKS = 8
 
@@ -20,6 +20,13 @@ class RuntimeLoopMixin:
         self._loop = asyncio.get_running_loop()
         set_main_loop(self._loop)
         start_cron_scheduler(self)
+
+        if ONEBOT_MODE == "ws":
+            # WebSocket mode: FastAPI handles the WS connection at /onebot/ws
+            # Just wait here - the FastAPI bridge handles incoming connections
+            logger.info("OneBot/WS mode: waiting for NapCat WebSocket connections at /onebot/ws")
+            while True:
+                await asyncio.sleep(60)
 
         inflight_tasks: set[asyncio.Task] = set()
         semaphore = asyncio.Semaphore(MAX_INBOUND_TASKS)
