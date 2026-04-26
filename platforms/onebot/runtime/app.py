@@ -28,9 +28,6 @@ from .send_text import RuntimeSendTextMixin
 # Module-level reference for FastAPI WS bridge
 onebot_runtime: "OneBotRuntime | None" = None
 
-# Global registry for bridge access (more reliable than module-level import)
-_RUNTIME_REGISTRY: dict[str, "OneBotRuntime"] = {}
-
 
 class OneBotRuntime(
     RuntimeIdentMixin,
@@ -69,4 +66,3 @@ class OneBotRuntime(
             )
         set_onebot_runtime(self)
         onebot_runtime = self
-        _RUNTIME_REGISTRY["onebot"] = self

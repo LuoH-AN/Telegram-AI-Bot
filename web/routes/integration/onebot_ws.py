@@ -74,10 +74,9 @@ class FastAPIOneBotBridge:
             return
 
         logger.info("OneBot bridge: forwarding event to runtime")
-        from platforms.onebot.runtime.app import _RUNTIME_REGISTRY
-        onebot_runtime = _RUNTIME_REGISTRY.get("onebot")
+        from platforms.onebot.runtime.app import onebot_runtime
         if onebot_runtime is None:
-            logger.warning("Bridge: onebot_runtime not in registry, cannot handle event")
+            logger.warning("Bridge: onebot_runtime is None, cannot handle event")
             return
         if not hasattr(onebot_runtime, "handle_event"):
             logger.warning("Bridge: onebot_runtime has no handle_event method")
