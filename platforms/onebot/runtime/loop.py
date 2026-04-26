@@ -81,8 +81,13 @@ class RuntimeLoopMixin:
 
         try:
             inbound = self._parse_event(event)
-        except ValueError:
+        except ValueError as exc:
+            logger.info("OneBot handle_event: parse failed %s (post_type=%s)", exc, event.get("post_type"))
             return
+
+        logger.info("OneBot handle_event: user=%s chat=%s is_group=%s text=%r command=%s",
+            inbound.user_id, inbound.group_id or inbound.user_id, inbound.is_group,
+            inbound.normalized_text[:50], inbound.normalized_text.startswith(self.command_prefix))
 
         if self._seen_messages.remember_once(inbound.inbound_key):
             return

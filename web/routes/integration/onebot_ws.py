@@ -57,6 +57,7 @@ class FastAPIOneBotBridge:
             logger.info("NapCat WebSocket disconnected")
 
     async def _handle_message(self, msg: dict) -> None:
+        logger.info("OneBot bridge received: post_type=%s message_type=%s", msg.get("post_type"), msg.get("message_type"))
         if msg.get("post_type") == "meta_event" and msg.get("meta_event_type") == "heartbeat":
             return
 
