@@ -75,6 +75,12 @@ class FastAPIOneBotBridge:
 
         logger.info("OneBot bridge: forwarding event to runtime")
         from platforms.onebot.runtime.app import onebot_runtime
+        logger.info("Bridge: onebot_runtime=%r, id=%s, module=%s", onebot_runtime, id(onebot_runtime) if onebot_runtime else "N/A", id(__import__("platforms.onebot.runtime.app", fromlist=["onebot_runtime"])) if onebot_runtime is None else "N/A")
+        if onebot_runtime is None:
+            # Also try the services registry as fallback
+            from services.onebot.runtime import get_onebot_runtime
+            onebot_runtime = get_onebot_runtime()
+            logger.info("Bridge: fallback get_onebot_runtime()=%r", onebot_runtime)
         if onebot_runtime is None:
             logger.warning("Bridge: onebot_runtime is None, cannot handle event")
             return
