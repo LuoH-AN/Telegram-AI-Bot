@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from cache import get_db_connection
+from database.db import get_connection
 
 from .config import logger
 
@@ -14,7 +14,7 @@ _group_modes: dict[int, str] = {}
 
 def load_group_modes() -> None:
     try:
-        conn = get_db_connection()
+        conn = get_connection()
         if conn is None:
             return
         with conn.cursor() as cur:
@@ -37,7 +37,7 @@ def set_group_mode(group_id: int, mode: str) -> None:
         raise ValueError(f"Invalid mode: {mode}")
     _group_modes[group_id] = mode
     try:
-        conn = get_db_connection()
+        conn = get_connection()
         if conn is None:
             return
         with conn.cursor() as cur:
