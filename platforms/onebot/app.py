@@ -21,6 +21,12 @@ def main() -> None:
 
     init_database()
 
+    # Create runtime BEFORE starting the web server so that
+    # the FastAPI /onebot/ws endpoint can reference it when
+    # NapCat connects before the main thread reaches runtime.run()
+    logger.info("Starting OneBot/NapCat bot...")
+    runtime = OneBotRuntime()
+
     web_thread = threading.Thread(
         target=start_web_server,
         kwargs={"logger": logger},
@@ -28,6 +34,4 @@ def main() -> None:
     )
     web_thread.start()
 
-    logger.info("Starting OneBot/NapCat bot...")
-    runtime = OneBotRuntime()
     asyncio.run(runtime.run())
