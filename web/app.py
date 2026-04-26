@@ -45,8 +45,11 @@ def create_app() -> FastAPI:
         app.include_router(router)
 
     if os.getenv("ONEBOT_MODE", "").strip().lower() == "ws":
-        from web.routes.integration.onebot_ws import router as onebot_ws_router
-        app.include_router(onebot_ws_router)
+        from services.onebot.runtime import get_onebot_runtime
+        if get_onebot_runtime() is not None:
+            from web.routes.integration.onebot_ws import router as onebot_ws_router
+            app.include_router(onebot_ws_router)
+
     install_api_request_logger(app, logger)
     register_health_routes(app)
     register_logs_routes(app)
