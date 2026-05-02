@@ -1,6 +1,9 @@
 """OneBot platform package."""
 
-from .app import main
-from .runtime import OneBotRuntime
-
 __all__ = ["main", "OneBotRuntime"]
+
+
+def main() -> None:
+    """Entry point for OneBot platform."""
+    from .app import main as _main
+    _main()

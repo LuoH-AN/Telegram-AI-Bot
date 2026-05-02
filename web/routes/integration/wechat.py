@@ -7,7 +7,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from services.wechat.runtime import get_wechat_runtime
+from platforms.wechat.services.runtime import get_wechat_runtime
 
 router = APIRouter(tags=["wechat"])
 

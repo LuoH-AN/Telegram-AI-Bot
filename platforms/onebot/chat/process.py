@@ -28,10 +28,10 @@ from utils.ai import estimate_tokens_str as _estimate_tokens_str
 from utils.platform import build_api_key_required_message, build_latex_guidance, build_retry_message, build_token_limit_reached_message
 
 from ..config import logger
-from ..recent_cache import NoopPump
+from platforms.shared.cache import NoopPump
 
-from .round import run_completion_round
-from .title import generate_and_set_title
+from platforms.shared.chat.round import run_completion_round
+from platforms.shared.chat.title import generate_and_set_title
 
 
 async def process_chat_message(runtime, ctx, inbound) -> None:
@@ -138,7 +138,7 @@ async def process_chat_message(runtime, ctx, inbound) -> None:
         add_assistant_message(session_id, generated["final_text"])
 
         if get_session_message_count(session_id) <= 2:
-            asyncio.create_task(generate_and_set_title(user_id, session_id, user_content, generated["final_text"]))
+            asyncio.create_task(generate_and_set_title(user_id, session_id, user_content, generated["final_text"], log_context=ctx.log_context))
 
         prompt_tokens = generated["prompt_tokens"] or _estimate_tokens(generated["messages"])
         completion_tokens = generated["completion_tokens"] or _estimate_tokens_str(generated["final_text"])

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from services.onebot.runtime import set_onebot_runtime
+from platforms.onebot.services.runtime import set_onebot_runtime
 
 from ..config import (
     ONEBOT_ACCESS_TOKEN,
@@ -17,7 +17,7 @@ from ..config import (
     QQ_STATE_DIR,
     logger,
 )
-from ..recent_cache import RecentKeyCache
+from platforms.shared.cache import RecentKeyCache
 from ..sdk import OneBotClient, OneBotServer
 
 from .ident import RuntimeIdentMixin

@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 import os
 
 from config import HEALTH_CHECK_PORT
+from platforms.shared.logging import setup_platform_logging
 from utils.platform import format_log_context
 
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("openai").setLevel(logging.WARNING)
-logging.getLogger("uvicorn").setLevel(logging.WARNING)
-logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logger = setup_platform_logging()
 
 # OneBot/NapCat connection settings
 ONEBOT_ENABLED = str(os.getenv("ONEBOT_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}

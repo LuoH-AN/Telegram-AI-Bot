@@ -6,12 +6,12 @@ import asyncio
 import threading
 from pathlib import Path
 
-from services.wechat.runtime import set_wechat_runtime
-from services.wechat.login import get_wechat_login_access_token
-from services.wechat.sdk import WeChatBotAdapter
+from platforms.wechat.services.runtime import set_wechat_runtime
+from platforms.wechat.services.login import get_wechat_login_access_token
+from platforms.wechat.services.sdk import WeChatBotAdapter
 
 from ..config import WECHAT_COMMAND_PREFIX, WECHAT_STATE_DIR
-from ..recent_cache import RecentKeyCache
+from platforms.shared.cache import RecentKeyCache
 from .ident import RuntimeIdentMixin
 from .login_poll import RuntimeLoginPollMixin
 from .login_start import RuntimeLoginStartMixin

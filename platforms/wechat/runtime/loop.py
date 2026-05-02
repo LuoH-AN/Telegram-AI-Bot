@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 
 from services.cron import set_main_loop, start_cron_scheduler
-from services.wechat.official import local_chat_id_for_wechat
+from platforms.wechat.services.official import local_chat_id_for_wechat
 
 from ..config import logger
 from ..context import WeChatMessageContext

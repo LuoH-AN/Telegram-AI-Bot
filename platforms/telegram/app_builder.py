@@ -14,7 +14,7 @@ from config import (
     TELEGRAM_SEND_QUEUE_WARN_THRESHOLD,
     TELEGRAM_SEND_RETRY_JITTER,
 )
-from handlers import (
+from platforms.telegram.handlers import (
     chat,
     chat_command,
     clear,

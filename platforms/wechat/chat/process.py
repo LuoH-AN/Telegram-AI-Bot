@@ -30,9 +30,9 @@ from utils.platform import build_api_key_required_message, build_latex_guidance,
 
 from ..config import logger
 from ..message.content import build_user_content_from_wechat_message
-from ..recent_cache import NoopPump
-from .round import run_completion_round
-from .title import generate_and_set_title
+from platforms.shared.cache import NoopPump
+from platforms.shared.chat.round import run_completion_round
+from platforms.shared.chat.title import generate_and_set_title
 
 
 async def process_chat_message(runtime, ctx, message) -> None:
@@ -133,7 +133,7 @@ async def process_chat_message(runtime, ctx, message) -> None:
             add_user_message(session_id, save_msg)
             add_assistant_message(session_id, generated["final_text"])
             if get_session_message_count(session_id) <= 2:
-                asyncio.create_task(generate_and_set_title(user_id, session_id, save_msg, generated["final_text"]))
+                asyncio.create_task(generate_and_set_title(user_id, session_id, save_msg, generated["final_text"], log_context=ctx.log_context))
             prompt_tokens = generated["prompt_tokens"] or _estimate_tokens(generated["messages"])
             completion_tokens = generated["completion_tokens"] or _estimate_tokens_str(generated["final_text"])
             if prompt_tokens or completion_tokens:
