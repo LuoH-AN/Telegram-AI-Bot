@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 
 from services.cron import set_main_loop, start_cron_scheduler
+from platforms.shared.runtime import make_bounded_dispatcher
 from platforms.wechat.services.official import local_chat_id_for_wechat
 
 from ..config import logger
@@ -24,29 +25,14 @@ class RuntimeLoopMixin:
         set_main_loop(self._loop)
         start_cron_scheduler(self)
 
-        inflight_tasks: set[asyncio.Task] = set()
-        semaphore = asyncio.Semaphore(MAX_INBOUND_TASKS)
-
-        async def _dispatch_incoming(msg) -> None:
-            async with semaphore:
-                await self.handle_sdk_message(msg)
-
-        async def _on_incoming(msg) -> None:
-            task = asyncio.create_task(_dispatch_incoming(msg))
-            inflight_tasks.add(task)
-
-            def _on_done(done: asyncio.Task) -> None:
-                inflight_tasks.discard(done)
-                try:
-                    done.result()
-                except asyncio.CancelledError:
-                    return
-                except Exception:
-                    logger.exception("WeChat inbound message task failed")
-
-            task.add_done_callback(_on_done)
-
-        self.client.on_message(_on_incoming)
+        self.client.on_message(
+            make_bounded_dispatcher(
+                self.handle_sdk_message,
+                max_concurrent=MAX_INBOUND_TASKS,
+                error_log_label="WeChat inbound message",
+                logger=logger,
+            )
+        )
 
         while True:
             try:

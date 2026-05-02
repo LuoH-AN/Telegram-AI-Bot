@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 
 from services.cron import set_main_loop, start_cron_scheduler
+from platforms.shared.runtime import make_bounded_dispatcher
 
 from ..config import logger, ONEBOT_MODE
 
@@ -28,29 +29,12 @@ class RuntimeLoopMixin:
             while True:
                 await asyncio.sleep(60)
 
-        inflight_tasks: set[asyncio.Task] = set()
-        semaphore = asyncio.Semaphore(MAX_INBOUND_TASKS)
-
-        async def _dispatch_incoming(event: dict) -> None:
-            async with semaphore:
-                await self.handle_event(event)
-
-        async def _on_event(event: dict) -> None:
-            task = asyncio.create_task(_dispatch_incoming(event))
-            inflight_tasks.add(task)
-
-            def _on_done(done: asyncio.Task) -> None:
-                inflight_tasks.discard(done)
-                try:
-                    done.result()
-                except asyncio.CancelledError:
-                    return
-                except Exception:
-                    logger.exception("OneBot inbound event task failed")
-
-            task.add_done_callback(_on_done)
-
-        self.client.on_event = _on_event
+        self.client.on_event = make_bounded_dispatcher(
+            self.handle_event,
+            max_concurrent=MAX_INBOUND_TASKS,
+            error_log_label="OneBot inbound event",
+            logger=logger,
+        )
 
         while True:
             try:
