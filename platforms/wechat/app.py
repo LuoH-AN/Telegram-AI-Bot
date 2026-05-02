@@ -1,12 +1,10 @@
-"""WeChat AI Bot entry point using modularized runtime parts."""
+"""WeChat AI Bot entry point."""
 
 from __future__ import annotations
 
 import asyncio
-import threading
 
 from cache import init_database
-from services.platform import start_web_server
 
 from .config import WECHAT_ENABLED, logger
 from .runtime import WeChatBotRuntime
@@ -20,13 +18,6 @@ def main() -> None:
         return
 
     init_database()
-
-    web_thread = threading.Thread(
-        target=start_web_server,
-        kwargs={"logger": logger},
-        daemon=True,
-    )
-    web_thread.start()
 
     logger.info("Starting WeChat bot...")
     runtime = WeChatBotRuntime()

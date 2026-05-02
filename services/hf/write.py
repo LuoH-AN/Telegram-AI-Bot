@@ -6,10 +6,8 @@ import time
 
 from .store import get_hf_dataset_store
 
-from .artifact import _artifact_view_url
 from .batch import commit_object_triplet
 from .index import _load_object_index
-from .record import ObjectRecord
 from .name import _meta_key_for_path, _normalize_object_key
 
 
@@ -65,16 +63,6 @@ def put_storage_object(
     if not ok:
         return {"ok": False, "message": f"Failed to store object '{object_name}'"}
 
-    record = ObjectRecord(
-        object_name=object_name,
-        content_path=content_path,
-        meta_path=meta_path,
-        content_type=content_type,
-        filename=stored_filename,
-        encrypted=bool(encrypt),
-        size=len(data),
-        created_at=created_at,
-    )
     return {
         "ok": True,
         "kind": "object",
@@ -84,6 +72,5 @@ def put_storage_object(
         "content_type": content_type,
         "encrypted": bool(encrypt),
         "size": len(data),
-        "view_url": _artifact_view_url(record, user_id=user_id),
         "repo_url": store.resolve_repo_url(object_name) if not encrypt else None,
     }

@@ -2,29 +2,9 @@
 
 from __future__ import annotations
 
-import logging
-import os
-
-import uvicorn
-
 from ai import get_ai_client
-from config import HEALTH_CHECK_PORT
-from web.app import create_app
 
 VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
-
-
-def start_web_server(logger: logging.Logger, *, port: int = HEALTH_CHECK_PORT) -> None:
-    env_port = (os.getenv("PORT") or "").strip()
-    if env_port:
-        try:
-            port = int(env_port)
-        except ValueError:
-            logger.warning("Invalid PORT value '%s'; fallback to %d", env_port, port)
-    app = create_app()
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning", access_log=False)
-    logger.info("Web server started on port %d", port)
-    uvicorn.Server(config).run()
 
 
 def mask_key(api_key: str) -> str:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from utils.platform import build_help_message
 
-from .account import export_command, usage_command, web_command
+from .account import export_command, usage_command
 from .basic import clear_command, help_command, restart_command, settings_command, start_command, stop_command, update_command
 from .login import login_command
 from .memory import forget_command, memories_command, remember_command
@@ -74,9 +74,6 @@ async def dispatch_command(
         return
     if command == "chat":
         await chat_command(ctx, command_prefix=command_prefix, args=args)
-        return
-    if command == "web":
-        await web_command(ctx)
         return
     if command == "login":
         await login_command(ctx, command_prefix, args=args)

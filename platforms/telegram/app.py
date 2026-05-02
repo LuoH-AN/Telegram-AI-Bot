@@ -1,12 +1,9 @@
 """Telegram AI Bot entrypoint."""
 
-import threading
-
 from telegram import Update
 
 from cache import init_database
 from config import TELEGRAM_BOT_TOKEN
-from services.platform import start_web_server
 
 from .app_builder import build_application
 from .logging_config import configure_platform_logging
@@ -20,11 +17,6 @@ def main() -> None:
         return
 
     init_database()
-    threading.Thread(
-        target=start_web_server,
-        kwargs={"logger": logger},
-        daemon=True,
-    ).start()
 
     application = build_application(logger)
     logger.info("Starting bot...")

@@ -6,7 +6,6 @@ from .memory import remember_command, memories_command, forget_command
 from .persona import persona_command
 from .chat import chat_command
 from .settings import settings_command, set_command, _build_model_keyboard
-from .web import web_command
 
 __all__ = [
     "start",
@@ -26,5 +25,4 @@ __all__ = [
     "forget_command",
     "persona_command",
     "chat_command",
-    "web_command",
 ]

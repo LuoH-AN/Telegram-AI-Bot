@@ -29,7 +29,6 @@ _BUILTIN_TOOL_NAMES = {
     "sosearch",
     "scrapling",
     "project_config",
-    "quick_deploy",
     "s3",
 }
 

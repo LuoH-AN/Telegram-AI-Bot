@@ -1,8 +1,4 @@
-"""Main runtime loop and inbound dispatch for OneBot.
-
-Uses WebSocket connection to NapCat. Events are received via the
-WebSocket connection and dispatched to handlers.
-"""
+"""Main runtime loop and inbound dispatch for OneBot."""
 
 from __future__ import annotations
 
@@ -11,7 +7,13 @@ import asyncio
 from services.cron import set_main_loop, start_cron_scheduler
 from platforms.shared.runtime import make_bounded_dispatcher
 
-from ..config import logger, ONEBOT_MODE
+from ..config import (
+    logger,
+    ONEBOT_MODE,
+    ONEBOT_WS_BIND_HOST,
+    ONEBOT_WS_BIND_PORT,
+    ONEBOT_WS_PATH,
+)
 
 MAX_INBOUND_TASKS = 8
 
@@ -23,11 +25,15 @@ class RuntimeLoopMixin:
         start_cron_scheduler(self)
 
         if ONEBOT_MODE == "ws":
-            # WebSocket mode: FastAPI handles the WS connection at /onebot/ws
-            # Just wait here - the FastAPI bridge handles incoming connections
-            logger.info("OneBot/WS mode: waiting for NapCat WebSocket connections at /onebot/ws")
-            while True:
-                await asyncio.sleep(60)
+            from ..ws_server import serve_onebot_ws
+
+            await serve_onebot_ws(
+                self,
+                host=ONEBOT_WS_BIND_HOST,
+                port=ONEBOT_WS_BIND_PORT,
+                path=ONEBOT_WS_PATH,
+            )
+            return
 
         self.client.on_event = make_bounded_dispatcher(
             self.handle_event,

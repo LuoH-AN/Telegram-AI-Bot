@@ -9,7 +9,6 @@ from .name import (
     _resolve_path,
 )
 from .object import (
-    _artifact_view_url,
     _load_object_index,
     _save_object_index,
     delete_storage_object,

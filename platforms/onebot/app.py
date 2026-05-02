@@ -1,12 +1,10 @@
-"""OneBot AI Bot entry point using modularized runtime parts."""
+"""OneBot AI Bot entry point."""
 
 from __future__ import annotations
 
 import asyncio
-import threading
 
 from cache import init_database
-from services.platform import start_web_server
 
 from .config import ONEBOT_ENABLED, logger
 from .group_config import load_group_modes
@@ -23,17 +21,6 @@ def main() -> None:
     init_database()
     load_group_modes()
 
-    # Create runtime BEFORE starting the web server so that
-    # the FastAPI /onebot/ws endpoint can reference it when
-    # NapCat connects before the main thread reaches runtime.run()
     logger.info("Starting OneBot/NapCat bot...")
     runtime = OneBotRuntime()
-
-    web_thread = threading.Thread(
-        target=start_web_server,
-        kwargs={"logger": logger},
-        daemon=True,
-    )
-    web_thread.start()
-
     asyncio.run(runtime.run())

@@ -1,4 +1,4 @@
-"""Usage/export/web command handlers."""
+"""Usage/export command handlers."""
 
 from __future__ import annotations
 
@@ -6,13 +6,7 @@ from pathlib import Path
 
 from services import export_to_markdown, get_current_persona_name, reset_token_usage
 from services.platform import build_usage_text
-from utils.platform import (
-    build_usage_reset_message,
-    build_web_dashboard_message,
-    build_web_dm_failed_message,
-    build_web_dm_sent_message,
-)
-from web.auth import create_short_token
+from utils.platform import build_usage_reset_message
 
 
 async def usage_command(ctx, *, args: list[str]) -> None:
@@ -49,19 +43,3 @@ async def export_command(ctx) -> None:
         await ctx.reply_file(path, caption=caption)
     except Exception:
         await ctx.reply_text(path.read_text("utf-8"))
-
-
-async def web_command(ctx) -> None:
-    from config import WEB_BASE_URL
-
-    token = create_short_token(ctx.local_user_id)
-    url = f"{WEB_BASE_URL.rstrip('/')}/?token={token}#token={token}"
-    text = build_web_dashboard_message(url)
-    if getattr(ctx, "is_group", False) and hasattr(ctx, "send_private_text"):
-        try:
-            await ctx.send_private_text(text)
-            await ctx.reply_text(build_web_dm_sent_message())
-        except Exception:
-            await ctx.reply_text(build_web_dm_failed_message())
-        return
-    await ctx.reply_text(text)

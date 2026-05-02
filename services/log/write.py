@@ -49,15 +49,6 @@ def record_error(user_id: int, error_message: str, error_context: str | None = N
     )
 
 
-def record_web_action(user_id: int, action: str, detail: dict | None = None, persona_name: str | None = None):
-    _execute_insert(
-        """INSERT INTO user_logs
-           (user_id, log_type, error_message, error_context, persona_name)
-           VALUES (%s, 'web_action', %s, %s, %s)""",
-        (user_id, action, json.dumps(detail, ensure_ascii=False) if detail is not None else None, persona_name),
-    )
-
-
 def record_terminal_command(user_id: int, *, command: str, exit_code: int, cwd: str, stdout: str, stderr: str, blocked: bool = False):
     detail = {"command": command, "exit_code": exit_code, "cwd": cwd, "stdout": stdout, "stderr": stderr, "blocked": blocked}
     _execute_insert(

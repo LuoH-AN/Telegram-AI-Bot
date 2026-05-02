@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from .artifact import _artifact_view_url
 from .index import _load_object_index, _save_object_index
 from .delete import delete_storage_object
 from .file import put_storage_file

@@ -36,7 +36,6 @@ from platforms.telegram.handlers import (
     restart,
     usage_command,
     update,
-    web_command,
 )
 from .rate import QueuedRateLimiter
 from .error_handler import build_error_handler
@@ -59,7 +58,6 @@ def _register_handlers(application: Application) -> None:
         ("remember", remember_command),
         ("memories", memories_command),
         ("forget", forget_command),
-        ("web", web_command),
     ):
         application.add_handler(CommandHandler(name, handler))
     application.add_handler(CallbackQueryHandler(model_callback, pattern=r"^model:|^models_"))

@@ -15,7 +15,7 @@ ONEBOT_ENABLED = str(os.getenv("ONEBOT_ENABLED", "")).strip().lower() in {"1", "
 # Connection mode:
 #   "client"      - we connect to NapCat's WebSocket server (NapCat = server)
 #   "server"      - we run as WebSocket server, NapCat connects to us (NapCat = client)
-#   "ws"          - WebSocket endpoint via FastAPI web server, NapCat connects to /onebot/ws
+#   "ws"          - standalone WebSocket server, NapCat reverse-connects to /onebot/ws
 ONEBOT_MODE = str(os.getenv("ONEBOT_MODE", "client")).strip().lower()
 # Client mode: we connect TO NapCat's WebSocket server
 ONEBOT_WS_URL = os.getenv("ONEBOT_WS_URL", "ws://127.0.0.1:6099").strip()
@@ -24,6 +24,10 @@ ONEBOT_HTTP_URL = os.getenv("ONEBOT_HTTP_URL", "http://127.0.0.1:3000").strip()
 # ONEBOT_SERVER_HOST and ONEBOT_SERVER_PORT used by "server" mode
 ONEBOT_SERVER_HOST = os.getenv("ONEBOT_SERVER_HOST", "0.0.0.0").strip()
 ONEBOT_SERVER_PORT = int(os.getenv("ONEBOT_SERVER_PORT", "8082").strip())
+# WS mode: standalone reverse-WS server
+ONEBOT_WS_BIND_HOST = os.getenv("ONEBOT_WS_BIND_HOST", "0.0.0.0").strip()
+ONEBOT_WS_BIND_PORT = int(os.getenv("ONEBOT_WS_BIND_PORT", os.getenv("PORT", "7864")).strip())
+ONEBOT_WS_PATH = os.getenv("ONEBOT_WS_PATH", "/onebot/ws").strip() or "/onebot/ws"
 ONEBOT_ACCESS_TOKEN = os.getenv("ONEBOT_ACCESS_TOKEN", "").strip()
 
 # QQ-specific settings
@@ -64,6 +68,9 @@ __all__ = [
     "ONEBOT_HTTP_URL",
     "ONEBOT_SERVER_HOST",
     "ONEBOT_SERVER_PORT",
+    "ONEBOT_WS_BIND_HOST",
+    "ONEBOT_WS_BIND_PORT",
+    "ONEBOT_WS_PATH",
     "ONEBOT_ACCESS_TOKEN",
     "QQ_COMMAND_PREFIX",
     "QQ_STATE_DIR",

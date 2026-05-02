@@ -5,13 +5,11 @@ from .app import (
     mask_key,
     normalize_reasoning_effort,
     normalize_stream_mode,
-    start_web_server,
 )
 from .provider import apply_provider_command, build_provider_list_text
 from .view import build_settings_text, build_usage_text
 
 __all__ = [
-    "start_web_server",
     "mask_key",
     "normalize_stream_mode",
     "normalize_reasoning_effort",
