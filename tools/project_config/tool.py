@@ -365,7 +365,7 @@ class ProjectConfigTool(BaseTool):
             conn.commit()
         finally:
             conn.close()
-        from services.state.db import refresh_cache_from_db
+        from services.sync.db import refresh_cache_from_db
         refresh_cache_from_db(user_id)
 
 

@@ -6,21 +6,6 @@ from .openai import OpenAIClient, create_openai_client
 
 
 def get_ai_client(user_id: int) -> AIClient:
-    """Get an AI client for a user based on their settings.
-
-    Currently only supports OpenAI-compatible APIs.
-    """
-    settings = get_user_settings(user_id)
-    return create_openai_client(
-        api_key=settings["api_key"],
-        base_url=settings["base_url"],
-        log_context=f"[user={user_id}]",
-    )
-
-
-# Backward compatibility alias
-def get_openai_client(user_id: int) -> OpenAIClient:
-    """Get an OpenAI client for a user."""
     settings = get_user_settings(user_id)
     return create_openai_client(
         api_key=settings["api_key"],
@@ -30,14 +15,10 @@ def get_openai_client(user_id: int) -> OpenAIClient:
 
 
 __all__ = [
-    # Base
     "AIClient",
     "StreamChunk",
     "ToolCall",
-    # OpenAI
     "OpenAIClient",
     "create_openai_client",
-    # Factory
     "get_ai_client",
-    "get_openai_client",
 ]

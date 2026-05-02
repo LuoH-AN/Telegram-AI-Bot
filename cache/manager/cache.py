@@ -36,6 +36,9 @@ class CacheManager(
         self._lock = threading.RLock()
         init_cache_maps(self)
         init_dirty_state(self)
+        # Temporary ID for sessions not yet persisted. Initialized to DB max(id)
+        # by cache/sync/session.py:load() and re-keyed to the real SERIAL value
+        # in cache/sync/session.py:sync_new() via _rekey(). Not a stable key.
         self._session_id_counter = 0
 
     def _next_session_id(self) -> int:

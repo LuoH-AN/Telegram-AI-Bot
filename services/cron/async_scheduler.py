@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from cache.manager import cache
 
@@ -14,28 +13,22 @@ from .execution import _execute_cron_task
 from .matcher import _cron_matches
 from .state import CST, POLL_INTERVAL
 
-if TYPE_CHECKING:
-    from core.container import Container
-
 logger = logging.getLogger(__name__)
 
-# Global running tasks (shared with sync scheduler)
 _running_tasks: set[tuple[int, str]] = set()
 _running_tasks_lock = asyncio.Lock()
 
 
-async def _scheduler_loop_async(bot, container: "Container | None" = None) -> None:
-    """Async version of the cron scheduler loop."""
+async def _scheduler_loop_async(bot) -> None:
     while True:
         await asyncio.sleep(POLL_INTERVAL)
         try:
-            await _process_cron_tasks_async(bot, container)
+            await _process_cron_tasks_async(bot)
         except Exception:
             logger.exception("Async cron scheduler error")
 
 
-async def _process_cron_tasks_async(bot, container: "Container | None" = None) -> None:
-    """Process all cron tasks asynchronously."""
+async def _process_cron_tasks_async(bot) -> None:
     now = datetime.now(CST)
     tasks = cache.get_all_cron_tasks()
 
@@ -64,34 +57,25 @@ async def _process_cron_tasks_async(bot, container: "Container | None" = None) -
                 continue
             _running_tasks.add(task_key)
 
-        # Fire async task
-        asyncio.create_task(_execute_cron_task_async(bot, task, container))
+        asyncio.create_task(_execute_cron_task_async(bot, task))
 
 
-async def _execute_cron_task_async(bot, task: dict, container: "Container | None" = None) -> None:
-    """Execute a single cron task asynchronously."""
+async def _execute_cron_task_async(bot, task: dict) -> None:
     user_id = task["user_id"]
     task_name = task["name"]
     task_key = (user_id, task_name)
 
     try:
-        # Run sync execution in thread pool
         await asyncio.to_thread(_execute_cron_task, bot, task)
-    except Exception as exc:
+    except Exception:
         logger.exception("[user=%d] async cron task '%s' failed", user_id, task_name)
     finally:
         async with _running_tasks_lock:
             _running_tasks.discard(task_key)
 
 
-async def start_async_cron_scheduler(bot, container: "Container | None" = None) -> None:
-    """Start the async cron scheduler.
-
-    Args:
-        bot: The bot instance (Telegram, WeChat, or OneBot runtime).
-        container: Optional dependency injection container.
-    """
-    task = asyncio.create_task(_scheduler_loop_async(bot, container))
+async def start_async_cron_scheduler(bot):
+    task = asyncio.create_task(_scheduler_loop_async(bot))
     platform = _detect_platform(bot)
     logger.info(
         "Async cron scheduler started (platform=%s, poll interval=%ds)",

@@ -9,7 +9,7 @@ import math
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from ai import get_openai_client
+from ai import get_ai_client
 from config import MODELS_PER_PAGE
 from services import get_user_settings, has_api_key
 from utils.platform import build_api_key_required_message
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def fetch_models(user_id: int) -> list[str]:
     try:
-        return get_openai_client(user_id).list_models()
+        return get_ai_client(user_id).list_models()
     except Exception:
         logger.exception("Failed to fetch models")
         return []

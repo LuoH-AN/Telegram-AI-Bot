@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from core.settings import get_settings_view_text
+from services.platform import build_settings_text
 from services import (
     clear_conversation,
     ensure_session,
@@ -74,7 +74,7 @@ async def restart_command(ctx) -> None:
 
 
 async def settings_command(ctx, command_prefix: str) -> None:
-    await ctx.reply_text(get_settings_view_text(ctx.local_user_id, command_prefix=command_prefix))
+    await ctx.reply_text(build_settings_text(ctx.local_user_id, command_prefix=command_prefix))
 
 
 async def show_provider_list(ctx, settings: dict, command_prefix: str) -> None:

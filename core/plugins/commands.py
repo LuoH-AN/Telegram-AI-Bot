@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import TYPE_CHECKING
 
-from .installer import install_from_github, install_from_local, uninstall, list_installed
+from .installer import install_from_github, install_from_local, uninstall
 from .manager import get_plugin_manager
-
-if TYPE_CHECKING:
-    from platforms.onebot.context import OneBotMessageContext
-    from platforms.wechat.context import WeChatMessageContext
-    from platforms.telegram import Message
 
 logger = logging.getLogger(__name__)
 

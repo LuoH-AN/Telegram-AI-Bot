@@ -38,7 +38,7 @@ from platforms.telegram.handlers import (
     update,
     web_command,
 )
-from utils.rate import QueuedRateLimiter
+from .rate import QueuedRateLimiter
 from .error_handler import build_error_handler
 
 def _register_handlers(application: Application) -> None:
