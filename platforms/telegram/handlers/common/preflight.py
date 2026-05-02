@@ -23,7 +23,7 @@ async def preflight_media_request(update: Update, context: ContextTypes.DEFAULT_
         return None
 
     user_id = update.effective_user.id
-    ensure_user_state(user_id)
+    await ensure_user_state(user_id)
     if not has_api_key(user_id):
         await update.message.reply_text(build_api_key_required_message("/"))
         return None

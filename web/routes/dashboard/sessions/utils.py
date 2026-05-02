@@ -16,8 +16,8 @@ def require_persona(user_id: int, persona: str) -> str:
     return name
 
 
-def require_owned_session(user_id: int, session_id: int) -> dict:
-    ensure_user_state(user_id)
+async def require_owned_session(user_id: int, session_id: int) -> dict:
+    await ensure_user_state(user_id)
     session = cache.get_session_by_id(session_id)
     if session is None or session.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Session not found")

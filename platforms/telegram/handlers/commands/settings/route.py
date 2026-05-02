@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     logger.info("%s /settings", get_log_context(update))
-    ensure_user_state(user_id)
+    await ensure_user_state(user_id)
     await core_settings_command(TelegramCommandContextAdapter(update, context), "/")
 
 
@@ -29,7 +29,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     args = list(context.args or [])
     logger.info("%s /set %s", get_log_context(update), " ".join(args)[:120] if args else "")
-    ensure_user_state(user_id)
+    await ensure_user_state(user_id)
 
     async def _show_model_list() -> None:
         await show_model_list(update, context)

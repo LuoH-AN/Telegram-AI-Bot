@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = list(context.args or [])
     logger.info("%s /usage %s", get_log_context(update), " ".join(args) if args else "")
-    ensure_user_state(update.effective_user.id)
+    await ensure_user_state(update.effective_user.id)
     await core_usage_command(TelegramCommandContextAdapter(update, context), args=args)
 
 
 async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("%s /export", get_log_context(update))
-    ensure_user_state(update.effective_user.id)
+    await ensure_user_state(update.effective_user.id)
     await core_export_command(TelegramCommandContextAdapter(update, context))

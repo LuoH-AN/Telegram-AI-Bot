@@ -66,7 +66,7 @@ async def process_inbound_chat(
     if session_user_id is None:
         session_user_id = getattr(ctx, "session_user_id", user_id)
 
-    ensure_user_state(user_id)
+    await ensure_user_state(user_id)
 
     if isinstance(user_content, str) and not user_content.strip():
         await ctx.reply_text("Please send a text message or attachment.")

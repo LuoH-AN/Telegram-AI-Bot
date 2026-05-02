@@ -71,7 +71,7 @@ async def prepare_chat_request(
         return None
     user_id = update.effective_user.id
     ctx = get_log_context(update)
-    ensure_user_state(user_id)
+    await ensure_user_state(user_id)
     if not internal_call:
         user_content, save_msg = _prepare_user_text(update, context, ctx)
     else:

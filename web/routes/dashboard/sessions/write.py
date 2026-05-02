@@ -18,7 +18,7 @@ async def switch_session_route(
     session_id: int,
     user_id: int = Depends(get_current_user),
 ):
-    session = require_owned_session(user_id, session_id)
+    session = await require_owned_session(user_id, session_id)
     persona_name = session.get("persona_name", "default")
     cache.set_current_session_id(user_id, persona_name, session_id)
     record_web_action(
@@ -36,7 +36,7 @@ async def rename_session_route(
     body: SessionRename,
     user_id: int = Depends(get_current_user),
 ):
-    session = require_owned_session(user_id, session_id)
+    session = await require_owned_session(user_id, session_id)
     title = (body.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title cannot be empty")
@@ -57,7 +57,7 @@ async def clear_session_route(
     body: SessionClearBody,
     user_id: int = Depends(get_current_user),
 ):
-    session = require_owned_session(user_id, session_id)
+    session = await require_owned_session(user_id, session_id)
     persona_name = session.get("persona_name", "default")
     clear_conversation(session_id)
     if body.reset_usage:
@@ -76,7 +76,7 @@ async def delete_session_route(
     session_id: int,
     user_id: int = Depends(get_current_user),
 ):
-    session = require_owned_session(user_id, session_id)
+    session = await require_owned_session(user_id, session_id)
     persona_name = session.get("persona_name", "default")
     sessions = get_sessions(user_id, persona_name)
     index = next((i + 1 for i, current in enumerate(sessions) if current["id"] == session_id), None)

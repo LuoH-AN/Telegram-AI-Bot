@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("%s /start", get_log_context(update))
-    ensure_user_state(update.effective_user.id)
+    await ensure_user_state(update.effective_user.id)
     await core_start_command(TelegramCommandContextAdapter(update, context), "/")
 
 
@@ -33,7 +33,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("%s /clear", get_log_context(update))
-    ensure_user_state(update.effective_user.id)
+    await ensure_user_state(update.effective_user.id)
     await core_clear_command(TelegramCommandContextAdapter(update, context))
 
 
@@ -49,12 +49,12 @@ async def update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("%s /restart", get_log_context(update))
-    ensure_user_state(update.effective_user.id)
+    await ensure_user_state(update.effective_user.id)
     await core_restart_command(TelegramCommandContextAdapter(update, context))
 
 
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = list(context.args or [])
     logger.info("%s /login %s", get_log_context(update), " ".join(args) if args else "")
-    ensure_user_state(update.effective_user.id)
+    await ensure_user_state(update.effective_user.id)
     await core_login_command(TelegramCommandContextAdapter(update, context), "/", args=args)

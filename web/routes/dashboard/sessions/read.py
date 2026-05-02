@@ -16,7 +16,7 @@ async def get_session_messages(
     session_id: int,
     user_id: int = Depends(get_current_user),
 ):
-    require_owned_session(user_id, session_id)
+    await require_owned_session(user_id, session_id)
     return {
         "messages": [
             {"role": message["role"], "content": message["content"]}
@@ -30,7 +30,7 @@ async def export_session_route(
     session_id: int,
     user_id: int = Depends(get_current_user),
 ):
-    session = require_owned_session(user_id, session_id)
+    session = await require_owned_session(user_id, session_id)
     persona_name = session.get("persona_name", "default")
     messages = get_conversation(session_id)
     if not messages:

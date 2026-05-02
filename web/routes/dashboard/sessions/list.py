@@ -33,7 +33,7 @@ async def create_session_route(
     body: SessionCreate,
     user_id: int = Depends(get_current_user),
 ):
-    ensure_user_state(user_id)
+    await ensure_user_state(user_id)
     persona_name = (body.persona or "").strip() or cache.get_current_persona_name(user_id)
     require_persona(user_id, persona_name)
     previous_id = cache.get_current_session_id(user_id, persona_name)
