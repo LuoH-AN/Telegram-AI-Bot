@@ -55,6 +55,18 @@ class RuntimeLoopMixin:
             await login_api_runner.cleanup()
 
     async def _ensure_all_logged_in(self) -> None:
+        # Bootstrap: if no accounts have been discovered, the user has never
+        # logged in. Create a placeholder so `self.client` is non-None and the
+        # /login wechat flow can drive a fresh QR login. The directory name
+        # ("primary") is just a slot under WECHAT_STATE_BASE; the real wxid is
+        # stored inside credentials.json after the QR is scanned.
+        if not self._accounts.has_accounts():
+            default_id = "primary"
+            await self._accounts.add_account(default_id)
+            self.set_active_account(default_id)
+            logger.info("No WeChat accounts on disk; bootstrapped placeholder '%s' for first login", default_id)
+            return
+
         for account_id in self.get_account_ids():
             account = self._accounts.get_account(account_id)
             if not account:
@@ -67,6 +79,10 @@ class RuntimeLoopMixin:
                     base_url=creds.base_url,
                 )
                 logger.info("Account %s already logged in (user_id=%s)", account_id, creds.user_id)
+                # Make sure `self.client` is non-None even if every account
+                # already has credentials, so /login wechat can report status.
+                if self.client is None:
+                    self.set_active_account(account_id)
                 continue
             # Need to login — set as active for mixin compat
             self.set_active_account(account_id)
