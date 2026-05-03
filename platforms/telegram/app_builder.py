@@ -31,6 +31,7 @@ from platforms.telegram.handlers import (
     remember_command,
     set_command,
     settings_command,
+    skill_command,
     start,
     stop,
     restart,
@@ -58,6 +59,7 @@ def _register_handlers(application: Application) -> None:
         ("remember", remember_command),
         ("memories", memories_command),
         ("forget", forget_command),
+        ("skill", skill_command),
     ):
         application.add_handler(CommandHandler(name, handler))
     application.add_handler(CallbackQueryHandler(model_callback, pattern=r"^model:|^models_"))
