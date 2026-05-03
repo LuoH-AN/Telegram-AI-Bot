@@ -58,7 +58,6 @@ from .conversation import (
     get_message_count,
 )
 from .queue import conversation_slot
-from .terminal import execute_terminal_command, run_skill_terminal
 from .update import run_hot_update, schedule_process_restart, run_safe_restart
 
 __all__ = [
@@ -79,6 +78,5 @@ __all__ = [
     "add_user_message", "add_assistant_message",
     "clear_conversation", "get_message_count",
     "conversation_slot",
-    "execute_terminal_command", "run_skill_terminal",
     "run_hot_update", "schedule_process_restart", "run_safe_restart",
 ]

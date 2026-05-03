@@ -35,7 +35,7 @@ async def generate_with_tools(
     user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
     user_reasoning_effort = normalize_reasoning_effort(settings.get("reasoning_effort", ""))
     show_thinking = bool(settings.get("show_thinking"))
-    from tools import get_all_tools, process_tool_calls
+    from plugins import get_all_tools, process_tool_calls
     tool_definitions = get_all_tools(enabled_tools="all")
 
     while True:

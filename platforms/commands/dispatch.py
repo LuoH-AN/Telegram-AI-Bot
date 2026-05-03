@@ -11,7 +11,7 @@ from .memory import forget_command, memories_command, remember_command
 from .chat import chat_command
 from .persona import persona_command
 from .settings import set_command
-from core.plugins import dispatch_skill_command
+from plugins.core import dispatch_skill_command
 
 
 async def dispatch_command(

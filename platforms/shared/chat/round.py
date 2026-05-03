@@ -33,7 +33,7 @@ async def run_completion_round(
     Returns:
         Dict with final_text, display_final, messages, and token usage.
     """
-    from tools import get_all_tools, process_tool_calls
+    from plugins import get_all_tools, process_tool_calls
 
     total_prompt_tokens = 0
     total_completion_tokens = 0
