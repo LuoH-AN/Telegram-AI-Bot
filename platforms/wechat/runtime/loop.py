@@ -28,6 +28,11 @@ class RuntimeLoopMixin:
         # Login any accounts that don't have credentials yet
         await self._ensure_all_logged_in()
 
+        # Start loopback HTTP login API so Telegram can trigger QR login
+        from .login_api import start_login_api_server
+
+        login_api_runner = await start_login_api_server()
+
         dispatcher = make_bounded_dispatcher(
             self.handle_sdk_message,
             max_concurrent=MAX_INBOUND_TASKS,
@@ -47,6 +52,7 @@ class RuntimeLoopMixin:
             await asyncio.Future()
         except asyncio.CancelledError:
             self._accounts.stop_all()
+            await login_api_runner.cleanup()
 
     async def _ensure_all_logged_in(self) -> None:
         for account_id in self.get_account_ids():

@@ -12,7 +12,7 @@ from .access import get_wechat_login_access_token
 
 
 def _base_url() -> str:
-    _, _, wechat_port = get_ports()
+    _, wechat_port, _ = get_ports()
     return f"http://127.0.0.1:{wechat_port}"
 
 
