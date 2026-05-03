@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from .sync import refresh_user_state_from_db
+from plugins.project_config.sync.user import refresh_user_state_from_db
 
 
 async def ensure_user_state(user_id: int, *, force: bool = False) -> None:
