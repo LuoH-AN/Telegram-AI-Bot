@@ -22,30 +22,59 @@ class RuntimeSnapshotMixin:
         return stored
 
     def get_login_snapshot(self) -> dict:
-        if not self.client:
-            with self._login_state_lock:
-                snapshot = dict(self._login_snapshot)
-            snapshot.update({"logged_in": False, "status": "idle", "message": "No active WeChat account", "user_id": "", "qr_url": ""})
-            return snapshot
-        state = self.client.state_store.load()
-        creds = self.client.get_credentials()
+        """Build a fresh login snapshot.
+
+        Priority:
+        1. If an interactive login is in flight (pending slot), reflect its
+           state — fresh QR if available, "pending" otherwise. Stale QR
+           URLs from a finished session are NOT served.
+        2. Else if any account is logged in, report ``connected``.
+        3. Else report ``idle``.
+        """
         with self._login_state_lock:
-            snapshot = dict(self._login_snapshot)
-        if creds:
-            snapshot.update({"logged_in": True, "status": "connected", "message": "WeChat is already logged in", "user_id": creds.user_id, "qr_url": ""})
-            return snapshot
-        if state.token and snapshot.get("logged_in"):
-            snapshot.update({"logged_in": True, "status": "connected", "message": "WeChat is already logged in", "user_id": state.user_id, "qr_url": ""})
-            return snapshot
-        qr_url = self.client.qr_url_cache or ""
-        if qr_url:
-            snapshot.update(
-                {
+            base = dict(self._login_snapshot)
+
+        pending = self.get_pending_account()
+        if pending is not None:
+            adapter = pending.adapter
+            if adapter.login_in_progress:
+                qr_url = adapter.qr_url_cache or ""
+                base.update({
                     "logged_in": False,
-                    "status": "wait",
-                    "message": "Scan the QR code directly to log in",
+                    "status": "wait" if qr_url else "pending",
+                    "message": (
+                        "Scan the QR code to log in" if qr_url
+                        else "Fetching a fresh QR code..."
+                    ),
                     "user_id": "",
                     "qr_url": qr_url,
-                }
-            )
-        return snapshot
+                })
+                return base
+            # Pending slot exists but login coroutine has finished. The
+            # promote/discard handler in login_start clears _pending_login_id
+            # before we get here under normal flow; if we're racing, treat
+            # the slot as not-yet-promoted and keep the old snapshot.
+
+        # No active interactive login. Report whether any real account is
+        # currently logged in.
+        first = self._accounts.first_logged_in()
+        if first is not None:
+            creds = first.adapter.get_credentials()
+            user_id = (creds.user_id if creds else first.account_id)
+            base.update({
+                "logged_in": True,
+                "status": "connected",
+                "message": "WeChat is already logged in",
+                "user_id": user_id,
+                "qr_url": "",
+            })
+            return base
+
+        base.update({
+            "logged_in": False,
+            "status": "idle",
+            "message": "No active WeChat account",
+            "user_id": "",
+            "qr_url": "",
+        })
+        return base

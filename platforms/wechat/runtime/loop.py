@@ -1,8 +1,7 @@
-"""Main runtime loop and inbound dispatch.
+"""Main runtime loop and account-startup orchestration.
 
-Uses wechatbot-sdk's long-poll loop with an on_message callback.
-Supports multiple accounts: each account gets its own poll loop.
-Inbound messages are routed by the account that received them.
+Inbound message handling and per-message routing live in
+``inbound.RuntimeInboundMixin``.
 """
 
 from __future__ import annotations
@@ -11,24 +10,21 @@ import asyncio
 
 from services.cron import set_main_loop, start_cron_scheduler
 from platforms.shared.runtime import make_bounded_dispatcher
-from platforms.wechat.services.official import local_chat_id_for_wechat
 
 from ..config import logger
-from ..context import WeChatMessageContext
+from .inbound import RuntimeInboundMixin
 
 MAX_INBOUND_TASKS = 8
 
 
-class RuntimeLoopMixin:
+class RuntimeLoopMixin(RuntimeInboundMixin):
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
         set_main_loop(self._loop)
         start_cron_scheduler(self)
 
-        # Login any accounts that don't have credentials yet
-        await self._ensure_all_logged_in()
-
-        # Start loopback HTTP login API so Telegram can trigger QR login
+        # Bring the loopback HTTP login API up before driving any account
+        # login so /login can be used immediately.
         from .login_api import start_login_api_server
 
         login_api_runner = await start_login_api_server()
@@ -39,15 +35,22 @@ class RuntimeLoopMixin:
             error_log_label="WeChat inbound message",
             logger=logger,
         )
+        self._dispatcher = dispatcher
 
+        await self._ensure_all_logged_in()
         self._accounts.start_all(dispatcher)
+        ids = self.get_account_ids()
         logger.info(
             "WeChat runtime started with %d account(s): %s",
-            len(self.get_account_ids()),
-            ", ".join(self.get_account_ids()) or "(none)",
+            len(ids),
+            ", ".join(ids) or "(none)",
         )
 
-        # Keep running forever
+        if self.client is None:
+            first = self._accounts.first_logged_in()
+            if first is not None:
+                self.client = first.adapter
+
         try:
             await asyncio.Future()
         except asyncio.CancelledError:
@@ -55,111 +58,40 @@ class RuntimeLoopMixin:
             await login_api_runner.cleanup()
 
     async def _ensure_all_logged_in(self) -> None:
-        # Bootstrap: if no accounts have been discovered, the user has never
-        # logged in. Create a placeholder so `self.client` is non-None and the
-        # /login wechat flow can drive a fresh QR login. The directory name
-        # ("primary") is just a slot under WECHAT_STATE_BASE; the real wxid is
-        # stored inside credentials.json after the QR is scanned.
-        if not self._accounts.has_accounts():
-            default_id = "primary"
-            await self._accounts.add_account(default_id)
-            self.set_active_account(default_id)
-            logger.info("No WeChat accounts on disk; bootstrapped placeholder '%s' for first login", default_id)
-            return
+        """Refresh credentials for known accounts (no QR-driving here).
 
-        for account_id in self.get_account_ids():
+        Iterates only over real accounts discovered on disk. Interactive QR
+        logins are driven on demand from ``/login wechat``, NOT during
+        startup — so the runtime never blocks waiting for a QR scan.
+        """
+        from wechatbot.auth import load_credentials as _load_creds
+
+        for account_id in self._accounts.list_accounts():
             account = self._accounts.get_account(account_id)
             if not account:
                 continue
             creds = account.adapter.get_credentials()
             if creds:
                 account.adapter.state_store.update_credentials(
-                    token=creds.token,
-                    user_id=creds.user_id,
-                    base_url=creds.base_url,
+                    token=creds.token, user_id=creds.user_id, base_url=creds.base_url,
                 )
                 logger.info("Account %s already logged in (user_id=%s)", account_id, creds.user_id)
-                # Make sure `self.client` is non-None even if every account
-                # already has credentials, so /login wechat can report status.
-                if self.client is None:
-                    self.set_active_account(account_id)
                 continue
-            # Need to login — set as active for mixin compat
-            self.set_active_account(account_id)
-            await self.login()
-            logger.info("Account %s logged in", account_id)
-
-    async def handle_sdk_message(self, msg) -> None:
-        """Handle an IncomingMessage from the wechatbot SDK."""
-        from ..chat.process import process_chat_message
-        from ..commands.dispatch import dispatch_command
-
-        inbound = self._parse_sdk_message(msg)
-
-        # Determine which account received this message.
-        # The SDK puts the bot's user_id in msg.to_user_id (for single chat)
-        # or in the raw payload. Fall back to first account if ambiguous.
-        account_id = self._resolve_account_id(msg)
-        if account_id:
-            self.set_active_account(account_id)
-
-        if not self.client:
-            logger.warning("No active WeChat account, dropping message")
-            return
-
-        state = self.client.state_store.load()
-        if self._should_skip_inbound_echo(inbound, str(state.user_id or "").strip()):
-            return
-        if self._seen_messages.remember_once(inbound.inbound_key):
-            return
-
-        peer_id = inbound.from_user_id
-        if not peer_id:
-            return
-
-        context_token = getattr(msg, "_context_token", None) or str(
-            getattr(msg, "raw", {}).get("context_token") or ""
-        ).strip() or None
-
-        local_user_id = self.client.state_store.remember_peer(peer_id, context_token=context_token)
-        reply_to_id = peer_id
-        if context_token:
-            self.client.state_store.remember_context_token(reply_to_id, context_token)
-
-        ctx = WeChatMessageContext(
-            runtime=self,
-            peer_id=peer_id,
-            reply_to_id=reply_to_id,
-            local_user_id=local_user_id,
-            local_chat_id=local_chat_id_for_wechat(reply_to_id),
-            is_group=False,
-            group_id=None,
-            context_token=context_token,
-            inbound_key=inbound.inbound_key,
-            _sdk_msg=msg,
-        )
-        if inbound.normalized_text.startswith(self.command_prefix):
-            await dispatch_command(ctx, inbound.normalized_text)
-            return
-        await process_chat_message(self, ctx, msg)
-
-    def _resolve_account_id(self, msg) -> str | None:
-        """Try to determine which account received this message.
-
-        The SDK's IncomingMessage has `to_user_id` for single chat
-        (the bot's own wxid). For group messages, check raw payload.
-        """
-        # Direct attribute
-        to_user = getattr(msg, "to_user_id", None)
-        if to_user:
-            return str(to_user)
-
-        # Raw payload
-        raw = getattr(msg, "raw", {}) or {}
-        to_user = raw.get("to_user_id") or raw.get("toUserName") or raw.get("self_id")
-        if to_user:
-            return str(to_user)
-
-        # Fallback: first account
-        ids = self.get_account_ids()
-        return ids[0] if ids else None
+            try:
+                bot = account.adapter.get_bot()
+                stored = await _load_creds(account.adapter._cred_path)
+            except Exception:
+                logger.exception("Failed to read stored creds for %s", account_id)
+                stored = None
+            if stored is not None:
+                bot._credentials = stored
+                bot._base_url = stored.base_url
+                account.adapter.state_store.update_credentials(
+                    token=stored.token, user_id=stored.user_id, base_url=stored.base_url,
+                )
+                logger.info("Account %s loaded credentials from disk", account_id)
+            else:
+                logger.info(
+                    "Account %s has no stored credentials; waiting for /login wechat",
+                    account_id,
+                )
