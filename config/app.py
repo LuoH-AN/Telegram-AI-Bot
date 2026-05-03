@@ -30,9 +30,6 @@ TOOL_CONTINUE_OR_FINISH_PROMPT = (
     "If more work is needed, just continue with the tool calls."
 )
 
-# --- Auth / JWT --------------------------------------------------------------
-JWT_SHORT_TOKEN_TTL_MINUTES = 10   # short-lived web login token TTL
-
 # --- Cron --------------------------------------------------------------------
 MAX_CRON_TASKS_PER_USER = 10       # per-user limit on scheduled tasks
 

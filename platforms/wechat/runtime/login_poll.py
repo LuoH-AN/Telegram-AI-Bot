@@ -12,6 +12,8 @@ from ..config import logger
 
 class RuntimeLoginPollMixin:
     async def login(self, *, force: bool = False) -> None:
+        if not self.client:
+            raise RuntimeError("Cannot login: no active WeChat account")
         creds = self.client.get_credentials()
         if creds and not force:
             self.client.state_store.update_credentials(

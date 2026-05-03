@@ -107,20 +107,25 @@ class _PeerContextStore:
 
 
 class WeChatBotAdapter:
-    """Wraps wechatbot.WeChatBot and exposes the interface consumed by runtime mixins."""
+    """Wraps wechatbot.WeChatBot and exposes the interface consumed by runtime mixins.
+
+    Each adapter instance represents one logged-in WeChat account.
+    The `account_id` is the WeChat user_id (wxid) used as the unique key.
+    """
 
     def __init__(
         self,
         *,
+        account_id: str,
         state_dir: str | Path,
         cred_path: str | Path | None = None,
         on_qr_url: Callable[[str], None] | None = None,
     ):
+        self.account_id = account_id
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.state_store = _PeerContextStore()
+        self.state_store = _PeerContextStore(account_key=account_id)
 
-        # Resolve credential path: explicit > state_dir/credentials.json
         if cred_path:
             self._cred_path = Path(cred_path)
         else:

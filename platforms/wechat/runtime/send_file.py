@@ -21,6 +21,8 @@ class RuntimeSendFileMixin:
         context_token: str | None = None,
         dedupe_key: str | None = None,
     ) -> None:
+        if not self.client:
+            raise RuntimeError("WeChat bot is not available (no active account)")
         state = self.client.state_store.load()
         if not (state.token or self.client.get_credentials()):
             raise RuntimeError("WeChat bot is not logged in")

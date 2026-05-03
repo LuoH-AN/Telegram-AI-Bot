@@ -55,7 +55,6 @@ def build_default_jwt_secret() -> str:
     seed = (
         os.getenv("JWT_SECRET_SEED", "").strip()
         or os.getenv("DATABASE_URL", "").strip()
-        or os.getenv("WEB_BASE_URL", "").strip()
         or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         or os.getenv("OPENAI_API_KEY", "").strip()
         or "gemen-local-dev-secret"

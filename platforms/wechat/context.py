@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .config import WECHAT_STATE_DIR, wechat_ctx_for_scope
+from .config import WECHAT_STATE_BASE, wechat_ctx_for_scope
 
 
 @dataclass
@@ -49,4 +49,4 @@ class WeChatMessageContext:
 
     @property
     def export_dir(self) -> str:
-        return str(Path(WECHAT_STATE_DIR) / "exports")
+        return str(Path(WECHAT_STATE_BASE) / "exports")

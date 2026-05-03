@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 
-from config import HEALTH_CHECK_PORT
 from platforms.shared.logging import setup_platform_logging
 from utils.platform import format_log_context
 
@@ -61,7 +60,6 @@ def onebot_ctx_for_scope(*, local_user_id: int, local_chat_id: int, is_group: bo
 
 __all__ = [
     "logger",
-    "HEALTH_CHECK_PORT",
     "ONEBOT_ENABLED",
     "ONEBOT_MODE",
     "ONEBOT_WS_URL",

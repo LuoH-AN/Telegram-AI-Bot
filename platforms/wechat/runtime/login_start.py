@@ -14,6 +14,14 @@ from ..config import logger
 
 class RuntimeLoginStartMixin:
     def _start_login_session_sync(self, *, force: bool = False) -> dict:
+        if not self.client:
+            return self._set_login_snapshot(
+                logged_in=False,
+                status="idle",
+                message="No active WeChat account",
+                user_id="",
+                qr_url="",
+            )
         if force:
             self.client.reset(clear_credentials=True, clear_mappings=True)
         state = self.client.state_store.load()

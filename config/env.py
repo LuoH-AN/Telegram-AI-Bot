@@ -39,8 +39,6 @@ STREAM_CHARS_MODE_INTERVAL = max(10, int(os.getenv("STREAM_CHARS_MODE_INTERVAL",
 HEALTH_CHECK_PORT = int(os.getenv("PORT", "8080"))
 
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip() or build_default_jwt_secret()
-WEB_BASE_URL = os.getenv("WEB_BASE_URL", f"http://localhost:{HEALTH_CHECK_PORT}")
-JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 
 DEFAULT_SYSTEM_PROMPT = os.getenv("OPENAI_SYSTEM_PROMPT", "You are a helpful assistant.")
 DEFAULT_TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoMultilingualNeural")

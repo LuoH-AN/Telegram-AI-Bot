@@ -13,7 +13,7 @@ from config import MAX_FILE_SIZE, MAX_TEXT_CONTENT_LENGTH
 from utils.files import decode_file_content, is_image_file, is_likely_text, is_text_file
 from utils.platform import build_analyze_uploaded_files_message
 
-from ..config import WECHAT_STATE_DIR, logger
+from ..config import WECHAT_STATE_BASE, logger
 from .extract import extract_text_body
 
 
@@ -139,7 +139,7 @@ async def _build_from_legacy_message(runtime, message: dict, *, is_group: bool =
         try:
             if not hasattr(runtime.client, "download_media_to_path"):
                 raise AttributeError("Legacy download_media_to_path not available with SDK adapter")
-            downloaded = await asyncio.to_thread(runtime.client.download_media_to_path, item, Path(WECHAT_STATE_DIR) / "inbound")
+            downloaded = await asyncio.to_thread(runtime.client.download_media_to_path, item, Path(WECHAT_STATE_BASE) / "inbound")
         except Exception:
             logger.debug("Failed to download WeChat attachment", exc_info=True)
             unsupported_files.append(f"attachment(type={item_type})")

@@ -22,6 +22,11 @@ class RuntimeSnapshotMixin:
         return stored
 
     def get_login_snapshot(self) -> dict:
+        if not self.client:
+            with self._login_state_lock:
+                snapshot = dict(self._login_snapshot)
+            snapshot.update({"logged_in": False, "status": "idle", "message": "No active WeChat account", "user_id": "", "qr_url": ""})
+            return snapshot
         state = self.client.state_store.load()
         creds = self.client.get_credentials()
         with self._login_state_lock:

@@ -1,6 +1,6 @@
 # Telegram-AI-Bot (Gemen)
 
-一个支持 **Telegram / WeChat / OneBot(QQ)** 的 AI Bot 项目，带有统一启动入口、Web Dashboard、Persona（角色）与 Session（会话）管理、记忆系统、TTS 配置和定时任务。
+一个支持 **Telegram / WeChat / OneBot(QQ)** 的多平台 AI Bot 项目，支持多角色管理、多会话管理、记忆系统、Token 用量统计与定时任务。
 
 ## 功能概览
 
@@ -11,15 +11,13 @@
 - Session 多会话管理
 - 记忆系统
 - Token 用量统计与限额
-- Web Dashboard（设置、日志、会话、记忆、模型、备份等）
 - 定时任务
-- AI 工具系统（plugin 架构，当前内置：terminal、scrapling、sosearch、s3、quick_deploy、project_config、hf sync）
+- AI 工具系统（plugin 架构，当前内置：terminal、scrapling、sosearch、s3、project_config）
 
 ## 技术栈
 
 - Python 3.11+
 - `python-telegram-bot`
-- FastAPI + Uvicorn
 - PostgreSQL + `psycopg2-binary`
 - OpenAI Compatible API
 
@@ -34,10 +32,9 @@
 │   ├── onebot/               # OneBot/NapCat (QQ)
 │   ├── wechat/               # WeChat 个人号 + 公众号
 │   ├── commands/             # 跨平台命令分发
-│   └── shared/               # 共享 chat 流水线、context 协议
-├── web/                      # FastAPI Web Dashboard 与 webhook 集成
+│   └── shared/               # 共享 chat 流水线、context 协议、runtime 辅助
 ├── core/                     # 命令编排（persona / session / provider / plugins）
-├── services/                 # 业务逻辑层（user / persona / session / memory / cron / hf 等）
+├── services/                 # 业务逻辑层（user / persona / session / memory / cron 等）
 ├── ai/                       # AI 客户端封装（OpenAI 兼容）+ 流式协议
 ├── cache/                    # 进程内缓存与脏页同步
 ├── database/                 # PostgreSQL 连接与 schema
@@ -84,11 +81,7 @@ python main.py
 说明：
 
 - `main.py` 会按环境变量自动拉起 Telegram / WeChat / OneBot 子进程
-- 每个平台使用独立的 `PORT`
-- 默认端口：
-  - Telegram：`7860`
-  - WeChat：`7862`
-  - OneBot：`7864`
+- 每个平台独立进程，互不影响
 
 ## 常用命令
 
@@ -106,32 +99,23 @@ Telegram 使用 `/` 前缀；OneBot/WeChat 默认使用各自前缀（见 `.env.
 - `remember`
 - `memories`
 - `forget`
-- `web`（发送 Dashboard 登录链接）
 - `skill`（插件管理：list / install / remove / enable / disable / info）
 
 ## 工具/插件系统说明
 
 工具基于 plugin 架构（`core/plugins/`）。`tools/` 下为内置插件，第三方插件可通过 `/skill install <github-url>` 安装到 `~/.gemen/plugins/`。
 
-## Web Dashboard
-
-入口：`http://<host>:<PORT>/`
-
-核心 API 路由位于 `web/routes/`：
-
-- `dashboard/`：settings、personas、providers、sessions、usage、memories、models、logs、cron
-- `integration/`：artifacts、deployments、wechat、onebot_ws
-
-鉴权通过短时 token 与 JWT（`/web` 命令下发链接）。
-
 ## 关键环境变量
 
-- 基础：`PORT`, `DATABASE_URL`
+- 基础：`DATABASE_URL`
 - Telegram：`TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_BASE`
-- OneBot：`ONEBOT_ENABLED`, `ONEBOT_MODE`, `ONEBOT_WS_URL`, `ONEBOT_ACCESS_TOKEN`, `QQ_COMMAND_PREFIX`
+- OneBot：
+  - `ONEBOT_ENABLED`, `ONEBOT_MODE`（client/server/ws）
+  - `ONEBOT_WS_URL`（client 模式连接目标）
+  - `ONEBOT_WS_BIND_HOST`、`ONEBOT_WS_BIND_PORT`、`ONEBOT_WS_PATH`（ws 模式监听）
+  - `QQ_COMMAND_PREFIX`
 - WeChat：`WECHAT_ENABLED`, `WECHAT_COMMAND_PREFIX`
 - 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`, `OPENAI_REASONING_EFFORT`
-- TTS：`TTS_VOICE`, `TTS_STYLE`, `TTS_ENDPOINT`, `TTS_OUTPUT_FORMAT`
 - 其他：`SHOW_THINKING`
 
 详细示例请参考 `.env.example`。
@@ -143,9 +127,7 @@ Telegram 使用 `/` 前缀；OneBot/WeChat 默认使用各自前缀（见 `.env.
 - 跨平台命令编排放 `core/`，平台特定 handler 放 `platforms/<platform>/`
 - 共用对话流水线在 `platforms/shared/chat/inbound.py`
 - 用户面文案优先复用 `utils/platform/`，保持平台一致
-- 修改缓存结构时同步检查 `cache/manager/` 与 `cache/sync/`
 
 ## 许可证
 
 当前仓库未附带 LICENSE 文件。若用于公开分发，请先补充许可证声明。
-

@@ -12,6 +12,8 @@ from ..config import logger
 
 class RuntimeTypingMixin:
     async def safe_send_typing(self, peer_id: str, context_token: str | None, *, status: int) -> None:
+        if not self.client:
+            return
         state = self.client.state_store.load()
         if not (state.token or self.client.get_credentials()):
             return

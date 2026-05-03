@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import os
 
-from config import HEALTH_CHECK_PORT
 from platforms.shared.logging import setup_platform_logging
 from utils.platform import format_log_context
 
 logger = setup_platform_logging()
 
 WECHAT_COMMAND_PREFIX = os.getenv("WECHAT_COMMAND_PREFIX", "/").strip() or "/"
-WECHAT_STATE_DIR = os.getenv("WECHAT_STATE_DIR", "runtime/wechat").strip() or "runtime/wechat"
+WECHAT_STATE_BASE = os.getenv("WECHAT_STATE_BASE", "runtime/wechat").strip() or "runtime/wechat"
 WECHAT_ENABLED = str(os.getenv("WECHAT_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
 WECHAT_LOGIN_ACCESS_TOKEN = os.getenv("WECHAT_LOGIN_ACCESS_TOKEN", "").strip()
 WECHAT_GROUP_REPLY_ALL = str(os.getenv("WECHAT_GROUP_REPLY_ALL", "")).strip().lower() in {"1", "true", "yes", "on"}
@@ -38,9 +37,8 @@ def wechat_ctx_for_scope(*, local_user_id: int, local_chat_id: int, is_group: bo
 
 __all__ = [
     "logger",
-    "HEALTH_CHECK_PORT",
     "WECHAT_COMMAND_PREFIX",
-    "WECHAT_STATE_DIR",
+    "WECHAT_STATE_BASE",
     "WECHAT_ENABLED",
     "WECHAT_LOGIN_ACCESS_TOKEN",
     "WECHAT_GROUP_REPLY_ALL",
