@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -22,6 +24,25 @@ from launcher import (
 )
 
 ROOT_DIR = Path(__file__).resolve().parent
+
+DEFAULT_WEB_PORT = 7860
+WEB_PORT = int(os.getenv("WEB_PORT", str(DEFAULT_WEB_PORT)))
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        pass
+
+
+def _start_web_server() -> None:
+    server = HTTPServer(("0.0.0.0", WEB_PORT), _HealthHandler)
+    server.serve_forever()
 
 
 def _start_children() -> list:
@@ -46,6 +67,11 @@ def _start_children() -> list:
 
 def main() -> int:
     load_dotenv()
+
+    web_thread = threading.Thread(target=_start_web_server, daemon=True)
+    web_thread.start()
+    print(f">>> Web server running on http://0.0.0.0:{WEB_PORT}", flush=True)
+
     current_children: list = []
 
     def _handle_signal(_signum, _frame) -> None:
@@ -65,7 +91,8 @@ def main() -> int:
                     ">>> No bot process configured. Set TELEGRAM_BOT_TOKEN and/or enable WECHAT_ENABLED=1.",
                     flush=True,
                 )
-                return 1
+                print(">>> Web server is still running. Press Ctrl+C to exit.", flush=True)
+                signal.pause()
             status = wait_for_first_exit(current_children)
             if status == UPDATE_RESTART_EXIT_CODE:
                 print(">>> Hot update requested. Restarting all bot processes with latest code...", flush=True)
