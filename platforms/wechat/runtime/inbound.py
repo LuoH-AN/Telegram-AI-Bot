@@ -62,10 +62,13 @@ class RuntimeInboundMixin:
     def _resolve_account_id(self, msg) -> str | None:
         """Pick the logged-in account that received this message.
 
-        ``to_user_id`` is the bot's own wxid for direct messages; we look
-        it up in ``_accounts`` (keyed by wxid). If it doesn't match any
-        known account, fall back to the first logged-in one so legacy
-        messages aren't silently dropped — but log a warning.
+        Inbound messages carry ``to_user_id`` set to the bot's
+        ``ilink_bot_id`` (e.g. ``3880accb3438@im.bot``), NOT the user wxid
+        we key accounts by. We resolve via two paths: (a) direct hit on
+        ``_accounts`` (rare — happens when ``to_user_id`` is a wxid), and
+        (b) match against any account's ``account_id`` (the bot_id stored
+        in the SDK credentials). If neither matches, fall back to the
+        first logged-in account so messages aren't silently dropped.
         """
         to_user = getattr(msg, "to_user_id", None)
         if not to_user:
@@ -75,6 +78,15 @@ class RuntimeInboundMixin:
 
         if to_user and self._accounts.get_account(to_user) is not None:
             return to_user
+
+        if to_user:
+            for aid in self._accounts.list_accounts():
+                acc = self._accounts.get_account(aid)
+                if acc is None:
+                    continue
+                creds = acc.adapter.get_credentials()
+                if creds and creds.account_id == to_user:
+                    return aid
 
         first = self._accounts.first_logged_in()
         if to_user and first is not None:
