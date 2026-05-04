@@ -7,6 +7,8 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from utils.format import markdown_to_telegram_html
+
 
 class TelegramCommandContextAdapter:
     def __init__(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -18,7 +20,8 @@ class TelegramCommandContextAdapter:
         self.export_dir = "runtime/telegram/exports"
 
     async def reply_text(self, text: str) -> None:
-        await self.update.message.reply_text(text)
+        html_text = markdown_to_telegram_html(text)
+        await self.update.message.reply_text(html_text, parse_mode="HTML")
 
     async def reply_file(self, file_path: str | Path, *, caption: str = "") -> None:
         path = Path(file_path)
@@ -40,9 +43,11 @@ class TelegramCommandContextAdapter:
         await self.update.message.reply_photo(photo=url, caption=caption)
 
     async def send_private_text(self, text: str) -> None:
+        html_text = markdown_to_telegram_html(text)
         await self.context.bot.send_message(
             chat_id=self.local_user_id,
-            text=text,
+            text=html_text,
+            parse_mode="HTML",
             disable_web_page_preview=True,
         )
 
