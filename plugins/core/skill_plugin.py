@@ -29,10 +29,15 @@ class SkillPlugin(BasePlugin):
 
     def get_instruction(self) -> str:
         scripts_dir = Path(self._manifest.source_path) / "scripts"
-        lines = [f"## Skill: {self._manifest.name}"]
+        lines = [f"\n## Skill: {self._manifest.name}"]
         if self._manifest.description:
             lines.append(self._manifest.description)
         if scripts_dir.is_dir():
-            lines.append(f"Scripts (run via terminal): {scripts_dir}")
+            scripts = [f.name for f in scripts_dir.iterdir() if f.is_file() and not f.name.startswith(".")]
+            if scripts:
+                lines.append(f"Scripts directory: {scripts_dir}")
+                lines.append("Invoke via terminal tool, e.g.:")
+                for s in scripts[:3]:
+                    lines.append(f'  {{"action":"exec","command":"python3 {scripts_dir}/{s} <args>"}}')
         lines.append("")
         return "\n".join(lines) + self._manifest.body + "\n"
