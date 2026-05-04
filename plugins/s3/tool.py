@@ -31,7 +31,6 @@ _VALID_ACTIONS = {
     "local_status",
 }
 
-# Per-user S3 service instances (lazy)
 _s3_instances: dict[int, Any] = {}
 
 
@@ -44,6 +43,11 @@ def _get_s3(user_id: int):
         svc.load()
         _s3_instances[user_id] = svc
     return _s3_instances[user_id]
+
+
+def get_s3_service(user_id: int):
+    """Get S3Service instance for external use (e.g., web routes)."""
+    return _get_s3(user_id)
 
 
 class S3Tool(BaseTool):

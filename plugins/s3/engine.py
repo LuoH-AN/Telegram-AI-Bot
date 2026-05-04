@@ -24,8 +24,9 @@ class S3Object:
     metadata: dict[str, str]
     size: int
     mtime: float
-    storage_path: str  # path in backend storage
+    storage_path: str
     encrypted: bool = False
+    url_id: int = 0
 
 
 @dataclass
@@ -33,6 +34,7 @@ class S3Bucket:
     name: str
     created_at: float
     objects: dict[str, S3Object] = field(default_factory=dict)
+    next_url_id: int = 1
 
     def object_count(self) -> int:
         return len(self.objects)
@@ -142,6 +144,8 @@ class S3Service:
             return {"ok": False, "error": "Failed to persist object to storage backend"}
 
         # Update in-memory index
+        url_id = bucket.next_url_id
+        bucket.next_url_id += 1
         obj = S3Object(
             key=key,
             content_type=content_type,
@@ -150,6 +154,7 @@ class S3Service:
             mtime=mtime,
             storage_path=storage_path,
             encrypted=encrypt,
+            url_id=url_id,
         )
         bucket.objects[key] = obj
         self._persist()
@@ -159,6 +164,7 @@ class S3Service:
             "key": key,
             "size": len(data),
             "content_type": content_type,
+            "url_id": url_id,
         }
 
     def get_object(self, bucket_name: str, key: str, decrypt: bool = True) -> dict:
@@ -291,6 +297,7 @@ class S3Service:
 
     def get_url(self, bucket_name: str, key: str, expires: int = 3600) -> dict:
         """Generate a temporary access URL for an object."""
+        import os
         bucket_name = self._normalize_bucket_name(bucket_name)
         key = self._normalize_object_key(key)
         bucket = self._buckets.get(bucket_name)
@@ -300,16 +307,33 @@ class S3Service:
         if not obj:
             return {"ok": False, "error": f"Object '{key}' not found"}
 
-        url = self._backend.generate_url(self._user_id, obj.storage_path, obj.content_type, expires=expires)
-        if not url:
-            return {"ok": False, "error": "URL generation not available for this storage backend"}
+        base_url = (os.getenv("WEB_BASE_URL") or "").rstrip("/")
+        url_id = obj.url_id or 0
+        if url_id <= 0:
+            return {"ok": False, "error": "Object has no url_id"}
+        url = f"{base_url}/s/{url_id}" if base_url else f"/s/{url_id}"
         return {
             "ok": True,
             "url": url,
+            "url_id": url_id,
             "expires": expires,
             "bucket": bucket_name,
             "key": key,
         }
+
+    def get_object_by_url_id(self, url_id: int) -> dict | None:
+        """Find object by url_id across all buckets."""
+        for bucket in self._buckets.values():
+            for obj in bucket.objects.values():
+                if obj.url_id == url_id:
+                    return {
+                        "bucket": bucket.name,
+                        "key": obj.key,
+                        "storage_path": obj.storage_path,
+                        "content_type": obj.content_type,
+                        "encrypted": obj.encrypted,
+                    }
+        return None
 
     # ---- Persistence ----
 
@@ -322,6 +346,7 @@ class S3Service:
                 name=str(bucket_data["name"]),
                 created_at=float(bucket_data["created_at"]),
                 objects={},
+                next_url_id=int(bucket_data.get("next_url_id", 1)),
             )
             for key, obj_data in bucket_data.get("objects", {}).items():
                 bucket.objects[key] = S3Object(
@@ -332,6 +357,7 @@ class S3Service:
                     mtime=float(obj_data.get("mtime", 0)),
                     storage_path=str(obj_data["storage_path"]),
                     encrypted=bool(obj_data.get("encrypted", False)),
+                    url_id=int(obj_data.get("url_id", 0)),
                 )
             self._buckets[bucket.name] = bucket
 
@@ -342,6 +368,7 @@ class S3Service:
             bucket_data = {
                 "name": bucket.name,
                 "created_at": bucket.created_at,
+                "next_url_id": bucket.next_url_id,
                 "objects": {},
             }
             for key, obj in bucket.objects.items():
@@ -352,6 +379,7 @@ class S3Service:
                     "mtime": obj.mtime,
                     "storage_path": obj.storage_path,
                     "encrypted": obj.encrypted,
+                    "url_id": obj.url_id,
                 }
             state["buckets"].append(bucket_data)
         self._backend.save_state(self._user_id, state)
