@@ -45,8 +45,6 @@ def _tool_detail_preview(tool_name: str, arguments: Any) -> str:
         return _s3_preview(args)
     if tool_name == "search":
         return _search_preview(args)
-    if tool_name == "scrapling":
-        return _scrapling_preview(args)
     return _json_preview(args)
 
 
@@ -112,25 +110,6 @@ def _search_preview(args: dict[str, Any]) -> str:
     query = str(args.get("query") or "").strip()
     if action == "search" and query:
         return _trim(f"search {query}", 120)
-    if action:
-        return _trim(action, 120)
-    return _json_preview(args)
-
-
-def _scrapling_preview(args: dict[str, Any]) -> str:
-    action = str(args.get("action") or "").strip().lower()
-    if action == "fetch":
-        url = str(args.get("url") or "").strip()
-        mode = str(args.get("mode") or "auto").strip().lower()
-        if url:
-            return _trim(f"fetch[{mode}] {url}", 120)
-        return _trim(f"fetch[{mode}]", 120)
-    if action == "parse_html":
-        selector = str(args.get("selector") or "").strip()
-        return _trim(f"parse_html {selector}" if selector else "parse_html", 120)
-    if action.startswith("cookie_"):
-        site = str(args.get("site") or "").strip()
-        return _trim(f"{action} {site}".strip(), 120)
     if action:
         return _trim(action, 120)
     return _json_preview(args)
