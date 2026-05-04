@@ -1,4 +1,4 @@
-"""Lifecycle and status management for SoSearch server."""
+"""Lifecycle and status management for search server."""
 
 from __future__ import annotations
 
@@ -31,16 +31,16 @@ def stop_server() -> dict:
         pid = int(state.get("pid") or 0)
         if pid <= 1 or not pid_alive(pid):
             save_state({})
-            return {"ok": True, "message": "SoSearch is not running."}
+            return {"ok": True, "message": "Search service is not running."}
         try:
             os.kill(pid, signal.SIGTERM)
         except Exception as exc:
-            return {"ok": False, "message": f"Failed to stop SoSearch pid={pid}: {exc}"}
+            return {"ok": False, "message": f"Failed to stop search service pid={pid}: {exc}"}
 
         for _ in range(20):
             if not pid_alive(pid):
                 save_state({})
-                return {"ok": True, "message": f"Stopped SoSearch pid={pid}."}
+                return {"ok": True, "message": f"Stopped search service pid={pid}."}
             time.sleep(0.2)
 
         try:
@@ -48,7 +48,7 @@ def stop_server() -> dict:
         except Exception:
             pass
         save_state({})
-        return {"ok": True, "message": f"Force-stopped SoSearch pid={pid}."}
+        return {"ok": True, "message": f"Force-stopped search service pid={pid}."}
 
 
 def ensure_started(*, port: int, binary_path: Path, timeout_seconds: int, cwd_path: Path) -> dict:
@@ -56,11 +56,11 @@ def ensure_started(*, port: int, binary_path: Path, timeout_seconds: int, cwd_pa
         state = load_state()
         pid = int(state.get("pid") or 0)
         if pid > 1 and pid_alive(pid) and int(state.get("port") or 0) == port:
-            return {"ok": True, "message": f"SoSearch already running (pid={pid}, port={port}).", "pid": pid}
+            return {"ok": True, "message": f"Search service already running (pid={pid}, port={port}).", "pid": pid}
 
     stop_server()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = LOG_DIR / f"sosearch_{time.strftime('%Y%m%d_%H%M%S')}.log"
+    log_file = LOG_DIR / f"search_{time.strftime('%Y%m%d_%H%M%S')}.log"
     with open(log_file, "ab") as handle:
         proc = subprocess.Popen(
             [str(binary_path)],
@@ -84,8 +84,8 @@ def ensure_started(*, port: int, binary_path: Path, timeout_seconds: int, cwd_pa
     ready = wait_ready(port=port, timeout_seconds=timeout_seconds)
     if not ready:
         stop_server()
-        return {"ok": False, "message": f"SoSearch failed to start on port {port}. Check log: {log_file}"}
-    return {"ok": True, "message": f"SoSearch started on port {port} (pid={proc.pid}).", "pid": proc.pid, "log_file": str(log_file)}
+        return {"ok": False, "message": f"Search service failed to start on port {port}. Check log: {log_file}"}
+    return {"ok": True, "message": f"Search service started on port {port} (pid={proc.pid}).", "pid": proc.pid, "log_file": str(log_file)}
 
 
 def wait_ready(*, port: int, timeout_seconds: int) -> bool:

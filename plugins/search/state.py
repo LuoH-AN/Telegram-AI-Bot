@@ -1,4 +1,4 @@
-"""Persistent state helpers for SoSearch runtime."""
+"""Persistent state helpers for search runtime."""
 
 from __future__ import annotations
 

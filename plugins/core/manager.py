@@ -11,15 +11,11 @@ from typing import Any
 from .discover import discover_manifests
 from .manifest import PluginManifest, load_manifest_from_path
 from .registry import registry
+from .skill_plugin import SkillPlugin
 
 logger = logging.getLogger(__name__)
 
-# Paths searched for built-in plugins (relative to project root)
-BUILTIN_PLUGIN_ROOTS = [
-    Path(__file__).parent.parent,  # plugins/
-]
-
-# Paths searched for external plugins
+BUILTIN_PLUGIN_ROOTS = [Path(__file__).parent.parent]
 EXTERNAL_PLUGIN_DIR = Path(os.getenv("PLUGIN_DIR", "runtime/plugins"))
 
 
@@ -27,20 +23,20 @@ class PluginLoadError(Exception):
     pass
 
 
-def _load_plugin_from_entry_point(manifest: PluginManifest) -> Any:
+def _instantiate(manifest: PluginManifest) -> Any:
+    if not manifest.entry_point:
+        return SkillPlugin(manifest)
     if ":" not in manifest.entry_point:
-        raise PluginLoadError(f"entry_point '{manifest.entry_point}' must contain ':' separating module from class")
-
+        raise PluginLoadError(f"entry_point '{manifest.entry_point}' must contain ':'")
     module_path, class_name = manifest.entry_point.rsplit(":", 1)
     try:
         module = importlib.import_module(module_path)
     except ImportError as exc:
-        raise PluginLoadError(f"Failed to import module '{module_path}': {exc}") from exc
-
+        raise PluginLoadError(f"Failed to import '{module_path}': {exc}") from exc
     cls = getattr(module, class_name, None)
     if cls is None:
         raise PluginLoadError(f"Module '{module_path}' has no class '{class_name}'")
-    return cls
+    return cls()
 
 
 class PluginManager:
@@ -49,44 +45,51 @@ class PluginManager:
         self._loaded: dict[str, Any] = {}
         self._initialized = False
 
+    def _collect(self) -> list[tuple[PluginManifest, Path]]:
+        out: list[tuple[PluginManifest, Path]] = []
+        for root in BUILTIN_PLUGIN_ROOTS:
+            if not root.is_dir():
+                continue
+            for skill_path in discover_manifests(root):
+                if "plugins/core" in str(skill_path):
+                    continue
+                m = load_manifest_from_path(skill_path.parent, is_builtin=True)
+                if m:
+                    out.append((m, skill_path.parent))
+        if EXTERNAL_PLUGIN_DIR.is_dir():
+            for skill_path in discover_manifests(EXTERNAL_PLUGIN_DIR):
+                m = load_manifest_from_path(skill_path.parent, is_builtin=False)
+                if m:
+                    out.append((m, skill_path.parent))
+        return out
+
+    def _register(self, manifest: PluginManifest) -> None:
+        instance = _instantiate(manifest)
+        registry.register(instance)
+        self._discovered[manifest.name] = manifest
+        self._loaded[manifest.name] = instance
+
     def discover(self) -> None:
         if self._initialized:
             return
         self._initialized = True
-        manifests: list[tuple[PluginManifest, Path]] = []
-
-        for root in BUILTIN_PLUGIN_ROOTS:
-            if not root.is_dir():
-                continue
-            for manifest_path in discover_manifests(root):
-                # Skip core/ (it's the framework, not a plugin)
-                if "plugins/core" in str(manifest_path):
-                    continue
-                manifest = load_manifest_from_path(manifest_path.parent, is_builtin=True)
-                if manifest:
-                    manifests.append((manifest, manifest_path.parent))
-
-        external_root = EXTERNAL_PLUGIN_DIR
-        if external_root.is_dir():
-            for manifest_path in discover_manifests(external_root):
-                manifest = load_manifest_from_path(manifest_path.parent, is_builtin=False)
-                if manifest:
-                    manifests.append((manifest, manifest_path.parent))
-
-        for manifest, plugin_path in manifests:
+        for manifest, plugin_path in self._collect():
             try:
-                cls = _load_plugin_from_entry_point(manifest)
-                instance = cls()
-                registry.register(instance)
-                self._discovered[manifest.name] = manifest
-                self._loaded[manifest.name] = instance
+                self._register(manifest)
                 logger.info("Loaded plugin: %s @ %s", manifest.name, plugin_path)
             except PluginLoadError as exc:
-                logger.warning("Failed to load plugin '%s' from %s: %s", manifest.name, plugin_path, exc)
+                logger.warning("Failed to load '%s' from %s: %s", manifest.name, plugin_path, exc)
             except Exception:
-                logger.exception("Unexpected error loading plugin '%s' from %s", manifest.name, plugin_path)
+                logger.exception("Unexpected error loading '%s' from %s", manifest.name, plugin_path)
+        logger.info("Plugin discovery complete: %d loaded (%s)", len(self._discovered), ", ".join(self._discovered.keys()))
 
-        logger.info("Plugin discovery complete: %d plugins loaded (%s)", len(self._discovered), ", ".join(self._discovered.keys()))
+    def hot_load(self, plugin_dir: Path) -> str:
+        manifest = load_manifest_from_path(plugin_dir, is_builtin=False)
+        if not manifest:
+            raise PluginLoadError(f"No SKILL.md in {plugin_dir}")
+        self._register(manifest)
+        logger.info("Hot-loaded plugin: %s", manifest.name)
+        return manifest.name
 
     def list_plugins(self) -> list[PluginManifest]:
         return list(self._discovered.values())

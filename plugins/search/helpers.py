@@ -1,4 +1,4 @@
-"""Small helper utilities for SoSearch tool."""
+"""Small helper utilities for search tool."""
 
 from __future__ import annotations
 

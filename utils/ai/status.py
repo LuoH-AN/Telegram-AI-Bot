@@ -43,8 +43,8 @@ def _tool_detail_preview(tool_name: str, arguments: Any) -> str:
         return _terminal_preview(args)
     if tool_name == "s3":
         return _s3_preview(args)
-    if tool_name == "sosearch":
-        return _sosearch_preview(args)
+    if tool_name == "search":
+        return _search_preview(args)
     if tool_name == "scrapling":
         return _scrapling_preview(args)
     return _json_preview(args)
@@ -107,7 +107,7 @@ def _s3_preview(args: dict[str, Any]) -> str:
     return _json_preview(args)
 
 
-def _sosearch_preview(args: dict[str, Any]) -> str:
+def _search_preview(args: dict[str, Any]) -> str:
     action = str(args.get("action") or "").strip().lower()
     query = str(args.get("query") or "").strip()
     if action == "search" and query:

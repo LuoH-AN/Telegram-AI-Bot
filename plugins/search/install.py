@@ -1,4 +1,4 @@
-"""Installation and binary resolution for SoSearch."""
+"""Installation and binary resolution for search service."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .constants import BIN_DIR, DEFAULT_REPO_URL, REPO_DIR, BASE_DIR
 
 
 def repo_url() -> str:
-    return os.getenv("SOSEARCH_REPO_URL", DEFAULT_REPO_URL).strip() or DEFAULT_REPO_URL
+    return os.getenv("SEARCH_REPO_URL", DEFAULT_REPO_URL).strip() or DEFAULT_REPO_URL
 
 
 def ensure_repo() -> Path:
@@ -55,7 +55,7 @@ def ensure_binary() -> Path:
     downloaded = download_release_binary()
     if downloaded is not None:
         return downloaded
-    raise RuntimeError("SoSearch binary unavailable. Install cargo or provide prebuilt SoSearch binary.")
+    raise RuntimeError("Search binary unavailable. Install cargo or provide prebuilt binary.")
 
 
 def build_from_source() -> Path | None:

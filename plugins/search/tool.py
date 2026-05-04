@@ -1,4 +1,4 @@
-"""SoSearch skill tool integration."""
+"""Search skill tool integration."""
 
 from __future__ import annotations
 
@@ -10,19 +10,19 @@ from .query import search_once
 from .server import ensure_started, status_payload, stop_server
 
 
-class SoSearchTool(BaseTool):
+class SearchTool(BaseTool):
     @property
     def name(self) -> str:
-        return "sosearch"
+        return "search"
 
     def definitions(self) -> list[dict]:
         return [
             {
                 "type": "function",
                 "function": {
-                    "name": "sosearch",
+                    "name": "search",
                     "description": (
-                        "Use integrated SoSearch web search skill. "
+                        "Use integrated web search skill. "
                         "Supports install/start/status/stop/search actions."
                     ),
                     "parameters": self._parameters(),
@@ -49,7 +49,7 @@ class SoSearchTool(BaseTool):
                 },
                 "port": {
                     "type": "integer",
-                    "description": "Local SoSearch HTTP port (default: 18080)",
+                    "description": "Local search HTTP port (default: 18080)",
                 },
                 "timeout": {
                     "type": "integer",
@@ -61,9 +61,9 @@ class SoSearchTool(BaseTool):
 
     def get_instruction(self) -> str:
         return (
-            "\nSoSearch skill policy:\n"
-            "- For web queries, prefer tool `sosearch` action='search' instead of manual terminal cloning/running.\n"
-            "- Do not call terminal to manage SoSearch unless sosearch tool returns an explicit failure requiring manual intervention.\n"
+            "\nSearch skill policy:\n"
+            "- For web queries, prefer tool `search` action='search' instead of manual terminal cloning/running.\n"
+            "- Do not call terminal to manage search service unless search tool returns an explicit failure requiring manual intervention.\n"
         )
 
     def execute(self, user_id: int, tool_name: str, arguments: dict) -> str:
@@ -79,7 +79,7 @@ class SoSearchTool(BaseTool):
                 repo = ensure_repo()
                 binary = ensure_binary()
             payload = status_payload(port=port)
-            payload.update({"ok": True, "repo_dir": str(repo), "binary": str(binary), "message": "SoSearch installed."})
+            payload.update({"ok": True, "repo_dir": str(repo), "binary": str(binary), "message": "Search service installed."})
             return as_json(payload)
         if action == "start":
             with STATE_LOCK:
@@ -123,7 +123,7 @@ class SoSearchTool(BaseTool):
                     cwd_path=(REPO_DIR if REPO_DIR.exists() else repo),
                 )
             if not started.get("ok"):
-                return as_json({"ok": False, "message": started.get("message") or "Failed to start SoSearch."})
+                return as_json({"ok": False, "message": started.get("message") or "Failed to start search service."})
             return as_json(search_once(query=query, port=port, timeout_seconds=timeout, top_k=top_k))
 
         return "Error: invalid action. Use one of: search/status/install/start/stop."

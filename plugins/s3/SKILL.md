@@ -1,0 +1,8 @@
+---
+name: s3
+version: 1.0.0
+description: S3-compatible object storage. Manage buckets, store/retrieve/delete objects with encryption, metadata, presigned URLs, and copy/move operations. Uses HuggingFace as the storage backend.
+entry_point: plugins.s3.tool:S3Tool
+capabilities: [create_bucket, delete_bucket, list_buckets, put_object, get_object, head_object, delete_object, list_objects, copy_object, move_object, get_url, sync_from_hf, sync_to_local, status, local_status]
+platforms: [telegram, wechat, onebot]
+---

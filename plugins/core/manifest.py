@@ -1,18 +1,36 @@
-"""Plugin manifest schema and parser."""
+"""SKILL.md loader — Anthropic Claude Skills format.
+
+A SKILL.md is a markdown file with optional YAML frontmatter:
+
+    ---
+    name: my-skill
+    description: ...
+    entry_point: plugins.foo.tool:FooTool   # optional — only for code plugins
+    capabilities: [a, b]
+    platforms: [telegram, wechat]
+    ---
+
+    (skill body — natural-language guidance for the model)
+
+Plugins WITHOUT entry_point are prompt-only: their body is injected into the
+system prompt and any bundled scripts/ directory is exposed to the model so it
+can invoke them via the `terminal` plugin.
+"""
 
 from __future__ import annotations
 
-import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+SKILL_FILENAME = "SKILL.md"
+
 
 @dataclass(frozen=True)
 class PluginManifest:
-    schema_version: str
     name: str
     version: str
     description: str
@@ -24,59 +42,71 @@ class PluginManifest:
     platforms: list[str]
     is_builtin: bool = False
     source_path: str = ""
-
-    def to_json(self) -> dict:
-        return {
-            "schema_version": self.schema_version,
-            "name": self.name,
-            "version": self.version,
-            "description": self.description,
-            "author": self.author,
-            "repository": self.repository,
-            "dependencies": self.dependencies,
-            "entry_point": self.entry_point,
-            "capabilities": self.capabilities,
-            "platforms": self.platforms,
-        }
-
-
-MANIFEST_FILENAME = "manifest.json"
-_REQUIRED_FIELDS = {"schema_version", "name", "entry_point"}
+    body: str = ""
 
 
 def load_manifest_from_path(path: Path, *, is_builtin: bool = False) -> PluginManifest | None:
-    manifest_path = path / MANIFEST_FILENAME
-    if not manifest_path.is_file():
+    skill_path = path / SKILL_FILENAME
+    if not skill_path.is_file():
         return None
-
     try:
-        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("Failed to read manifest at %s: %s", manifest_path, exc)
+        text = skill_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Failed to read %s: %s", skill_path, exc)
         return None
 
-    missing = _REQUIRED_FIELDS - set(raw.keys())
-    if missing:
-        logger.warning("Manifest at %s missing required fields: %s", manifest_path, missing)
-        return None
-
-    schema_version = str(raw.get("schema_version", "1.0"))
-    name = str(raw["name"]).strip()
+    meta, body = _split_frontmatter(text)
+    name = (meta.get("name") or _heuristic_name(text) or "").strip()
     if not name:
-        logger.warning("Manifest at %s has empty name", manifest_path)
+        logger.warning("SKILL.md at %s missing name", skill_path)
         return None
 
     return PluginManifest(
-        schema_version=schema_version,
         name=name,
-        version=str(raw.get("version", "1.0.0")),
-        description=str(raw.get("description", "")),
-        author=str(raw.get("author", "")),
-        repository=str(raw.get("repository", "")),
-        dependencies=list(raw.get("dependencies") or []),
-        entry_point=str(raw["entry_point"]),
-        capabilities=list(raw.get("capabilities") or []),
-        platforms=list(raw.get("platforms") or []),
+        version=str(meta.get("version", "1.0.0")),
+        description=str(meta.get("description") or _heuristic_desc(text)),
+        author=str(meta.get("author", "")),
+        repository=str(meta.get("repository", "")),
+        dependencies=_as_list(meta.get("dependencies")),
+        entry_point=str(meta.get("entry_point", "")),
+        capabilities=_as_list(meta.get("capabilities")),
+        platforms=_as_list(meta.get("platforms")),
         is_builtin=is_builtin,
         source_path=str(path),
+        body=body.strip(),
     )
+
+
+def _split_frontmatter(text: str) -> tuple[dict, str]:
+    fm = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.DOTALL)
+    if not fm:
+        return {}, text
+    meta: dict = {}
+    for line in fm.group(1).splitlines():
+        m = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", line)
+        if not m:
+            continue
+        key, raw = m.group(1), m.group(2).strip()
+        if raw.startswith("[") and raw.endswith("]"):
+            meta[key] = [v.strip().strip('"\'') for v in raw[1:-1].split(",") if v.strip()]
+        else:
+            meta[key] = raw.strip('"\'')
+    return meta, fm.group(2)
+
+
+def _as_list(v) -> list[str]:
+    if isinstance(v, list):
+        return [str(x) for x in v]
+    if isinstance(v, str) and v:
+        return [v]
+    return []
+
+
+def _heuristic_name(text: str) -> str | None:
+    h1 = re.search(r"^#\s+`?([^\s`]+)`?\s*$", text, re.M)
+    return h1.group(1).strip() if h1 else None
+
+
+def _heuristic_desc(text: str) -> str:
+    m = re.search(r"^\*\*Description:\*\*\s*(.+)$", text, re.M)
+    return m.group(1).strip() if m else ""

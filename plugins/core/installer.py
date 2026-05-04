@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
 import re
 import shutil
-import zipfile
-import io
 import urllib.request
+import zipfile
 from pathlib import Path
 
-from .manifest import load_manifest_from_path, MANIFEST_FILENAME
+from .manifest import SKILL_FILENAME, load_manifest_from_path
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,7 @@ def _ensure_plugin_dir() -> Path:
 def _parse_github_url(url: str) -> tuple[str, str]:
     m = re.match(r"(?:https?://)?github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/tree/[^/]+/([^/]+))?(?:/.*)?$", url)
     if m:
-        owner, repo = m.group(1), m.group(2)
-        subdir = m.group(3) or ""
-        return f"{owner}/{repo}", subdir
+        return f"{m.group(1)}/{m.group(2)}", m.group(3) or ""
     if "/" in url and not url.startswith("http"):
         parts = url.split("/")
         if len(parts) >= 2:
@@ -43,109 +41,82 @@ def _download_github_archive(owner_repo: str, branch: str = "main", subdir: str 
     archive_url = f"https://github.com/{owner_repo}/archive/refs/heads/{branch}.zip"
     name = owner_repo.split("/")[1]
     dest = PLUGIN_DIR / name
-
     logger.info("Downloading plugin from %s", archive_url)
     req = urllib.request.Request(archive_url, headers={"User-Agent": "Telegram-AI-Bot"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         data = resp.read()
-
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        all_members = zf.namelist()
-        prefix = f"{name}-{branch}/"
-        if subdir:
-            prefix = f"{name}-{branch}/{subdir}/"
-        members = [m for m in all_members if m.startswith(prefix)]
+        prefix = f"{name}-{branch}/{subdir}/" if subdir else f"{name}-{branch}/"
+        members = [m for m in zf.namelist() if m.startswith(prefix)]
         if not members:
-            prefix_no_slash = prefix.rstrip("/")
-            members = [m for m in all_members if m.startswith(prefix_no_slash)]
-            prefix = prefix_no_slash
-
+            prefix = prefix.rstrip("/")
+            members = [m for m in zf.namelist() if m.startswith(prefix)]
         for member in members:
-            parts = member[len(prefix):].split("/", 1)
-            if len(parts) == 1 and not member.endswith("/"):
-                target = dest / parts[0]
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(zf.read(member))
-            elif len(parts) > 1:
-                target = dest / parts[1]
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(zf.read(member))
-
+            rel = member[len(prefix):].lstrip("/")
+            if not rel or member.endswith("/"):
+                continue
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(zf.read(member))
     return dest
 
 
-def _extract_name_from_manifest(plugin_dir: Path) -> str | None:
+def _finalize(plugin_dir: Path, source: str) -> dict:
     manifest = load_manifest_from_path(plugin_dir, is_builtin=False)
-    return manifest.name if manifest else None
+    if not manifest:
+        shutil.rmtree(plugin_dir, ignore_errors=True)
+        return {"ok": False, "message": f"No {SKILL_FILENAME} found in {source}"}
+    name = manifest.name
+    if plugin_dir.name != name:
+        new_dir = PLUGIN_DIR / name
+        if new_dir.exists():
+            shutil.rmtree(new_dir)
+        shutil.move(str(plugin_dir), str(new_dir))
+        plugin_dir = new_dir
+    marker = INSTALLED_MARKER / f"{name}.json"
+    marker.write_text(json.dumps({"name": name, "source": source, "version": manifest.version}, ensure_ascii=False))
+    logger.info("Installed plugin '%s' from %s", name, source)
+    return {"ok": True, "name": name, "path": str(plugin_dir)}
 
 
-def install_from_github(url: str, name_hint: str = "") -> dict:
+def install_from_github(url: str) -> dict:
     try:
         owner_repo, subdir = _parse_github_url(url)
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
-
     _ensure_plugin_dir()
-
     try:
-        plugin_dir = _download_github_archive(owner_repo, branch="main", subdir=subdir)
+        plugin_dir = _download_github_archive(owner_repo, "main", subdir)
     except Exception as exc:
         try:
-            plugin_dir = _download_github_archive(owner_repo, branch="master", subdir=subdir)
+            plugin_dir = _download_github_archive(owner_repo, "master", subdir)
         except Exception:
             return {"ok": False, "message": f"Failed to download: {exc}"}
-
-    plugin_name = _extract_name_from_manifest(plugin_dir)
-    if not plugin_name:
-        plugin_name = name_hint.strip().lower() or plugin_dir.name
-        new_dir = PLUGIN_DIR / plugin_name
-        if new_dir.exists():
-            shutil.rmtree(new_dir)
-        if plugin_dir != new_dir:
-            shutil.move(str(plugin_dir), str(new_dir))
-        plugin_dir = new_dir
-
-    marker_file = INSTALLED_MARKER / f"{plugin_name}.json"
-    marker_file.write_text(json.dumps({"name": plugin_name, "source": url, "version": "unknown"}, ensure_ascii=False))
-
-    logger.info("Installed plugin '%s' from %s", plugin_name, url)
-    return {"ok": True, "name": plugin_name, "path": str(plugin_dir)}
+    return _finalize(plugin_dir, url)
 
 
 def install_from_local(path: str | Path) -> dict:
     src = Path(path).resolve()
     if not src.is_dir():
         return {"ok": False, "message": f"Not a directory: {src}"}
-
-    manifest = load_manifest_from_path(src, is_builtin=False)
-    if not manifest:
-        return {"ok": False, "message": f"No manifest.json found in {src}"}
-
+    if not (src / SKILL_FILENAME).is_file():
+        return {"ok": False, "message": f"No {SKILL_FILENAME} found in {src}"}
     _ensure_plugin_dir()
-    dest = PLUGIN_DIR / manifest.name
-
+    dest = PLUGIN_DIR / src.name
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
-
-    marker_file = INSTALLED_MARKER / f"{manifest.name}.json"
-    marker_file.write_text(json.dumps({"name": manifest.name, "source": str(src), "version": manifest.version}, ensure_ascii=False))
-
-    logger.info("Installed plugin '%s' from local path %s", manifest.name, src)
-    return {"ok": True, "name": manifest.name, "path": str(dest)}
+    return _finalize(dest, str(src))
 
 
 def uninstall(name: str) -> dict:
     plugin_dir = PLUGIN_DIR / name
     if not plugin_dir.exists():
         return {"ok": False, "message": f"Plugin '{name}' not found in {PLUGIN_DIR}"}
-
     shutil.rmtree(plugin_dir)
-
-    marker_file = INSTALLED_MARKER / f"{name}.json"
-    if marker_file.exists():
-        marker_file.unlink()
-
+    marker = INSTALLED_MARKER / f"{name}.json"
+    if marker.exists():
+        marker.unlink()
     logger.info("Uninstalled plugin '%s'", name)
     return {"ok": True, "name": name}
 
@@ -154,9 +125,9 @@ def list_installed() -> list[dict]:
     if not INSTALLED_MARKER.is_dir():
         return []
     result = []
-    for marker_file in INSTALLED_MARKER.glob("*.json"):
+    for marker in INSTALLED_MARKER.glob("*.json"):
         try:
-            result.append(json.loads(marker_file.read_text(encoding="utf-8")))
+            result.append(json.loads(marker.read_text(encoding="utf-8")))
         except Exception:
             pass
     return result

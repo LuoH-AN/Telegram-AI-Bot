@@ -1,4 +1,4 @@
-"""Search request adapter for SoSearch HTTP API."""
+"""Search request adapter for search service HTTP API."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ def search_once(*, query: str, port: int, timeout_seconds: int, top_k: int) -> d
         resp.raise_for_status()
         raw = resp.json()
     except Exception as exc:
-        return {"ok": False, "query": query, "message": f"SoSearch request failed: {exc}"}
+        return {"ok": False, "query": query, "message": f"Search request failed: {exc}"}
 
     results = raw.get("results") if isinstance(raw, dict) else None
     if not isinstance(results, list):
-        return {"ok": False, "query": query, "message": "SoSearch response format invalid."}
+        return {"ok": False, "query": query, "message": "Search response format invalid."}
 
     normalized = []
     for item in results[:top_k]:
