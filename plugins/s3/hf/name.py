@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from ..terminal import REPO_ROOT
+from plugins.terminal.state import REPO_ROOT
 
 INDEX_NAMESPACE = ".hf_sync/index"
 

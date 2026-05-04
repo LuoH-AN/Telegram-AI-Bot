@@ -36,9 +36,10 @@ _s3_instances: dict[int, Any] = {}
 
 
 def _get_s3(user_id: int):
-    from plugins.s3 import S3Service, get_s3_backend
+    from plugins.s3 import S3Service
+    from plugins.s3.hf_backend import get_available_backend
     if user_id not in _s3_instances:
-        backend = get_s3_backend()
+        backend = get_available_backend()
         svc = S3Service(user_id, backend)
         svc.load()
         _s3_instances[user_id] = svc
@@ -211,9 +212,10 @@ class S3Tool(BaseTool):
     def _status(self, svc) -> str:
         buckets = svc.list_buckets()
         backend = svc._backend
+        backend_type = "Local" if hasattr(backend, '_root') else "HF"
         lines = [
-            f"S3 Storage (HF Backend)",
-            f"  HF Enabled: {backend.enabled}",
+            f"S3 Storage ({backend_type} Backend)",
+            f"  Enabled: {backend.enabled}",
             f"  Total buckets: {len(buckets)}",
         ]
         total_objects = 0
@@ -380,6 +382,17 @@ class S3Tool(BaseTool):
         if r["ok"]:
             return f"Moved: {src_b}/{src_k} -> {dst_b}/{dst_k}"
         return f"Move failed: {r.get('error', 'unknown error')}"
+
+    def _get_url(self, svc, args: dict) -> str:
+        bucket = str(args.get("bucket") or "").strip()
+        key = str(args.get("key") or "").strip()
+        expires = max(60, min(int(args.get("expires") or 3600), 86400))
+        if not bucket or not key:
+            return "Error: bucket and key required"
+        r = svc.get_url(bucket, key, expires=expires)
+        if r.get("ok"):
+            return f"URL: {r['url']}\nExpires in: {expires}s"
+        return f"Failed to get URL: {r.get('error', 'unknown error')}"
 
     def _local_status(self, svc, user_id: int) -> str:
         from plugins.s3.local_backend import LocalS3Backend

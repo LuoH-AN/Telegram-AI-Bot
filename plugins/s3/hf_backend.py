@@ -128,7 +128,7 @@ def _get_hf_store():
         from plugins.s3.hf.store import get_hf_dataset_store
         return get_hf_dataset_store()
     except Exception:
-        logger.warning("HF dataset store unavailable, S3 backend disabled")
+        logger.debug("HF dataset store unavailable")
         return None
 
 
@@ -137,3 +137,13 @@ def get_s3_backend() -> HFS3Backend:
     if _s3_store is None:
         _s3_store = HFS3Backend()
     return _s3_store
+
+
+def get_available_backend():
+    """Return the best available backend: HF if configured, else LocalS3Backend."""
+    hf_backend = get_s3_backend()
+    if hf_backend.enabled:
+        return hf_backend
+    from plugins.s3.local_backend import LocalS3Backend
+    logger.info("HF S3 backend disabled, using LocalS3Backend")
+    return LocalS3Backend()

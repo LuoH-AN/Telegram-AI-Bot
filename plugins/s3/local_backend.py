@@ -72,7 +72,7 @@ def _encrypt_payload(data: bytes, cipher, aad_bytes: bytes) -> bytes | None:
 def _decrypt_payload(payload: bytes, cipher, aad_bytes: bytes) -> bytes | None:
     if cipher is None:
         return None
-    if not payload.startswith("{"):
+    if not payload.startswith(b"{"):
         return None
     try:
         envelope = json.loads(payload.decode("utf-8"))
@@ -80,7 +80,7 @@ def _decrypt_payload(payload: bytes, cipher, aad_bytes: bytes) -> bytes | None:
         ciphertext = base64.urlsafe_b64decode(envelope["ciphertext"].encode("ascii"))
         return cipher.decrypt(nonce, ciphertext, aad_bytes)
     except Exception as exc:
-        logger.warning("decryption failed: %s", exc)
+        logger.debug("decryption failed: %s", exc)
         return None
 
 
@@ -100,7 +100,7 @@ class LocalS3Backend(S3Backend):
         self._root = _LOCAL_DIR
         self._cipher, self._key = _build_cipher(os.getenv(_ENC_KEY_ENV) or "")
         if self._cipher is None:
-            logger.warning("Local S3 backend: encryption disabled (no valid key)")
+            logger.debug("Local S3 backend: encryption disabled (no valid key)")
         self._root.mkdir(parents=True, exist_ok=True)
 
     def _user_dir(self, user_id: int) -> Path:
@@ -225,6 +225,7 @@ class LocalS3Backend(S3Backend):
 
     def save_state(self, user_id: int, state: dict) -> None:
         idx = self._index_path(user_id)
+        idx.parent.mkdir(parents=True, exist_ok=True)
         try:
             data = json.dumps(state, separators=(",", ":")).encode("utf-8")
             if self._cipher:
