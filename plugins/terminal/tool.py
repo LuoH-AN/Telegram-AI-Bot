@@ -60,6 +60,10 @@ class TerminalTool(BaseTool):
             "- For normal shell commands, call terminal with action='exec' and command.\n"
             "- Only call action='bg_check' when you already have a real PID returned by a previous background run.\n"
             "- Never use bg_check with 0/1 or guessed values.\n"
+            "\nSkill installation helper:\n"
+            "- When user asks to install a skill from GitHub, first suggest using `/skill install <url>` in chat.\n"
+            "- If manual installation needed: skills go to `runtime/plugins/<name>/`. Download from GitHub, extract, ensure SKILL.md exists.\n"
+            "- For subdirectory URLs (e.g., `owner/repo/tree/main/skills/name`), extract the repo and move the subdirectory to `runtime/plugins/name/`.\n"
         )
 
     def execute(self, user_id: int, tool_name: str, arguments: dict) -> str:
