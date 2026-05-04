@@ -74,6 +74,15 @@ class PluginManager:
         if self._initialized:
             return
         self._initialized = True
+
+        try:
+            from .installer import sync_skills_from_s3
+            restored = sync_skills_from_s3()
+            if restored:
+                logger.info("Restored %d skills from S3: %s", len(restored), ", ".join(restored))
+        except Exception:
+            logger.debug("S3 skill sync skipped")
+
         for manifest, plugin_path in self._collect():
             try:
                 self._register(manifest)
