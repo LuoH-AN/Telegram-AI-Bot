@@ -14,6 +14,14 @@ TOOL_PROGRESS_PROMPT = (
 )
 
 
+def _get_skill_instructions() -> str:
+    try:
+        from plugins import get_tool_instructions
+        return get_tool_instructions("all")
+    except Exception:
+        return ""
+
+
 def get_personas(user_id: int) -> dict[str, dict]:
     """Get all personas for a user."""
     return cache.get_personas(user_id)
@@ -44,7 +52,11 @@ def get_system_prompt(user_id: int, persona_name: str | None = None) -> str:
     global_prompt = settings.get("global_prompt", "") or ""
     persona_prompt = persona.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
     base_prompt = f"{global_prompt}\n\n{persona_prompt}" if global_prompt else persona_prompt
-    return f"{base_prompt}\n\n{TOOL_PROGRESS_PROMPT}"
+    parts = [base_prompt, TOOL_PROGRESS_PROMPT]
+    skill_instructions = _get_skill_instructions()
+    if skill_instructions:
+        parts.append(skill_instructions)
+    return "\n\n".join(parts)
 
 
 def switch_persona(user_id: int, name: str) -> bool:

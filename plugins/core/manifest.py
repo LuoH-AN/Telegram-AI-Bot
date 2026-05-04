@@ -61,6 +61,8 @@ def load_manifest_from_path(path: Path, *, is_builtin: bool = False) -> PluginMa
         logger.warning("SKILL.md at %s missing name", skill_path)
         return None
 
+    clean_body = _strip_heuristic_header(body, name)
+
     return PluginManifest(
         name=name,
         version=str(meta.get("version", "1.0.0")),
@@ -73,7 +75,7 @@ def load_manifest_from_path(path: Path, *, is_builtin: bool = False) -> PluginMa
         platforms=_as_list(meta.get("platforms")),
         is_builtin=is_builtin,
         source_path=str(path),
-        body=body.strip(),
+        body=clean_body.strip(),
     )
 
 
@@ -110,3 +112,11 @@ def _heuristic_name(text: str) -> str | None:
 def _heuristic_desc(text: str) -> str:
     m = re.search(r"^\*\*Description:\*\*\s*(.+)$", text, re.M)
     return m.group(1).strip() if m else ""
+
+
+def _strip_heuristic_header(body: str, name: str) -> str:
+    pattern = rf"^#\s+`?{re.escape(name)}`?\s*\n"
+    body = re.sub(pattern, "", body, count=1, flags=re.M)
+    body = re.sub(r"^\*\*Name:\*\*\s*`?[^`]+`?\s*\n", "", body, count=1, flags=re.M)
+    body = re.sub(r"^\*\*Description:\*\*\s*.+\n", "", body, count=1, flags=re.M)
+    return body.strip()

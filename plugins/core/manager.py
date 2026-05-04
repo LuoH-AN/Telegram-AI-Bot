@@ -66,6 +66,7 @@ class PluginManager:
     def _register(self, manifest: PluginManifest) -> None:
         instance = _instantiate(manifest)
         registry.register(instance)
+        registry.enable(manifest.name)
         self._discovered[manifest.name] = manifest
         self._loaded[manifest.name] = instance
 
