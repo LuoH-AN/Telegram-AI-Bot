@@ -35,11 +35,11 @@ def switch_persona_text(
         prompt_text = prompt_text[:100] + "..."
 
     return (
-        f"Switched to: {name}\n\n"
-        f"Messages: {msg_count}\n"
-        f"Sessions: {session_ct}\n"
-        f"Current session: {session_title}\n"
-        f"Tokens: {usage['total_tokens']:,}\n\n"
-        f"Prompt: {prompt_text}"
+        f"✅ **Switched to:** `{name}`\n\n"
+        f"• **Messages:** {msg_count}\n"
+        f"• **Sessions:** {session_ct}\n"
+        f"• **Current session:** {session_title}\n"
+        f"• **Tokens:** {usage['total_tokens']:,}\n\n"
+        f"**Prompt:** _{prompt_text}_"
     )
 

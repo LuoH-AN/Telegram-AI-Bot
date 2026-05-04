@@ -9,7 +9,7 @@ def create_session_text(user_id: int, persona_name: str, args: list[str]) -> str
     display_title = title or "New Chat"
     count = len(get_sessions(user_id, persona_name))
     return (
-        f"Created new session: {display_title}\n"
+        f"✅ **Created new session:** {display_title}\n"
         f"Switched to session #{count}"
     )
 

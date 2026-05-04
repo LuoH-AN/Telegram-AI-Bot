@@ -21,5 +21,5 @@ def update_persona_prompt_text(
     prompt = " ".join(args[1:])
     update_current_prompt(user_id, prompt)
     name = get_current_persona_name(user_id)
-    return f"Updated prompt for '{name}'."
+    return f"✅ **Updated prompt for** `{name}`."
 

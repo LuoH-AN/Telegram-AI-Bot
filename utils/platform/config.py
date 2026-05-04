@@ -33,16 +33,16 @@ SET_COMMAND_KEYS = (
 
 def _build_set_key_lines() -> str:
     return (
-        "- base_url - API endpoint\n"
-        "- api_key - API key\n"
-        "- model - model (no value to browse list)\n"
-        "- temperature - temperature parameter\n"
-        "- reasoning_effort - reasoning effort (none/minimal/low/medium/high/xhigh)\n"
-        "- show_thinking - show condensed reasoning block when available (on/off)\n"
-        "- stream_mode - streaming mode (default/time/chars/off)\n"
-        "- token_limit - token limit for current persona\n"
-        "- global_prompt - global prompt (<text|clear>)\n"
-        "- title_model - title generation model [provider:]model\n"
-        "- cron_model - cron task model [provider:]model\n"
-        "- provider - provider management (list/save/load/delete)"
+        "• `base_url` - API endpoint\n"
+        "• `api_key` - API key\n"
+        "• `model` - model (no value to browse list)\n"
+        "• `temperature` - temperature parameter\n"
+        "• `reasoning_effort` - reasoning effort (none/minimal/low/medium/high/xhigh)\n"
+        "• `show_thinking` - show condensed reasoning block when available (on/off)\n"
+        "• `stream_mode` - streaming mode (default/time/chars/off)\n"
+        "• `token_limit` - token limit for current persona\n"
+        "• `global_prompt` - global prompt (<text|clear>)\n"
+        "• `title_model` - title generation model [provider:]model\n"
+        "• `cron_model` - cron task model [provider:]model\n"
+        "• `provider` - provider management (list/save/load/delete)"
     )

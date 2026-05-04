@@ -18,5 +18,5 @@ def create_persona_text(
     if create_persona(user_id, name, prompt):
         switch_persona(user_id, name)
         return build_persona_created_message(name, command_prefix)
-    return f"Persona '{name}' already exists."
+    return f"❌ Persona `{name}` already exists."
 

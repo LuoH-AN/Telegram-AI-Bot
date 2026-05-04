@@ -18,11 +18,11 @@ def switch_session_text(
 
     if not switch_session(user_id, index, persona_name):
         total = len(get_sessions(user_id, persona_name))
-        return f"Invalid session number. Valid range: 1-{total}"
+        return f"❌ Invalid session number. Valid range: `1-{total}`"
 
     sessions = get_sessions(user_id, persona_name)
     session = sessions[index - 1]
     display_title = session.get("title") or "New Chat"
     msg_count = get_session_message_count(session["id"])
-    return f"Switched to session #{index}: {display_title}\nMessages: {msg_count}"
+    return f"✅ **Switched to session #{index}:** {display_title}\n**Messages:** {msg_count}"
 

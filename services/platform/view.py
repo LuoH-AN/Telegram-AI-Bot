@@ -49,18 +49,18 @@ def build_usage_text(user_id: int) -> str:
     usage = get_token_usage(user_id, persona_name)
     token_limit = get_token_limit(user_id, persona_name)
     message = (
-        f"Token Usage (Persona: {persona_name}):\n\n"
-        f"Prompt tokens:     {usage['prompt_tokens']:,}\n"
-        f"Completion tokens: {usage['completion_tokens']:,}\n"
-        f"Total tokens:      {usage['total_tokens']:,}\n"
+        f"📊 **Token Usage** (Persona: `{persona_name}`)\n\n"
+        f"• **Prompt tokens:** {usage['prompt_tokens']:,}\n"
+        f"• **Completion tokens:** {usage['completion_tokens']:,}\n"
+        f"• **Total tokens:** {usage['total_tokens']:,}"
     )
     if token_limit > 0:
         message += (
-            f"\nLimit:     {token_limit:,}\n"
-            f"Remaining: {get_remaining_tokens(user_id, persona_name):,}\n"
-            f"Usage:     {(get_usage_percentage(user_id, persona_name) or 0):.1f}%\n"
+            f"\n\n**Limit:** {token_limit:,}\n"
+            f"**Remaining:** {get_remaining_tokens(user_id, persona_name):,}\n"
+            f"**Usage:** {(get_usage_percentage(user_id, persona_name) or 0):.1f}%"
         )
     else:
-        message += "\nLimit: Unlimited"
+        message += "\n\n**Limit:** Unlimited"
     total_all = get_total_tokens_all_personas(user_id)
-    return f"{message}\n\n--- All Personas ---\nTotal tokens: {total_all:,}"
+    return f"{message}\n\n--- **All Personas** ---\n**Total tokens:** {total_all:,}"
