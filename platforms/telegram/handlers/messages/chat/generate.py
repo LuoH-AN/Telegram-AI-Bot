@@ -67,7 +67,7 @@ async def generate_with_tools(
                 "all",
                 runtime.tool_event_callback,
             )
-            messages.append(build_assistant_tool_call_message(full_response, tool_calls))
+            messages.append(build_assistant_tool_call_message(full_response, tool_calls, reasoning_content))
             messages.extend(tool_results)
             continue
         if finish_reason == "no_output_timeout" and not initial_stall_retry_used:
@@ -78,7 +78,10 @@ async def generate_with_tools(
             logger.info("%s response truncated (finish_reason=length), requesting continuation", ctx)
             truncated_text = full_response or ""
             truncated_prefix += truncated_text
-            messages.append({"role": "assistant", "content": truncated_text})
+            cont_msg: dict = {"role": "assistant", "content": truncated_text}
+            if reasoning_content:
+                cont_msg["reasoning_content"] = reasoning_content
+            messages.append(cont_msg)
             messages.append({"role": "user", "content": "Please continue and complete your response concisely."})
             continue
         break

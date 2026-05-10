@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 
-def build_assistant_tool_call_message(full_response: str, tool_calls: list) -> dict:
-    return {
+def build_assistant_tool_call_message(full_response: str, tool_calls: list, reasoning_content: str | None = None) -> dict:
+    msg: dict = {
         "role": "assistant",
         "content": full_response or "",
         "tool_calls": [
@@ -16,3 +16,6 @@ def build_assistant_tool_call_message(full_response: str, tool_calls: list) -> d
             for tc in tool_calls
         ],
     }
+    if reasoning_content:
+        msg["reasoning_content"] = reasoning_content
+    return msg

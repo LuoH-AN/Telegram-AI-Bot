@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -28,9 +29,17 @@ ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_WEB_PORT = 7860
 WEB_PORT = int(os.getenv("WEB_PORT", str(DEFAULT_WEB_PORT)))
 
+_S3_PATH = re.compile(r"^/s/(\d+)/(\d+)/?$")
+
 
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        m = _S3_PATH.match(path)
+        if m:
+            from plugins.s3.web_route import serve_s3_url
+            serve_s3_url(self, int(m.group(1)), int(m.group(2)))
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.end_headers()
@@ -41,7 +50,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
 
 
 def _start_web_server() -> None:
-    server = HTTPServer(("0.0.0.0", WEB_PORT), _HealthHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", WEB_PORT), _HealthHandler)
     server.serve_forever()
 
 

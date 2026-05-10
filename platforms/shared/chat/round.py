@@ -76,7 +76,7 @@ async def run_completion_round(
         if full.strip():
             last_text_response = full
         if tool_calls:
-            messages.append({
+            asst_msg: dict = {
                 "role": "assistant",
                 "content": full or "",
                 "tool_calls": [
@@ -87,14 +87,20 @@ async def run_completion_round(
                     }
                     for tc in tool_calls
                 ],
-            })
+            }
+            if reasoning_content:
+                asst_msg["reasoning_content"] = reasoning_content
+            messages.append(asst_msg)
             tool_results = await asyncio.to_thread(process_tool_calls, user_id, tool_calls, "all", tool_event_callback)
             messages.extend(tool_results)
             continue
         if finish_reason == "length":
             truncated = full or ""
             truncated_prefix += truncated
-            messages.append({"role": "assistant", "content": truncated})
+            cont_msg: dict = {"role": "assistant", "content": truncated}
+            if reasoning_content:
+                cont_msg["reasoning_content"] = reasoning_content
+            messages.append(cont_msg)
             messages.append({"role": "user", "content": "Please continue and complete your response concisely."})
             continue
         break

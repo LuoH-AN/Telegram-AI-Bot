@@ -311,7 +311,8 @@ class S3Service:
         url_id = obj.url_id or 0
         if url_id <= 0:
             return {"ok": False, "error": "Object has no url_id"}
-        url = f"{base_url}/s/{url_id}" if base_url else f"/s/{url_id}"
+        path = f"/s/{self._user_id}/{url_id}"
+        url = f"{base_url}{path}" if base_url else path
         return {
             "ok": True,
             "url": url,
