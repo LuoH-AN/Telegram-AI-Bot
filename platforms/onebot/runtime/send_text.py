@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from utils.format import split_message
+from utils.format import markdown_to_plain, split_message
 
 from ..config import logger, ONEBOT_MODE
 
@@ -17,6 +17,7 @@ class RuntimeSendTextMixin:
         dedupe_key: str | None = None,
     ) -> None:
         """Send text to a QQ user or group."""
+        text = markdown_to_plain(text) if text else text
         if ONEBOT_MODE == "ws":
             await self._send_via_bridge(is_group, peer_id, text, dedupe_key)
             return
