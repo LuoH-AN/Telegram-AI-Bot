@@ -7,7 +7,7 @@ import io
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .outbound import OutboundSender
+from platforms.shared.outbound import OutboundSender
 
 
 def _buf(data: bytes, filename: str) -> io.BytesIO:
