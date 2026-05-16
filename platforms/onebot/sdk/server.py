@@ -98,7 +98,7 @@ class OneBotServer:
             self._ws = None
             logger.info("NapCat disconnected")
 
-    def _handle_message(self, msg: dict) -> None:
+    async def _handle_message(self, msg: dict) -> None:
         """Handle incoming WebSocket message (event or API response)."""
         if msg.get("post_type") == "meta_event" and msg.get("meta_event_type") == "heartbeat":
             return
@@ -118,7 +118,9 @@ class OneBotServer:
         if msg.get("post_type") in ("message", "notice", "request"):
             if self.on_event:
                 try:
-                    self.on_event(msg)
+                    result = self.on_event(msg)
+                    if asyncio.iscoroutine(result):
+                        await result
                 except Exception:
                     logger.exception("Event handler error")
         else:

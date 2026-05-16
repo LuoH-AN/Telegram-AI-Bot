@@ -70,7 +70,7 @@ class OneBotClient:
             async for raw in self._ws:
                 try:
                     msg = json.loads(raw)
-                    self._handle_message(msg)
+                    await self._handle_message(msg)
                 except json.JSONDecodeError:
                     logger.warning("Invalid JSON from NapCat: %s", raw[:200])
         except asyncio.CancelledError:
@@ -81,7 +81,7 @@ class OneBotClient:
                 self._connected = False
                 raise
 
-    def _handle_message(self, msg: dict) -> None:
+    async def _handle_message(self, msg: dict) -> None:
         """Handle incoming WebSocket message (event or response)."""
         if msg.get("post_type") == "meta_event" and msg.get("meta_event_type") == "heartbeat":
             return
@@ -99,7 +99,9 @@ class OneBotClient:
         if msg.get("post_type") in ("message", "notice", "request"):
             if self.on_event:
                 try:
-                    self.on_event(msg)
+                    result = self.on_event(msg)
+                    if asyncio.iscoroutine(result):
+                        await result
                 except Exception:
                     logger.exception("Event handler error")
         else:
