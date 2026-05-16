@@ -31,4 +31,5 @@ from .skill import (
 )
 from .onebot import (
     CREATE_ONEBOT_GROUP_CONFIG_TABLE,
+    CREATE_ONEBOT_PROACTIVE_CONFIG_TABLE,
 )

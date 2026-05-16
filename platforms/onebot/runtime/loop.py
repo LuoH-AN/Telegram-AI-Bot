@@ -102,6 +102,20 @@ class RuntimeLoopMixin:
             await dispatch_command(ctx, inbound.normalized_text)
             return
 
+        if is_group:
+            from ..proactive import should_reply_in_group
+
+            decision = should_reply_in_group(
+                group_id=int(inbound.group_id),
+                text=inbound.normalized_text,
+                raw_event=inbound.raw_event,
+                self_id=inbound.self_id,
+            )
+            if not decision.should_reply:
+                logger.info("Skipping group message (reason=%s) group=%s", decision.reason, inbound.group_id)
+                return
+            logger.info("Proactive reply: group=%s reason=%s", inbound.group_id, decision.reason)
+
         await process_chat_message(self, ctx, inbound)
 
     def _build_context(self, inbound, local_user_id: int, local_chat_id: int, session_user_id: int):

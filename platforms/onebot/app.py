@@ -8,6 +8,7 @@ from cache import init_database
 
 from .config import ONEBOT_ENABLED, logger
 from .group_config import load_group_modes
+from .proactive import load_proactive_configs
 from .runtime import OneBotRuntime
 
 __all__ = ["OneBotRuntime", "main"]
@@ -20,6 +21,7 @@ def main() -> None:
 
     init_database()
     load_group_modes()
+    load_proactive_configs()
 
     logger.info("Starting OneBot/NapCat bot...")
     runtime = OneBotRuntime()
