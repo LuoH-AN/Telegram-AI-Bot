@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import time
@@ -47,8 +48,9 @@ def execute_runnable(user_id: int, runnable: list[tuple[int, object, object, str
     workers = min(TOOL_EXECUTOR_WORKERS, len(runnable))
     logger.info("[user=%d] executing %d tool calls in parallel (workers=%d)", user_id, len(runnable), workers)
     pairs: list[tuple[int, dict]] = []
+    parent_ctx = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tool-call") as pool:
-        futures = [pool.submit(_execute_one, user_id, item, emit) for item in runnable]
+        futures = [pool.submit(parent_ctx.copy().run, _execute_one, user_id, item, emit) for item in runnable]
         for future in futures:
             pairs.append(future.result())
     return pairs

@@ -6,6 +6,7 @@ import asyncio
 import time
 
 from platforms.shared.chat import process_inbound_chat
+from platforms.wechat.outbound import WeChatOutbound
 
 from ..message.content import build_user_content_from_wechat_message
 
@@ -47,4 +48,5 @@ async def process_chat_message(runtime, ctx, message) -> None:
         slot_key=slot_key,
         send_tool_status=_send_tool_status,
         typing_factory=_typing_factory,
+        outbound_factory=lambda: WeChatOutbound(ctx),
     )

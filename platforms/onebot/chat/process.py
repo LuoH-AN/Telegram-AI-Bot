@@ -6,6 +6,7 @@ import asyncio
 import time
 
 from platforms.shared.chat import process_inbound_chat
+from platforms.onebot.outbound import OneBotOutbound
 
 
 async def process_chat_message(runtime, ctx, inbound) -> None:
@@ -33,4 +34,5 @@ async def process_chat_message(runtime, ctx, inbound) -> None:
         session_user_id=ctx.session_user_id,
         send_tool_status=_send_tool_status,
         typing_factory=None,
+        outbound_factory=lambda: OneBotOutbound(ctx),
     )

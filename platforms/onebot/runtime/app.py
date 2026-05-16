@@ -22,6 +22,7 @@ from ..sdk import OneBotClient, OneBotServer
 
 from .ident import RuntimeIdentMixin
 from .loop import RuntimeLoopMixin
+from .send_file import RuntimeSendFileMixin
 from .send_text import RuntimeSendTextMixin
 
 
@@ -32,6 +33,7 @@ onebot_runtime: "OneBotRuntime | None" = None
 class OneBotRuntime(
     RuntimeIdentMixin,
     RuntimeSendTextMixin,
+    RuntimeSendFileMixin,
     RuntimeLoopMixin,
 ):
     def __init__(self) -> None:

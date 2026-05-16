@@ -36,6 +36,7 @@ from utils.platform import (
 )
 
 from platforms.shared.cache import NoopPump
+from platforms.shared.outbound import bind_outbound, reset_outbound
 from .round import run_completion_round
 from .title import generate_and_set_title
 
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 SendToolStatus = Callable[[str], Awaitable[None]]
 TypingFactory = Callable[[], tuple[asyncio.Event, asyncio.Task] | tuple[None, None]]
+OutboundFactory = Callable[[], object]
 
 
 async def process_inbound_chat(
@@ -55,6 +57,7 @@ async def process_inbound_chat(
     session_user_id: int | None = None,
     send_tool_status: SendToolStatus | None = None,
     typing_factory: TypingFactory | None = None,
+    outbound_factory: OutboundFactory | None = None,
 ) -> None:
     """Run the full inbound-message → AI-reply pipeline.
 
@@ -146,6 +149,13 @@ async def process_inbound_chat(
     if typing_factory is not None:
         typing_stop, typing_task = typing_factory()
 
+    outbound_token = None
+    if outbound_factory is not None:
+        try:
+            outbound_token = bind_outbound(outbound_factory())
+        except Exception:
+            logger.debug("%s failed to bind outbound sender", ctx.log_context, exc_info=True)
+
     try:
         async with conversation_slot(conversation_key) as was_queued:
             if was_queued:
@@ -214,6 +224,8 @@ async def process_inbound_chat(
                 await typing_task
             except Exception:
                 pass
+        if outbound_token is not None:
+            reset_outbound(outbound_token)
         unregister_response(response_key)
 
 

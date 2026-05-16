@@ -8,6 +8,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ai import get_ai_client
+from platforms.shared.outbound import bind_outbound, reset_outbound
+from platforms.telegram.outbound import TelegramOutbound
 from services import add_user_message, conversation_slot, get_system_prompt
 from services.log import record_error
 from services.queue import cancel_user_responses, register_response, unregister_response
@@ -57,6 +59,7 @@ async def chat(
     current_task = asyncio.current_task()
     if current_task:
         register_response(response_key, task=current_task, pump=runtime.render_pump)
+    outbound_token = bind_outbound(TelegramOutbound(update, context))
     try:
         async with conversation_slot(conversation_key) as was_queued:
             if was_queued:
@@ -106,6 +109,7 @@ async def chat(
     finally:
         runtime.state.status_seed_cancelled = True
         runtime.status_seed_task.cancel()
+        reset_outbound(outbound_token)
         unregister_response(response_key)
         try:
             await runtime.render_pump.stop()
