@@ -86,4 +86,8 @@ async def dispatch_command(
         from platforms.onebot.commands.group_mode import groupmode_command
         await groupmode_command(ctx)
         return
+    if command == "proactive":
+        from platforms.onebot.commands.proactive import proactive_command
+        await proactive_command(ctx)
+        return
     await ctx.reply_text(build_help_message(command_prefix))
