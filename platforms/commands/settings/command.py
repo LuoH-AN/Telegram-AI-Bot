@@ -18,7 +18,7 @@ async def set_command(
     *args: str,
     show_model_list_cb=None,
 ) -> None:
-    user_id = ctx.local_user_id
+    user_id = ctx.session_user_id
     settings = get_user_settings(user_id)
     if not args:
         await ctx.reply_text(build_set_usage_message(command_prefix))

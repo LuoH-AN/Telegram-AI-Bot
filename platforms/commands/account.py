@@ -10,7 +10,7 @@ from utils.platform import build_usage_reset_message
 
 
 async def usage_command(ctx, *, args: list[str]) -> None:
-    user_id = ctx.local_user_id
+    user_id = ctx.session_user_id
     persona_name = get_current_persona_name(user_id)
     if args and args[0].lower() == "reset":
         reset_token_usage(user_id, persona_name)
@@ -20,7 +20,7 @@ async def usage_command(ctx, *, args: list[str]) -> None:
 
 
 async def export_command(ctx) -> None:
-    user_id = ctx.local_user_id
+    user_id = ctx.session_user_id
     persona_name = get_current_persona_name(user_id)
     file_buffer = export_to_markdown(user_id, persona_name)
     if file_buffer is None:

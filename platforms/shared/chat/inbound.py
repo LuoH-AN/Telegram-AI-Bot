@@ -71,21 +71,21 @@ async def process_inbound_chat(
     if session_user_id is None:
         session_user_id = getattr(ctx, "session_user_id", user_id)
 
-    await ensure_user_state(user_id)
+    await ensure_user_state(session_user_id)
 
     if isinstance(user_content, str) and not user_content.strip():
         await ctx.reply_text("Please send a text message or attachment.")
         return
-    if not has_api_key(user_id):
+    if not has_api_key(session_user_id):
         await ctx.reply_text(build_api_key_required_message(ctx.runtime.command_prefix))
         return
 
-    persona_name = get_current_persona_name(user_id)
-    remaining = get_remaining_tokens(user_id, persona_name)
+    persona_name = get_current_persona_name(session_user_id)
+    remaining = get_remaining_tokens(session_user_id, persona_name)
     if remaining is not None and remaining <= 0:
         await ctx.reply_text(build_token_limit_reached_message(ctx.runtime.command_prefix, persona_name))
         return
-    settings = get_user_settings(user_id)
+    settings = get_user_settings(session_user_id)
     reasoning = str(settings.get("reasoning_effort", "") or "").strip().lower()
     show_thinking = bool(settings.get("show_thinking"))
     session_id = ensure_session(session_user_id, persona_name)
@@ -104,7 +104,7 @@ async def process_inbound_chat(
         [
             {
                 "role": "system",
-                "content": get_system_prompt(user_id, persona_name)
+                "content": get_system_prompt(session_user_id, persona_name)
                 + "\n\n"
                 + get_datetime_prompt()
                 + build_latex_guidance(),
@@ -140,7 +140,7 @@ async def process_inbound_chat(
 
         loop.call_soon_threadsafe(_schedule)
 
-    conversation_key = f"{platform}:{ctx.local_chat_id}:{user_id}:{session_id}"
+    conversation_key = f"{platform}:{ctx.local_chat_id}:{session_user_id}:{session_id}"
     response_key = slot_key
     final_delivery_confirmed = False
     current_task = asyncio.current_task()
@@ -163,7 +163,7 @@ async def process_inbound_chat(
             if was_queued:
                 await ctx.reply_text("Previous request is still running. Queued and starting soon...")
             generated = await run_completion_round(
-                user_id=user_id,
+                user_id=session_user_id,
                 settings=settings,
                 messages=messages,
                 user_reasoning_effort=reasoning,
@@ -189,7 +189,7 @@ async def process_inbound_chat(
         if get_session_message_count(session_id) <= 2:
             asyncio.create_task(
                 generate_and_set_title(
-                    user_id,
+                    session_user_id,
                     session_id,
                     save_msg,
                     generated["final_text"],
@@ -200,11 +200,11 @@ async def process_inbound_chat(
         prompt_tokens = generated["prompt_tokens"] or _estimate_tokens(generated["messages"])
         completion_tokens = generated["completion_tokens"] or _estimate_tokens_str(generated["final_text"])
         if prompt_tokens or completion_tokens:
-            add_token_usage(user_id, prompt_tokens, completion_tokens, persona_name=persona_name)
+            add_token_usage(session_user_id, prompt_tokens, completion_tokens, persona_name=persona_name)
 
         latency_ms = int((time.monotonic() - request_start) * 1000)
         record_ai_interaction(
-            user_id,
+            session_user_id,
             settings["model"],
             prompt_tokens,
             completion_tokens,
@@ -226,7 +226,7 @@ async def process_inbound_chat(
                 add_user_message(session_id, save_msg)
             except Exception:
                 logger.debug("%s failed to persist user message after error", ctx.log_context, exc_info=True)
-        record_error(user_id, str(exc), f"{platform} chat handler", settings.get("model"), persona_name)
+        record_error(session_user_id, str(exc), f"{platform} chat handler", settings.get("model"), persona_name)
     finally:
         if typing_stop is not None:
             typing_stop.set()

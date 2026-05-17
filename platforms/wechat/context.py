@@ -23,6 +23,10 @@ class WeChatMessageContext:
     _sdk_msg: Any = field(default=None, repr=False)
 
     @property
+    def session_user_id(self) -> int:
+        return self.local_user_id
+
+    @property
     def log_context(self) -> str:
         return wechat_ctx_for_scope(
             local_user_id=self.local_user_id,

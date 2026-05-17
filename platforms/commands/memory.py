@@ -17,12 +17,12 @@ async def remember_command(ctx, *, command_prefix: str, content: str | None) -> 
     if not content:
         await ctx.reply_text(build_remember_usage_message(command_prefix))
         return
-    add_memory(ctx.local_user_id, content, source="user")
+    add_memory(ctx.session_user_id, content, source="user")
     await ctx.reply_text(f"Remembered: {content}")
 
 
 async def memories_command(ctx, *, command_prefix: str) -> None:
-    memories = get_memories(ctx.local_user_id)
+    memories = get_memories(ctx.session_user_id)
     if not memories:
         await ctx.reply_text(build_memory_empty_message(command_prefix))
         return
@@ -35,7 +35,7 @@ async def memories_command(ctx, *, command_prefix: str) -> None:
 
 
 async def forget_command(ctx, *, command_prefix: str, target: str | None) -> None:
-    user_id = ctx.local_user_id
+    user_id = ctx.session_user_id
     if not target:
         await ctx.reply_text(build_forget_usage_message(command_prefix))
         return

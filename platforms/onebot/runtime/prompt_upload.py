@@ -113,7 +113,7 @@ async def try_handle_prompt_upload(runtime, ctx, inbound) -> bool:
             "No readable .txt file found. Attach a UTF-8 text file with this command."
         )
         return True
-    reply = apply_prompt_upload(command, ctx.local_user_id, text)
+    reply = apply_prompt_upload(command, ctx.session_user_id, text)
     await ctx.reply_text(reply)
     return True
 

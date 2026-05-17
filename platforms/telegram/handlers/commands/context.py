@@ -16,6 +16,7 @@ class TelegramCommandContextAdapter:
         self.context = context
         self.local_user_id = int(update.effective_user.id)
         self.local_chat_id = int(update.effective_chat.id)
+        self.session_user_id = self.local_user_id
         self.is_group = update.effective_chat.type in ("group", "supergroup")
         self.export_dir = "runtime/telegram/exports"
 

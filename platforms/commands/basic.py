@@ -21,7 +21,7 @@ from utils.platform import build_help_message, build_start_message_missing_api, 
 
 
 async def start_command(ctx, command_prefix: str) -> None:
-    user_id = ctx.local_user_id
+    user_id = ctx.session_user_id
     if not has_api_key(user_id):
         await ctx.reply_text(build_start_message_missing_api(command_prefix))
         return
@@ -33,7 +33,7 @@ async def help_command(ctx, command_prefix: str) -> None:
 
 
 async def clear_command(ctx) -> None:
-    user_id = ctx.local_user_id
+    user_id = ctx.session_user_id
     persona_name = get_current_persona_name(user_id)
     clear_conversation(ensure_session(user_id, persona_name))
     reset_token_usage(user_id)
@@ -74,7 +74,7 @@ async def restart_command(ctx) -> None:
 
 
 async def settings_command(ctx, command_prefix: str) -> None:
-    await ctx.reply_text(build_settings_text(ctx.local_user_id, command_prefix=command_prefix))
+    await ctx.reply_text(build_settings_text(ctx.session_user_id, command_prefix=command_prefix))
 
 
 async def show_provider_list(ctx, settings: dict, command_prefix: str) -> None:
