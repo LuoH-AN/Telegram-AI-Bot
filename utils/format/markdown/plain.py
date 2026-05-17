@@ -57,3 +57,10 @@ def markdown_to_plain(text: str) -> str:
     cleaned = cleaned.replace("\\[", "[").replace("\\]", "]").replace("\\#", "#")
     cleaned = _MULTI_BLANK_RE.sub("\n\n", cleaned)
     return cleaned.strip()
+
+
+def split_into_lines(text: str) -> list[str]:
+    """Split a plain-text response into per-line segments for natural sending."""
+    if not text:
+        return []
+    return [line.strip() for line in text.split("\n") if line.strip()]

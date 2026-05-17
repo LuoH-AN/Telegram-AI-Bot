@@ -44,6 +44,16 @@ class OneBotMessageContext:
             dedupe_key=self.inbound_key,
         )
 
+    async def send_chat_reply(self, text: str) -> None:
+        """Send an AI chat reply; splits per line in groups for a human cadence."""
+        await self.runtime.send_text_to_peer(
+            self.reply_to_id,
+            text,
+            is_group=self.is_group,
+            dedupe_key=self.inbound_key,
+            chat_reply=True,
+        )
+
     async def reply_file(self, file_path: str | Path, *, caption: str = "") -> None:
         await self.runtime.send_file_to_peer(
             self.reply_to_id,

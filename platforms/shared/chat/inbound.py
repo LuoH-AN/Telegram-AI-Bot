@@ -169,7 +169,11 @@ async def process_inbound_chat(
                 tool_event_callback=_tool_event_callback,
             )
 
-        await ctx.reply_text(generated["display_final"])
+        send_final = getattr(ctx, "send_chat_reply", None)
+        if send_final is not None:
+            await send_final(generated["display_final"])
+        else:
+            await ctx.reply_text(generated["display_final"])
         final_delivery_confirmed = True
 
         add_user_message(session_id, save_msg)
