@@ -172,3 +172,9 @@ class OneBotClient:
 
     async def get_file(self, file_id: str) -> dict:
         return await self._send_api("get_file", {"file_id": file_id})
+
+    async def get_group_file_url(self, group_id: int, file_id: str, busid: int = 0) -> dict:
+        params: dict = {"group_id": int(group_id), "file_id": str(file_id)}
+        if busid:
+            params["busid"] = int(busid)
+        return await self._send_api("get_group_file_url", params)

@@ -18,6 +18,7 @@ TTL_SECONDS = 300
 class PendingUpload:
     file_id: str
     file_name: str
+    busid: int
     timestamp: float
 
 
@@ -31,12 +32,17 @@ def _prune_expired(now: float | None = None) -> None:
         _store.pop(k, None)
 
 
-def remember_upload(group_id: int, user_id: int, *, file_id: str, file_name: str) -> None:
+def remember_upload(
+    group_id: int, user_id: int, *, file_id: str, file_name: str, busid: int = 0,
+) -> None:
     if not file_id:
         return
     _prune_expired()
     _store[(int(group_id), int(user_id))] = PendingUpload(
-        file_id=str(file_id), file_name=str(file_name or ""), timestamp=time.time(),
+        file_id=str(file_id),
+        file_name=str(file_name or ""),
+        busid=int(busid or 0),
+        timestamp=time.time(),
     )
 
 
@@ -57,7 +63,11 @@ def capture_group_upload_notice(event: dict) -> PendingUpload | None:
     file_info = event.get("file") or {}
     file_id = file_info.get("id") or file_info.get("file_id") or ""
     file_name = file_info.get("name") or file_info.get("file_name") or ""
+    busid = int(file_info.get("busid") or 0)
     if not (group_id and user_id and file_id):
         return None
-    remember_upload(int(group_id), int(user_id), file_id=str(file_id), file_name=str(file_name))
+    remember_upload(
+        int(group_id), int(user_id), file_id=str(file_id),
+        file_name=str(file_name), busid=busid,
+    )
     return _store.get((int(group_id), int(user_id)))
