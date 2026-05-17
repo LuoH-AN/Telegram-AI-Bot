@@ -13,7 +13,9 @@ def build_persona_help_section(prefix: str) -> str:
         f"• `{prefix}persona new <name> [prompt]` - create persona\n"
         f"• `{prefix}persona delete <name>` - delete persona\n"
         f"• `{prefix}persona prompt <text>` - set current persona prompt\n\n"
-        "💡 Each persona has independent sessions and token usage."
+        "💡 Each persona has independent sessions and token usage.\n"
+        f"📎 For long prompts: upload a `.txt` file with caption "
+        f"`{prefix}persona prompt` or `{prefix}set global_prompt`."
     )
 
 

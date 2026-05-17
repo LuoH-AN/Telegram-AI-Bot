@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -25,6 +25,7 @@ class OneBotInboundEnvelope:
     message_id: int
     user_id: int
     self_id: int
+    files: list[dict] = field(default_factory=list)
 
     @property
     def is_group(self) -> bool:

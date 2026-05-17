@@ -68,6 +68,11 @@ class RuntimeLoopMixin:
         """Handle an incoming OneBot event."""
         from ..chat.process import process_chat_message
         from ..commands.dispatch import dispatch_command
+        from .prompt_upload import try_handle_prompt_upload
+
+        if event.get("post_type") == "notice" and event.get("notice_type") == "group_upload":
+            self._capture_group_upload(event)
+            return
 
         try:
             inbound = self._parse_event(event)
@@ -97,6 +102,9 @@ class RuntimeLoopMixin:
             session_user_id = local_user_id
 
         ctx = self._build_context(inbound, local_user_id, local_chat_id, session_user_id)
+
+        if await try_handle_prompt_upload(self, ctx, inbound):
+            return
 
         if inbound.normalized_text.startswith(self.command_prefix):
             await dispatch_command(ctx, inbound.normalized_text)
@@ -134,3 +142,13 @@ class RuntimeLoopMixin:
             inbound_key=inbound.inbound_key,
             raw_event=inbound.raw_event,
         )
+
+    def _capture_group_upload(self, event: dict) -> None:
+        from .pending_uploads import capture_group_upload_notice
+
+        captured = capture_group_upload_notice(event)
+        if captured:
+            logger.info(
+                "Captured group_upload: group=%s user=%s file=%s",
+                event.get("group_id"), event.get("user_id"), captured.file_name,
+            )

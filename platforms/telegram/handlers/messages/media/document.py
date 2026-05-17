@@ -5,8 +5,12 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from platforms.shared import apply_prompt_upload, parse_prompt_upload_caption
 from platforms.telegram.handlers.common import get_log_context, preflight_media_request
 from platforms.telegram.handlers.messages.media.payload import build_document_payload
+from platforms.telegram.handlers.messages.media.prompt_upload import (
+    extract_first_text_file,
+)
 from utils.platform import build_retry_message
 
 logger = logging.getLogger(__name__)
@@ -28,13 +32,26 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not documents:
         return
 
-    logger.info(
-        "%s document batch (%d item(s))",
-        ctx,
-        len(documents),
-    )
+    logger.info("%s document batch (%d item(s))", ctx, len(documents))
 
     await update.message.chat.send_action(ChatAction.TYPING)
+
+    prompt_cmd = parse_prompt_upload_caption(caption)
+    if prompt_cmd is not None:
+        try:
+            text = await extract_first_text_file(grouped_messages, context)
+        except Exception:
+            logger.exception("%s error extracting prompt file", ctx)
+            await update.message.reply_text(build_retry_message())
+            return
+        if text is None:
+            await update.message.reply_text(
+                "No readable .txt file found. Attach a UTF-8 text file with this command."
+            )
+            return
+        reply = apply_prompt_upload(prompt_cmd, update.effective_user.id, text)
+        await update.message.reply_text(reply)
+        return
 
     try:
         payload = await build_document_payload(grouped_messages, context, caption=caption)

@@ -41,12 +41,18 @@ class RuntimeIdentMixin:
     def _parse_message_event(self, event: dict, post_type: str = "", sub_type: str = "") -> OneBotInboundEnvelope:
         """Parse a message event from OneBot 11."""
         raw_message = event.get("message", []) or []
+        files: list[dict] = []
         if isinstance(raw_message, list):
             text_body = "".join(
                 seg.get("data", {}).get("text", "")
                 for seg in raw_message
                 if seg.get("type") == "text"
             )
+            for seg in raw_message:
+                if seg.get("type") == "file":
+                    data = seg.get("data") or {}
+                    if isinstance(data, dict):
+                        files.append(dict(data))
             raw_message_str = str(raw_message)
         else:
             text_body = str(raw_message)
@@ -86,6 +92,7 @@ class RuntimeIdentMixin:
             message_id=message_id,
             user_id=user_id,
             self_id=self_id,
+            files=files,
         )
 
     def _should_skip_echo(self, inbound: OneBotInboundEnvelope) -> bool:

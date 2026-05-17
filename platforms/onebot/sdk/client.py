@@ -169,3 +169,6 @@ class OneBotClient:
 
     async def set_group_leave(self, group_id: int) -> dict:
         return await self._send_api("set_group_leave", {"group_id": group_id})
+
+    async def get_file(self, file_id: str) -> dict:
+        return await self._send_api("get_file", {"file_id": file_id})

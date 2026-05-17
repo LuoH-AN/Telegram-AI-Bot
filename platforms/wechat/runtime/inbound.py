@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from platforms.wechat.message.prompt_upload import try_handle_prompt_upload_sdk
 from platforms.wechat.services.official import local_chat_id_for_wechat
 
 from ..config import logger
@@ -54,6 +55,9 @@ class RuntimeInboundMixin:
             inbound_key=inbound.inbound_key,
             _sdk_msg=msg,
         )
+
+        if await try_handle_prompt_upload_sdk(self, ctx, msg, inbound.normalized_text):
+            return
         if inbound.normalized_text.startswith(self.command_prefix):
             await dispatch_command(ctx, inbound.normalized_text)
             return
