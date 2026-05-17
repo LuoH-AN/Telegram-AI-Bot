@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 SendToolStatus = Callable[[str], Awaitable[None]]
 TypingFactory = Callable[[], tuple[asyncio.Event, asyncio.Task] | tuple[None, None]]
 OutboundFactory = Callable[[], object]
+AssistantReplyHook = Callable[[str], None]
 
 
 async def process_inbound_chat(
@@ -58,6 +59,7 @@ async def process_inbound_chat(
     send_tool_status: SendToolStatus | None = None,
     typing_factory: TypingFactory | None = None,
     outbound_factory: OutboundFactory | None = None,
+    on_assistant_reply: AssistantReplyHook | None = None,
 ) -> None:
     """Run the full inbound-message → AI-reply pipeline.
 
@@ -178,6 +180,11 @@ async def process_inbound_chat(
 
         add_user_message(session_id, save_msg)
         add_assistant_message(session_id, generated["final_text"])
+        if on_assistant_reply is not None:
+            try:
+                on_assistant_reply(generated["final_text"])
+            except Exception:
+                logger.debug("%s on_assistant_reply hook failed", ctx.log_context, exc_info=True)
 
         if get_session_message_count(session_id) <= 2:
             asyncio.create_task(

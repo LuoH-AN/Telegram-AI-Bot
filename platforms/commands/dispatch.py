@@ -13,6 +13,22 @@ from .persona import persona_command
 from .settings import set_command
 from plugins.core import dispatch_skill_command
 
+KNOWN_COMMANDS = frozenset({
+    "start", "help", "clear", "stop", "update", "restart", "settings", "set",
+    "usage", "export", "remember", "memories", "forget", "persona", "chat",
+    "login", "skill", "groupmode", "proactive",
+})
+
+
+def is_known_command(text: str, command_prefix: str) -> bool:
+    if not text or not text.startswith(command_prefix):
+        return False
+    body = text[len(command_prefix):].strip()
+    if not body:
+        return False
+    name = body.split(None, 1)[0].lower().strip()
+    return name in KNOWN_COMMANDS
+
 
 async def dispatch_command(
     ctx,

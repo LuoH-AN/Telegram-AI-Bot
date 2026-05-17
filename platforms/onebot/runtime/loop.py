@@ -107,11 +107,31 @@ class RuntimeLoopMixin:
             return
 
         if inbound.normalized_text.startswith(self.command_prefix):
+            from platforms.commands.dispatch import is_known_command
+
+            if is_known_command(inbound.normalized_text, self.command_prefix):
+                await dispatch_command(ctx, inbound.normalized_text)
+                return
+            if is_group:
+                logger.info("Ignoring unknown slash command in group %s: %r",
+                    inbound.group_id, inbound.normalized_text[:50])
+                return
             await dispatch_command(ctx, inbound.normalized_text)
             return
 
         if is_group:
-            from ..proactive import should_reply_in_group
+            from ..proactive import (
+                extract_nickname,
+                is_direct_trigger,
+                record_user,
+                should_reply_in_group,
+            )
+
+            record_user(
+                int(inbound.group_id),
+                extract_nickname(inbound.raw_event),
+                inbound.normalized_text,
+            )
 
             decision = should_reply_in_group(
                 group_id=int(inbound.group_id),
@@ -122,6 +142,8 @@ class RuntimeLoopMixin:
             if not decision.should_reply:
                 logger.info("Skipping group message (reason=%s) group=%s", decision.reason, inbound.group_id)
                 return
+            ctx.proactive_reason = decision.reason
+            ctx.proactive_direct = is_direct_trigger(decision.reason)
             logger.info("Proactive reply: group=%s reason=%s", inbound.group_id, decision.reason)
 
         await process_chat_message(self, ctx, inbound)

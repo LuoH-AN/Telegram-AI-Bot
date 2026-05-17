@@ -22,6 +22,8 @@ class OneBotMessageContext:
     context_token: str | None = None
     inbound_key: str | None = None
     raw_event: dict = field(default_factory=dict)
+    proactive_reason: str = ""
+    proactive_direct: bool = True
 
     def __post_init__(self) -> None:
         if self.session_user_id == 0:
