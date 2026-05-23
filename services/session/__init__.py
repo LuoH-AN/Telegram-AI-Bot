@@ -2,7 +2,7 @@
 
 from .read import get_current_session, get_current_session_id, get_sessions
 from .stats import get_session_count, get_session_message_count
-from .title import generate_session_title
+from .title import generate_session_title, generate_title_for_session
 from .write import create_session, delete_session, rename_session, switch_session
 
 __all__ = [
@@ -16,4 +16,5 @@ __all__ = [
     "get_session_count",
     "get_session_message_count",
     "generate_session_title",
+    "generate_title_for_session",
 ]

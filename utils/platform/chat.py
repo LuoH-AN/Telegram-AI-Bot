@@ -17,7 +17,7 @@ def build_chat_unknown_subcommand_message(prefix: str) -> str:
         f"• `{prefix}chat` - list sessions\n"
         f"• `{prefix}chat new [title]` - create session\n"
         f"• `{prefix}chat <number>` - switch session\n"
-        f"• `{prefix}chat rename <title>` - rename\n"
+        f"• `{prefix}chat rename [number] [title]` - rename (AI if title omitted)\n"
         f"• `{prefix}chat delete <number>` - delete"
     )
 
@@ -26,6 +26,6 @@ def build_chat_commands_message(prefix: str) -> str:
     return (
         f"• `{prefix}chat <number>` - switch\n"
         f"• `{prefix}chat new [title]` - create session\n"
-        f"• `{prefix}chat rename <title>` - rename\n"
+        f"• `{prefix}chat rename [number] [title]` - rename (AI if title omitted)\n"
         f"• `{prefix}chat delete <number>` - delete"
     )

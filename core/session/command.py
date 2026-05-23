@@ -9,7 +9,7 @@ from .rename import rename_session_text
 from .switch import switch_session_text
 
 
-def run_chat_command(
+async def run_chat_command(
     user_id: int,
     args: list[str],
     *,
@@ -27,7 +27,7 @@ def run_chat_command(
     if subcmd == "new":
         return create_session_text(user_id, persona_name, args)
     if subcmd == "rename":
-        return rename_session_text(
+        return await rename_session_text(
             user_id,
             persona_name,
             args,

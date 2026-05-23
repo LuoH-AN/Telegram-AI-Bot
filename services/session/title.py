@@ -44,3 +44,14 @@ async def generate_session_title(user_id: int, user_message: str, ai_response: s
     except Exception as exc:
         logger.warning("Failed to generate session title: %s", exc)
         return None
+
+
+async def generate_title_for_session(user_id: int, session_id: int) -> str | None:
+    from cache import cache
+
+    messages = cache.get_conversation_by_session(session_id)
+    user_msg = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+    ai_msg = next((m.get("content", "") for m in messages if m.get("role") == "assistant"), "")
+    if not user_msg and not ai_msg:
+        return None
+    return await generate_session_title(user_id, user_msg, ai_msg)

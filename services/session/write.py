@@ -46,9 +46,20 @@ def switch_session(user_id: int, session_index: int, persona_name: str = None) -
     return True
 
 
-def rename_session(user_id: int, title: str, persona_name: str = None) -> bool:
+def rename_session(
+    user_id: int,
+    title: str,
+    persona_name: str = None,
+    session_index: int | None = None,
+) -> bool:
     persona = _resolve_persona_name(user_id, persona_name)
-    session_id = cache.get_current_session_id(user_id, persona)
+    if session_index is None:
+        session_id = cache.get_current_session_id(user_id, persona)
+    else:
+        sessions = cache.get_sessions(user_id, persona)
+        if session_index < 1 or session_index > len(sessions):
+            return False
+        session_id = sessions[session_index - 1]["id"]
     if session_id is None:
         return False
     cache.update_session_title(session_id, title)

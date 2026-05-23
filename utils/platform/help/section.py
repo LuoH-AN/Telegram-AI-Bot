@@ -64,7 +64,7 @@ def build_advanced_help_section(prefix: str) -> str:
         f"• `{prefix}chat` - list sessions\n"
         f"• `{prefix}chat new [title]` - create session\n"
         f"• `{prefix}chat <num>` - switch session\n"
-        f"• `{prefix}chat rename <title>` - rename session\n"
+        f"• `{prefix}chat rename [num] [title]` - rename session (AI if title omitted)\n"
         f"• `{prefix}chat delete <num>` - delete session\n\n"
         "**Features:**\n"
         "• Token limit is tracked per persona\n"

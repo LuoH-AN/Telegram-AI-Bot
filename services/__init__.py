@@ -47,6 +47,7 @@ from .session import (
     get_session_count,
     get_session_message_count,
     generate_session_title,
+    generate_title_for_session,
 )
 from .conversation import (
     ensure_session,
@@ -74,6 +75,7 @@ __all__ = [
     "get_sessions", "get_current_session", "get_current_session_id",
     "create_session", "delete_chat_session", "switch_session", "rename_session",
     "get_session_count", "get_session_message_count", "generate_session_title",
+    "generate_title_for_session",
     "ensure_session", "get_conversation", "add_message",
     "add_user_message", "add_assistant_message",
     "clear_conversation", "get_message_count",
