@@ -46,14 +46,14 @@ def build_onebot_app(runtime, *, ws_path: str = "/onebot/ws", mount_tools: bool 
 
     if mount_tools:
         try:
-            from openapi_tools.search_routes import router as search_router
-            from openapi_tools.terminal_routes import router as terminal_router
+            from openapi_tools.search_routes import build_search_app
+            from openapi_tools.terminal_routes import build_terminal_app
 
-            app.include_router(terminal_router, prefix="/tools")
-            app.include_router(search_router, prefix="/tools")
-            logger.info("Mounted OpenAPI tool routes under /tools (terminal + search)")
+            app.mount("/tools/terminal", build_terminal_app())
+            app.mount("/tools/search", build_search_app())
+            logger.info("Mounted OpenAPI tool sub-apps under /tools/terminal and /tools/search")
         except Exception:
-            logger.exception("Failed to mount openapi_tools routers; OneBot WS still active")
+            logger.exception("Failed to mount openapi_tools sub-apps; OneBot WS still active")
 
     return app
 

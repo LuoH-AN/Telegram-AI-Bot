@@ -3,11 +3,11 @@
 Hosts:
 - ``GET /`` and ``GET /healthz`` for the HF Space health probe.
 - ``GET /s/{user_id}/{url_id}`` for direct S3 object download.
-- ``/tools/*`` OpenWebUI-compatible OpenAPI tool routes (terminal + search).
-
-The OpenWebUI tool URL is the Space's public HTTPS URL itself (e.g.
-``https://<owner>-<space>.hf.space``). The OpenAPI spec lives at
-``/openapi.json``.
+- ``/tools/terminal/*`` and ``/tools/search/*`` — each tool mounted as a
+  separate FastAPI sub-app so OpenWebUI can import each as its own tool
+  server with a distinct OpenAPI spec:
+    /tools/terminal/openapi.json
+    /tools/search/openapi.json
 """
 
 from __future__ import annotations
@@ -51,11 +51,11 @@ def build_public_app() -> FastAPI:
         return Response(content=fetched.body, status_code=fetched.status, media_type=fetched.content_type)
 
     try:
-        from openapi_tools.search_routes import router as search_router
-        from openapi_tools.terminal_routes import router as terminal_router
-        app.include_router(terminal_router, prefix="/tools")
-        app.include_router(search_router, prefix="/tools")
-        logger.info("web_app: mounted /tools (terminal + search)")
+        from openapi_tools.search_routes import build_search_app
+        from openapi_tools.terminal_routes import build_terminal_app
+        app.mount("/tools/terminal", build_terminal_app())
+        app.mount("/tools/search", build_search_app())
+        logger.info("web_app: mounted /tools/terminal and /tools/search as separate sub-apps")
     except Exception:
         logger.exception("web_app: failed to mount /tools — public server still serves health/S3")
 

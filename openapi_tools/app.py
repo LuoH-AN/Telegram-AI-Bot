@@ -1,4 +1,10 @@
-"""FastAPI app factory for the OpenWebUI tool server."""
+"""FastAPI app factory for the standalone OpenWebUI tool server.
+
+The root app provides health + index; each tool is mounted as its own sub-app
+so OpenWebUI can import them separately:
+    /terminal/openapi.json   (terminal tool spec)
+    /search/openapi.json     (search tool spec)
+"""
 
 from __future__ import annotations
 
@@ -7,19 +13,12 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .search_routes import router as search_router
-from .terminal_routes import router as terminal_router
+from .search_routes import build_search_app
+from .terminal_routes import build_terminal_app
 
 
 def _title() -> str:
     return (os.getenv("OPENAPI_TOOLS_TITLE") or "Telegram-AI-Bot Tools").strip() or "Telegram-AI-Bot Tools"
-
-
-def _description() -> str:
-    return (
-        "Terminal command execution and integrated web search exposed as OpenAPI tools "
-        "for OpenWebUI. Configure this URL under Settings → Tools."
-    )
 
 
 def _cors_origins() -> list[str]:
@@ -33,7 +32,10 @@ def build_app() -> FastAPI:
     app = FastAPI(
         title=_title(),
         version="1.0.0",
-        description=_description(),
+        description=(
+            "Index of separately-importable OpenWebUI tool servers. "
+            "Add /terminal and /search as their own Tool Server URLs."
+        ),
     )
     app.add_middleware(
         CORSMiddleware,
@@ -45,14 +47,21 @@ def build_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def root() -> dict:
-        return {"ok": True, "name": _title(), "docs": "/docs", "openapi": "/openapi.json"}
+        return {
+            "ok": True,
+            "name": _title(),
+            "tools": {
+                "terminal": {"openapi": "/terminal/openapi.json", "docs": "/terminal/docs"},
+                "search": {"openapi": "/search/openapi.json", "docs": "/search/docs"},
+            },
+        }
 
     @app.get("/healthz", tags=["meta"], summary="Health probe")
     def healthz() -> dict:
         return {"ok": True}
 
-    app.include_router(terminal_router)
-    app.include_router(search_router)
+    app.mount("/terminal", build_terminal_app())
+    app.mount("/search", build_search_app())
     return app
 
 
