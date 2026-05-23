@@ -29,6 +29,7 @@ async def generate_with_tools(
     total_thinking_seconds = 0.0
     truncated_prefix = ""
     last_text_response = ""
+    last_reasoning_content = ""
     thinking_segments: list[str] = []
     full_response = ""
     initial_stall_retry_used = False
@@ -52,6 +53,8 @@ async def generate_with_tools(
             total_completion_tokens += usage_info.get("completion_tokens") or 0
         if full_response.strip():
             last_text_response = full_response
+        if reasoning_content:
+            last_reasoning_content = reasoning_content
         if tool_calls:
             logger.info("%s model requested %d tool calls", ctx, len(tool_calls))
             if full_response.strip():
@@ -103,4 +106,5 @@ async def generate_with_tools(
         "thinking_block": thinking_block,
         "total_prompt_tokens": total_prompt_tokens,
         "total_completion_tokens": total_completion_tokens,
+        "reasoning_content": last_reasoning_content,
     }

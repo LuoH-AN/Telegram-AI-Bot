@@ -20,7 +20,7 @@ def load(cur, cache) -> None:
 
     cur.execute(
         """
-        SELECT session_id, role, content
+        SELECT session_id, role, content, reasoning_content
         FROM user_conversations
         WHERE session_id IS NOT NULL
         ORDER BY id
@@ -60,8 +60,8 @@ def sync_conversations(cur, cache, dirty: dict) -> None:
         cached = cache.get_conversation_by_session(session_id)
         for msg in cached[db_count:]:
             cur.execute(
-                "INSERT INTO user_conversations (user_id, persona_name, session_id, role, content) VALUES (%s, %s, %s, %s, %s)",
-                (session["user_id"], session["persona_name"], session_id, msg["role"], msg["content"]),
+                "INSERT INTO user_conversations (user_id, persona_name, session_id, role, content, reasoning_content) VALUES (%s, %s, %s, %s, %s, %s)",
+                (session["user_id"], session["persona_name"], session_id, msg["role"], msg["content"], msg.get("reasoning_content")),
             )
 
 

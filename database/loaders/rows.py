@@ -26,7 +26,11 @@ def parse_session_row(row: Mapping, *, user_id: int | None = None) -> dict:
 
 
 def parse_conversation_row(row: Mapping) -> dict:
-    return {"role": row["role"], "content": row["content"]}
+    msg = {"role": row["role"], "content": row["content"]}
+    reasoning = row.get("reasoning_content") if isinstance(row, Mapping) else None
+    if reasoning:
+        msg["reasoning_content"] = reasoning
+    return msg
 
 
 def parse_token_row(row: Mapping) -> dict:

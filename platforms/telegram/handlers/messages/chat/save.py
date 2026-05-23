@@ -52,7 +52,7 @@ async def deliver_and_persist(
 
     has_assistant_text = generated["final_text"] != "(Empty response)"
     if final_delivery_ok and has_assistant_text:
-        add_assistant_message(req["session_id"], generated["final_text"])
+        add_assistant_message(req["session_id"], generated["final_text"], generated.get("reasoning_content"))
         if get_session_message_count(req["session_id"]) <= 2:
             asyncio.create_task(
                 generate_and_set_title(req["user_id"], req["session_id"], req["save_msg"], generated["final_text"])

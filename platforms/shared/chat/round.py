@@ -20,19 +20,7 @@ async def run_completion_round(
     show_thinking: bool,
     tool_event_callback: Callable[[dict], None] | None = None,
 ) -> dict:
-    """Run a single completion round with tool call support.
-
-    Args:
-        user_id: User ID for AI client.
-        settings: User settings containing model and temperature.
-        messages: Conversation messages.
-        user_reasoning_effort: Reasoning effort level.
-        show_thinking: Whether to show thinking blocks.
-        tool_event_callback: Optional callback for tool events.
-
-    Returns:
-        Dict with final_text, display_final, messages, and token usage.
-    """
+    """Run a single completion round with tool call support."""
     from plugins import get_all_tools, process_tool_calls
 
     total_prompt_tokens = 0
@@ -40,6 +28,7 @@ async def run_completion_round(
     total_thinking_seconds = 0.0
     truncated_prefix = ""
     last_text_response = ""
+    last_reasoning_content = ""
     thinking_segments: list[str] = []
     tool_definitions = get_all_tools(enabled_tools="all")
 
@@ -75,6 +64,8 @@ async def run_completion_round(
             total_completion_tokens += usage.get("completion_tokens") or 0
         if full.strip():
             last_text_response = full
+        if reasoning_content:
+            last_reasoning_content = reasoning_content
         if tool_calls:
             asst_msg: dict = {
                 "role": "assistant",
@@ -116,4 +107,5 @@ async def run_completion_round(
         "display_final": thinking_block + final_text if thinking_block else final_text,
         "prompt_tokens": total_prompt_tokens,
         "completion_tokens": total_completion_tokens,
+        "reasoning_content": last_reasoning_content,
     }

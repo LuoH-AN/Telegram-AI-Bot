@@ -64,8 +64,14 @@ CREATE_USER_CONVERSATIONS_TABLE = """
         session_id INTEGER NOT NULL,
         role TEXT NOT NULL,
         content TEXT NOT NULL,
+        reasoning_content TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+"""
+
+ALTER_USER_CONVERSATIONS_ADD_REASONING = """
+    ALTER TABLE user_conversations
+    ADD COLUMN IF NOT EXISTS reasoning_content TEXT
 """
 
 CREATE_CONVERSATIONS_INDEX = """

@@ -21,8 +21,8 @@ def add_user_message(session_id: int, content: str) -> None:
     cache.add_message_to_session(session_id, "user", content)
 
 
-def add_assistant_message(session_id: int, content: str) -> None:
-    cache.add_message_to_session(session_id, "assistant", content)
+def add_assistant_message(session_id: int, content: str, reasoning_content: str | None = None) -> None:
+    cache.add_message_to_session(session_id, "assistant", content, reasoning_content)
 
 
 def clear_conversation(session_id: int) -> None:

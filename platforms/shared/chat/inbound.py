@@ -179,7 +179,7 @@ async def process_inbound_chat(
         final_delivery_confirmed = True
 
         add_user_message(session_id, save_msg)
-        add_assistant_message(session_id, generated["final_text"])
+        add_assistant_message(session_id, generated["final_text"], generated.get("reasoning_content"))
         if on_assistant_reply is not None:
             try:
                 on_assistant_reply(generated["final_text"])
