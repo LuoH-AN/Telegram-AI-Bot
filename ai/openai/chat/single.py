@@ -20,6 +20,7 @@ def build_nonstream_chunk(
 ) -> StreamChunk:
     choice = response.choices[0]
     content = choice.message.content
+    reasoning = getattr(choice.message, "reasoning_content", None) or getattr(choice.message, "reasoning", None)
     prompt_tokens = response.usage.prompt_tokens if response.usage else 0
     completion_tokens = response.usage.completion_tokens if response.usage else 0
 
@@ -42,15 +43,16 @@ def build_nonstream_chunk(
             )
 
     logger.info(
-        "%sAI response done req=%s endpoint=chat.completions model=%s stream=false finish_reason=%s content_len=%d tool_calls=%d usage_prompt=%d usage_completion=%d latency_ms=%d",
+        "%sAI response done req=%s endpoint=chat.completions model=%s stream=false finish_reason=%s content_len=%d reasoning_chars=%d tool_calls=%d usage_prompt=%d usage_completion=%d latency_ms=%d",
         ctx_prefix,
         request_id,
         model,
         choice.finish_reason or "unknown",
         len(content or ""),
+        len(reasoning or ""),
         len(tool_calls),
         prompt_tokens,
         completion_tokens,
         int((time.monotonic() - request_start) * 1000),
     )
-    return StreamChunk(content=content, usage=usage, finished=True, tool_calls=tool_calls)
+    return StreamChunk(content=content, reasoning=reasoning, usage=usage, finished=True, tool_calls=tool_calls)
