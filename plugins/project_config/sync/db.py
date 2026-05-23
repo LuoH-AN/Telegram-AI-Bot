@@ -41,7 +41,7 @@ def refresh_cache_from_db(user_id: int) -> None:
             if session_ids:
                 cur.execute(
                     """
-                    SELECT c.session_id, c.role, c.content
+                    SELECT c.session_id, c.role, c.content, c.reasoning_content
                     FROM user_conversations c
                     JOIN user_sessions s ON s.id = c.session_id
                     WHERE s.user_id = %s AND c.session_id IS NOT NULL

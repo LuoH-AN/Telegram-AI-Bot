@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from database.db import get_connection
+from database.db import get_connection, get_dict_cursor
 
 from ..config import logger
 
@@ -33,25 +33,23 @@ def _join_csv(items: list[str]) -> str:
 def load_proactive_configs() -> None:
     """Load all proactive reply configs into the in-memory cache."""
     try:
-        conn = get_connection()
-        if conn is None:
-            return
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT group_id, enabled, probability, keywords, blacklist, mute_until "
-                "FROM onebot_proactive_config"
-            )
-            for row in cur.fetchall():
-                _cache[int(row["group_id"])] = ProactiveConfig(
-                    enabled=bool(row["enabled"]),
-                    probability=float(row["probability"]),
-                    keywords=_split_csv(row["keywords"]),
-                    blacklist=_split_csv(row["blacklist"]),
-                    mute_until=int(row["mute_until"] or 0),
+        with get_connection() as conn:
+            with get_dict_cursor(conn) as cur:
+                cur.execute(
+                    "SELECT group_id, enabled, probability, keywords, blacklist, mute_until "
+                    "FROM onebot_proactive_config"
                 )
+                for row in cur.fetchall():
+                    _cache[int(row["group_id"])] = ProactiveConfig(
+                        enabled=bool(row["enabled"]),
+                        probability=float(row["probability"]),
+                        keywords=_split_csv(row["keywords"]),
+                        blacklist=_split_csv(row["blacklist"]),
+                        mute_until=int(row["mute_until"] or 0),
+                    )
         logger.info("Loaded %d proactive reply config(s)", len(_cache))
     except Exception:
-        logger.debug("onebot_proactive_config table not yet created, skipping load")
+        logger.exception("Failed to load onebot_proactive_config")
 
 
 def get_proactive_config(group_id: int) -> ProactiveConfig:
@@ -61,28 +59,26 @@ def get_proactive_config(group_id: int) -> ProactiveConfig:
 
 def _persist(group_id: int, cfg: ProactiveConfig) -> None:
     try:
-        conn = get_connection()
-        if conn is None:
-            return
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO onebot_proactive_config "
-                "(group_id, enabled, probability, keywords, blacklist, mute_until) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (group_id) DO UPDATE SET "
-                "enabled = EXCLUDED.enabled, probability = EXCLUDED.probability, "
-                "keywords = EXCLUDED.keywords, blacklist = EXCLUDED.blacklist, "
-                "mute_until = EXCLUDED.mute_until, updated_at = CURRENT_TIMESTAMP",
-                (
-                    int(group_id),
-                    bool(cfg.enabled),
-                    float(cfg.probability),
-                    _join_csv(cfg.keywords),
-                    _join_csv(cfg.blacklist),
-                    int(cfg.mute_until),
-                ),
-            )
-        conn.commit()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO onebot_proactive_config "
+                    "(group_id, enabled, probability, keywords, blacklist, mute_until) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (group_id) DO UPDATE SET "
+                    "enabled = EXCLUDED.enabled, probability = EXCLUDED.probability, "
+                    "keywords = EXCLUDED.keywords, blacklist = EXCLUDED.blacklist, "
+                    "mute_until = EXCLUDED.mute_until, updated_at = CURRENT_TIMESTAMP",
+                    (
+                        int(group_id),
+                        bool(cfg.enabled),
+                        float(cfg.probability),
+                        _join_csv(cfg.keywords),
+                        _join_csv(cfg.blacklist),
+                        int(cfg.mute_until),
+                    ),
+                )
+            conn.commit()
     except Exception:
         logger.exception("Failed to persist proactive config for group %s", group_id)
 
