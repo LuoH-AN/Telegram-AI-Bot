@@ -1,8 +1,8 @@
 ---
 name: search
-version: 1.0.0
-description: Integrated web search with local binary management. Supports install/start/status/stop/search actions.
+version: 2.0.0
+description: Web search via Tavily API with multi-key round-robin and per-key cooldown.
 entry_point: plugins.search.tool:SearchTool
-capabilities: [search, status, install, start, stop]
+capabilities: [search, status]
 platforms: [telegram, wechat, onebot]
 ---

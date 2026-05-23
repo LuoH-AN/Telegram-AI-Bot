@@ -19,12 +19,10 @@ class TerminalBgCheckRequest(BaseModel):
 class SearchQueryRequest(BaseModel):
     query: str = Field(..., description="Search query text")
     top_k: int = Field(default=8, ge=1, le=20, description="Max results")
-    port: int | None = Field(default=None, description="Override local search HTTP port")
     timeout: int = Field(default=20, ge=3, le=120, description="HTTP timeout seconds")
 
 
-class SearchControlRequest(BaseModel):
-    port: int | None = Field(default=None, description="Override local search HTTP port")
+class SearchStatusRequest(BaseModel):
     timeout: int = Field(default=20, ge=3, le=120, description="HTTP timeout seconds")
 
 
