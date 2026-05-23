@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import os
-import re
 import signal
-import threading
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -23,35 +20,12 @@ from launcher import (
     terminate_children,
     wait_for_first_exit,
 )
+from web_app import serve_in_thread
 
 ROOT_DIR = Path(__file__).resolve().parent
 
 DEFAULT_WEB_PORT = 7860
 WEB_PORT = int(os.getenv("WEB_PORT", str(DEFAULT_WEB_PORT)))
-
-_S3_PATH = re.compile(r"^/s/(\d+)/(\d+)/?$")
-
-
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        m = _S3_PATH.match(path)
-        if m:
-            from plugins.s3.web_route import serve_s3_url
-            serve_s3_url(self, int(m.group(1)), int(m.group(2)))
-            return
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-    def log_message(self, format, *args):
-        pass
-
-
-def _start_web_server() -> None:
-    server = ThreadingHTTPServer(("0.0.0.0", WEB_PORT), _HealthHandler)
-    server.serve_forever()
 
 
 def _start_children() -> list:
@@ -77,9 +51,9 @@ def _start_children() -> list:
 def main() -> int:
     load_dotenv()
 
-    web_thread = threading.Thread(target=_start_web_server, daemon=True)
-    web_thread.start()
+    serve_in_thread(WEB_PORT)
     print(f">>> Web server running on http://0.0.0.0:{WEB_PORT}", flush=True)
+    print(f">>> OpenAPI tools available at http://0.0.0.0:{WEB_PORT}/tools (spec: /openapi.json)", flush=True)
 
     current_children: list = []
 
