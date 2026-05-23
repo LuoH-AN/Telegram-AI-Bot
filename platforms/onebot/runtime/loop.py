@@ -25,9 +25,9 @@ class RuntimeLoopMixin:
         start_cron_scheduler(self)
 
         if ONEBOT_MODE == "ws":
-            from ..ws_server import serve_onebot_ws
+            from ..http_app import serve_onebot_app
 
-            await serve_onebot_ws(
+            await serve_onebot_app(
                 self,
                 host=ONEBOT_WS_BIND_HOST,
                 port=ONEBOT_WS_BIND_PORT,
