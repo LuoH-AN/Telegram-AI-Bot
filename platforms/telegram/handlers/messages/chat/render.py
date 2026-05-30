@@ -1,7 +1,6 @@
 from __future__ import annotations
 import asyncio
 import logging
-import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 from config import MAX_MESSAGE_LENGTH, STREAM_FORCE_UPDATE_INTERVAL
@@ -16,6 +15,7 @@ class RenderState:
     final_delivery_confirmed: bool = False
     status_seed_cancelled: bool = False
     user_message_persisted: bool = False
+    tool_message: object | None = None
 @dataclass
 class RenderRuntime:
     state: RenderState
@@ -55,31 +55,31 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
         empty_placeholder_text="",
         stream_edit_min_interval_seconds=STREAM_FORCE_UPDATE_INTERVAL,
     )
+    async def _render_tool_status(text: str) -> bool:
+        if state.tool_message is None:
+            sent_messages = await send_message_safe(update.message, text)
+            if not sent_messages:
+                return False
+            state.tool_message = sent_messages[-1]
+            return True
+        return await edit_message_safe(state.tool_message, text)
     async def _render_event(event) -> bool:
         if event.kind == "tool_status":
-            return await _send_text(event.text)
+            return await _render_tool_status(event.text)
         if event.kind in {"stream", "status"}:
             return await outbound.stream_update(event.text)
         return False
     render_pump = ChatEventPump(_render_event)
     render_pump.start()
     loop = asyncio.get_running_loop()
-    last_tool_status = {"text": "", "at": 0.0}
+    tool_lines: list[str] = []
     def _tool_event_callback(event: dict) -> None:
-        event_type = str(event.get("type") or "").strip()
-        if event_type not in {"tool_start", "tool_error"}:
+        if str(event.get("type") or "").strip() != "tool_batch_start":
             return
         status_text = build_tool_status_text(event)
         if status_text:
-            now = time.monotonic()
-            if event_type != "tool_error":
-                if status_text == last_tool_status["text"]:
-                    return
-                if now - float(last_tool_status["at"]) < 1.5:
-                    return
-            last_tool_status["text"] = status_text
-            last_tool_status["at"] = now
-            render_pump.emit_threadsafe(loop, "tool_status", status_text)
+            tool_lines.append(status_text)
+            render_pump.emit_threadsafe(loop, "tool_status", "\n".join(tool_lines))
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
     async def _status_update(text: str) -> bool:

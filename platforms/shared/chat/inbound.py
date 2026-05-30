@@ -115,27 +115,17 @@ async def process_inbound_chat(
     )
 
     loop = asyncio.get_running_loop()
-    last_tool_status = {"text": "", "at": 0.0}
 
     def _tool_event_callback(event: dict) -> None:
         if send_tool_status is None:
             return
-        event_type = str(event.get("type") or "").strip()
-        if event_type not in {"tool_start", "tool_error"}:
+        if str(event.get("type") or "").strip() != "tool_batch_start":
             return
         status_text = build_tool_status_text(event)
         if not status_text:
             return
 
         def _schedule() -> None:
-            now = time.monotonic()
-            if event_type != "tool_error":
-                if status_text == last_tool_status["text"]:
-                    return
-                if now - float(last_tool_status["at"]) < 1.5:
-                    return
-            last_tool_status["text"] = status_text
-            last_tool_status["at"] = now
             asyncio.create_task(_safe_send(send_tool_status, status_text, ctx.log_context))
 
         loop.call_soon_threadsafe(_schedule)

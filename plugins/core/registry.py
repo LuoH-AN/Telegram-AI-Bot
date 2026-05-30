@@ -67,7 +67,8 @@ class PluginRegistry:
             emit_error = lambda idx, tool_name, **payload: emit("tool_error", index=idx, tool_name=tool_name, **payload)
 
             results, runnable, force_serial = build_runnable(tool_calls, filtered, emit_error)
-            emit("tool_batch_start", count=len(runnable), total=len(tool_calls), serial=bool(force_serial))
+            tool_names = [(tc.name or "tool").strip() or "tool" for tc in tool_calls]
+            emit("tool_batch_start", count=len(runnable), total=len(tool_calls), serial=bool(force_serial), tool_names=tool_names)
 
             from .run import execute_runnable
             for idx, result in execute_runnable(user_id, runnable, force_serial=force_serial, emit=emit):
