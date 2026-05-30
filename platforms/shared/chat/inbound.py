@@ -121,7 +121,7 @@ async def process_inbound_chat(
             return
         if str(event.get("type") or "").strip() != "tool_batch_start":
             return
-        status_text = build_tool_status_text(event)
+        status_text = build_tool_status_text(event.get("tool_names") or [])
         if not status_text:
             return
 

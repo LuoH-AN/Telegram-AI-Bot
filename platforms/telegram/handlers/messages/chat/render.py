@@ -72,14 +72,14 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
     render_pump = ChatEventPump(_render_event)
     render_pump.start()
     loop = asyncio.get_running_loop()
-    tool_lines: list[str] = []
+    tool_names: list[str] = []
     def _tool_event_callback(event: dict) -> None:
         if str(event.get("type") or "").strip() != "tool_batch_start":
             return
-        status_text = build_tool_status_text(event)
+        tool_names.extend(event.get("tool_names") or [])
+        status_text = build_tool_status_text(tool_names)
         if status_text:
-            tool_lines.append(status_text)
-            render_pump.emit_threadsafe(loop, "tool_status", "\n".join(tool_lines))
+            render_pump.emit_threadsafe(loop, "tool_status", status_text)
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
     async def _status_update(text: str) -> bool:
