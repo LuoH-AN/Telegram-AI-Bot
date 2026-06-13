@@ -9,7 +9,5 @@ tenacity
 mcp[cli]
 chardet<6
 fake-useragent
-huggingface_hub>=0.30.0
-cryptography>=43.0.0
 fastapi>=0.110.0
 uvicorn>=0.29.0

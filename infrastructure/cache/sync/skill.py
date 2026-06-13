@@ -7,7 +7,6 @@ import json
 from infrastructure.database.loaders import parse_skill_row, parse_skill_state_row
 
 DELETE_STATE_SQL = "DELETE FROM user_skill_states WHERE user_id = %s AND skill_name = %s"
-DELETE_ARTIFACT_SQL = "DELETE FROM user_skill_artifacts WHERE user_id = %s AND skill_name = %s"
 DELETE_SKILL_SQL = "DELETE FROM user_skills WHERE user_id = %s AND name = %s"
 
 UPSERT_SQL = """
@@ -122,7 +121,6 @@ def load(cur, cache) -> None:
 def sync_deleted(cur, dirty: dict) -> None:
     for user_id, name in dirty["deleted_skills"]:
         cur.execute(DELETE_STATE_SQL, (user_id, name))
-        cur.execute(DELETE_ARTIFACT_SQL, (user_id, name))
         cur.execute(DELETE_SKILL_SQL, (user_id, name))
 
 

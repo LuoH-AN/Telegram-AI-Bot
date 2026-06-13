@@ -41,17 +41,3 @@ CREATE_USER_SKILL_STATES_TABLE = """
         UNIQUE(user_id, skill_name)
     )
 """
-
-CREATE_USER_SKILL_ARTIFACTS_TABLE = """
-    CREATE TABLE IF NOT EXISTS user_skill_artifacts (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL,
-        skill_name TEXT NOT NULL,
-        artifact_type TEXT NOT NULL,
-        storage_backend TEXT NOT NULL DEFAULT 'hf_dataset',
-        storage_path TEXT NOT NULL,
-        git_revision TEXT DEFAULT '',
-        meta_json TEXT DEFAULT '{}',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-"""
