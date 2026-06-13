@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from infrastructure.plugins.terminal import TerminalTool
 
 from .auth import require_token
-from .schemas import PluginResponse, TerminalBgCheckRequest, TerminalExecRequest
+from .schemas import PluginResponse, TerminalBgCheckRequest, TerminalBgListRequest, TerminalExecRequest
 
 router = APIRouter(tags=["terminal"], dependencies=[Depends(require_token)])
 
@@ -32,7 +32,7 @@ def terminal_exec(payload: TerminalExecRequest) -> PluginResponse:
 
 @router.post("/bg/list", response_model=PluginResponse, summary="List background jobs",
              description="Return all known background terminal jobs and their status.")
-def terminal_bg_list() -> PluginResponse:
+def terminal_bg_list(_payload: TerminalBgListRequest) -> PluginResponse:
     return PluginResponse(result=_tool.execute(_OPENWEBUI_USER_ID, "terminal", {"action": "bg_list"}))
 
 

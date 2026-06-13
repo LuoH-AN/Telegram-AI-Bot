@@ -7,9 +7,13 @@ from pydantic import BaseModel, Field
 
 class TerminalExecRequest(BaseModel):
     command: str = Field(..., description="Shell command to execute")
-    cwd: str | None = Field(default=None, description="Working directory (default repo root)")
+    cwd: str = Field(default="", description="Working directory (default repo root)")
     timeout: int = Field(default=60, ge=1, le=3600, description="Foreground timeout seconds")
     background: bool = Field(default=False, description="Run in background and return pid")
+
+
+class TerminalBgListRequest(BaseModel):
+    include_completed: bool = Field(default=True, description="Include completed jobs in the result")
 
 
 class TerminalBgCheckRequest(BaseModel):
