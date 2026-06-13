@@ -26,19 +26,12 @@
 ```text
 .
 ├── main.py                   # 启动入口（拉起 Telegram 子进程）
-├── telegram_bot/             # Telegram bot、commands、handlers 与发送限流
-├── launcher/                 # 子进程拉起、热更新、CLI bootstrap
-├── platforms/commands/       # 平台无关命令适配
-├── core/                     # 命令编排（persona / session / provider / plugins）
-├── services/                 # 业务逻辑层（user / persona / session / memory / cron 等）
-├── ai/                       # AI 客户端封装（OpenAI 兼容）+ 流式协议
-├── cache/                    # 进程内缓存与脏页同步
-├── database/                 # PostgreSQL 连接与 schema
-├── config/                   # 常量与环境变量
-├── utils/                    # 通用工具函数
-├── plugins/                  # 内置插件与 plugin 运行框架
-├── openapi_tools/            # OpenAPI tool server 路由
-├── static/                   # Web 静态资源
+├── entrypoints/              # 进程入口、子进程拉起、热更新、CLI bootstrap
+├── adapters/                 # 外部平台适配：Telegram 与 HTTP/OpenAPI/Web
+├── application/              # 应用用例与命令编排
+├── domain/                   # 业务服务：user / persona / session / memory / cron 等
+├── infrastructure/           # AI、cache、database、config、plugins 等基础设施
+├── shared/                   # 通用格式化、文案、文件、stream 等 helper
 └── scripts/                  # 一次性脚本与维护工具
 ```
 
@@ -99,7 +92,7 @@ python main.py
 
 ## 工具/插件系统说明
 
-工具基于 plugin 架构。`plugins/` 下为内置插件和运行框架，第三方插件可通过 `/skill install <github-url>` 安装到 `~/.gemen/plugins/`。
+工具基于 plugin 架构。`infrastructure/plugins/` 下为内置插件和运行框架，第三方插件可通过 `/skill install <github-url>` 安装到 `runtime/plugins/`。
 
 ## 关键环境变量
 
@@ -112,11 +105,11 @@ python main.py
 
 ## 开发约定
 
-- 新增业务逻辑放到 `services/`
-- 新增模型能力走 `ai/` 抽象层
-- 跨平台命令编排放 `core/` 或 `platforms/commands/`，Telegram handler 放 `telegram_bot/handlers/`
-- Telegram 对话流水线在 `telegram_bot/handlers/messages/chat/`
-- 用户面文案优先复用 `utils/platform/`
+- 新增业务逻辑放到 `domain/services/`
+- 新增模型能力走 `infrastructure/ai/` 抽象层
+- 应用命令编排放到 `application/commands/` 或 `application/use_cases/`
+- Telegram handler 放到 `adapters/telegram/handlers/`
+- 用户面文案优先复用 `shared/utils/platform/`
 
 ## 许可证
 

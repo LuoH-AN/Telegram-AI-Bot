@@ -19,12 +19,14 @@ RUN set -eux; \
       ca-certificates \
       curl \
       git \
-      git-lfs \
       python3 \
       python3-pip \
       python3-venv; \
-    git lfs install --system; \
     rm -rf /var/lib/apt/lists/*
+
+# Invalidate the clone layer when the default GitHub branch changes.
+# If REPO_URL or REPO_BRANCH is changed, update this URL to match.
+ADD https://api.github.com/repos/LuoH-AN/Telegram-AI-Bot/commits/main /tmp/source-revision.json
 
 # Clone repo
 RUN set -eux; \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone launcher for the OpenWebUI-compatible OpenAPI tool server.
+"""Standalone entrypoints.launcher for the OpenWebUI-compatible OpenAPI tool server.
 
 Usage:
     python scripts/run_openapi_tools.py
@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 import uvicorn  # noqa: E402
 
-from openapi_tools import build_app  # noqa: E402
+from adapters.http.openapi_tools import build_app  # noqa: E402
 
 
 def _host() -> str:
@@ -46,7 +46,7 @@ def main() -> None:
     )
     app = build_app()
     host, port = _host(), _port()
-    logging.getLogger(__name__).info("openapi_tools listening on %s:%d (token=%s)",
+    logging.getLogger(__name__).info("adapters.http.openapi_tools listening on %s:%d (token=%s)",
                                      host, port, "set" if os.getenv("OPENAPI_TOOLS_TOKEN") else "disabled")
     uvicorn.run(app, host=host, port=port, log_level=os.getenv("OPENAPI_TOOLS_LOG_LEVEL", "info").lower())
 

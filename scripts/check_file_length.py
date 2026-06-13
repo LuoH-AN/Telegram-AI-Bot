@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-DEFAULT_DIRS = ("core", "services", "platforms", "static")
+DEFAULT_DIRS = ("application", "domain", "adapters", "infrastructure", "shared")
 DEFAULT_EXTS = {".py", ".js", ".css", ".html"}
 SKIP_PARTS = {
     ".git",
@@ -67,4 +67,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

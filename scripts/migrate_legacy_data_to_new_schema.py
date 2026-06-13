@@ -19,7 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import (
+from infrastructure.config import (
     DATABASE_URL,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SHOW_THINKING,
@@ -27,7 +27,7 @@ from config import (
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_VOICE,
 )
-from database.schema_sql import (
+from infrastructure.database.schema_sql import (
     CREATE_MEMORIES_INDEX,
     CREATE_USER_MEMORIES_TABLE,
     CREATE_USER_PERSONA_TOKENS_TABLE,
@@ -207,7 +207,7 @@ def _pick_model(row: Mapping) -> str:
     if direct:
         return direct
     default_agent = _as_object(row.get("default_agent"))
-    cfg = _as_object(default_agent.get("config"))
+    cfg = _as_object(default_agent.get("infrastructure.config"))
     model = str(cfg.get("model") or "").strip()
     if model:
         return model
@@ -222,7 +222,7 @@ def _pick_temperature(row: Mapping) -> float:
     if row.get("temperature") is not None:
         return _as_float(row.get("temperature"), 0.7)
     default_agent = _as_object(row.get("default_agent"))
-    cfg = _as_object(default_agent.get("config"))
+    cfg = _as_object(default_agent.get("infrastructure.config"))
     if cfg.get("temperature") is not None:
         return _as_float(cfg.get("temperature"), 0.7)
     return 0.7

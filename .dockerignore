@@ -21,7 +21,7 @@ AGENTS.md
 CLAUDE.md
 README.md
 *.md
-!plugins/*/SKILL.md
+!infrastructure/plugins/*/SKILL.md
 
 scripts/inspect_memories.py
 scripts/migrate_legacy_tables.py

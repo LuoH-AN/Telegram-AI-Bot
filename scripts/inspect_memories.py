@@ -51,7 +51,7 @@ def main() -> int:
     try:
         conn = psycopg2.connect(database_url)
     except Exception as e:
-        print(f"Error: failed to connect database: {e}", file=sys.stderr)
+        print(f"Error: failed to connect infrastructure.database: {e}", file=sys.stderr)
         return 1
 
     try:
