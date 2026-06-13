@@ -2,10 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install runtime deps. Git is required for HF dataset git backend.
+# Install runtime deps. Git is required for hot update support.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends git git-lfs ca-certificates; \
+    apt-get install -y --no-install-recommends git ca-certificates; \
     rm -rf /var/lib/apt/lists/*
 
 # Install dependencies

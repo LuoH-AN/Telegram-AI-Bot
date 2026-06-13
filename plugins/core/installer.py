@@ -12,7 +12,6 @@ import zipfile
 from pathlib import Path
 
 from .manifest import SKILL_FILENAME, load_manifest_from_path
-from .skill_sync import persist_skill, remove_skill, sync_from_s3
 
 logger = logging.getLogger(__name__)
 PLUGIN_DIR = Path(os.getenv("PLUGIN_DIR", "runtime/plugins"))
@@ -68,7 +67,6 @@ def _finalize(plugin_dir: Path, source: str) -> dict:
         plugin_dir = new_dir
     info = {"name": name, "source": source, "version": m.version}
     (INSTALLED_MARKER / f"{name}.json").write_text(json.dumps(info, ensure_ascii=False))
-    persist_skill(name, plugin_dir, info)
     logger.info("Installed '%s'", name)
     return {"ok": True, "name": name, "path": str(plugin_dir)}
 
@@ -105,7 +103,6 @@ def uninstall(name: str) -> dict:
         return {"ok": False, "message": f"'{name}' not found"}
     shutil.rmtree(plugin_dir)
     (INSTALLED_MARKER / f"{name}.json").unlink(missing_ok=True)
-    remove_skill(name)
     logger.info("Uninstalled '%s'", name)
     return {"ok": True, "name": name}
 
@@ -114,8 +111,3 @@ def list_installed() -> list[dict]:
     if not INSTALLED_MARKER.is_dir():
         return []
     return [json.loads(m.read_text()) for m in INSTALLED_MARKER.glob("*.json")]
-
-
-def sync_skills_from_s3() -> list[str]:
-    _ensure_dir()
-    return sync_from_s3(PLUGIN_DIR, INSTALLED_MARKER)

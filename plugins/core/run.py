@@ -9,6 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from config import TOOL_EXECUTOR_WORKERS
+from .errors import tool_error_content
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,18 @@ def _execute_one(user_id: int, item: tuple[int, object, object, str, dict], emit
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - started_at) * 1000)
         logger.exception("[user=%d] tool execution failed: %s", user_id, tool_name)
-        emit("tool_end", index=idx, tool_name=tool_name, ok=False, elapsed_ms=elapsed_ms, message=str(exc))
-        return idx, {"role": "tool", "tool_call_id": tool_call.id, "content": f"Error: Tool execution failed - {exc}"}
+        message = f"Tool execution failed: {exc}"
+        emit("tool_end", index=idx, tool_name=tool_name, ok=False, elapsed_ms=elapsed_ms, message=message)
+        return idx, {
+            "role": "tool",
+            "tool_call_id": tool_call.id,
+            "content": tool_error_content(
+                tool_name=tool_name,
+                code="execution_failed",
+                message=message,
+                details={"exception_type": type(exc).__name__},
+            ),
+        }
 
     elapsed_ms = int((time.monotonic() - started_at) * 1000)
     logger.info("[user=%d] tool call: %s(%s)", user_id, tool_name, json.dumps(args, ensure_ascii=False)[:200])

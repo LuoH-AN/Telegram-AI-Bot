@@ -65,8 +65,8 @@ class PluginManager:
 
     def _register(self, manifest: PluginManifest) -> None:
         instance = _instantiate(manifest)
+        setattr(instance, "_plugin_manifest", manifest)
         registry.register(instance)
-        registry.enable(manifest.name)
         self._discovered[manifest.name] = manifest
         self._loaded[manifest.name] = instance
 
@@ -74,14 +74,6 @@ class PluginManager:
         if self._initialized:
             return
         self._initialized = True
-
-        try:
-            from .installer import sync_skills_from_s3
-            restored = sync_skills_from_s3()
-            if restored:
-                logger.info("Restored %d skills from S3: %s", len(restored), ", ".join(restored))
-        except Exception:
-            logger.debug("S3 skill sync skipped")
 
         for manifest, plugin_path in self._collect():
             try:
@@ -101,13 +93,40 @@ class PluginManager:
         logger.info("Hot-loaded plugin: %s", manifest.name)
         return manifest.name
 
-    def list_plugins(self) -> list[PluginManifest]:
-        return list(self._discovered.values())
+    def unregister(self, name: str) -> bool:
+        lowered = name.lower()
+        removed = registry.unregister(name)
+        for mapping in (self._discovered, self._loaded):
+            for key in list(mapping.keys()):
+                if key.lower() == lowered:
+                    mapping.pop(key, None)
+                    removed = True
+        return removed
+
+    def list_plugins(self, user_id: int | None = None) -> list[PluginManifest]:
+        manifests = list(self._discovered.values())
+        if user_id is None:
+            return manifests
+        from .user_state import visible_manifests
+
+        return visible_manifests(user_id, manifests)
+
+    def get_manifest(self, name: str) -> PluginManifest | None:
+        lowered = name.lower()
+        for manifest in self._discovered.values():
+            if manifest.name.lower() == lowered:
+                return manifest
+        return None
 
     def get_plugin(self, name: str) -> Any | None:
         return self._loaded.get(name) or self._loaded.get(name.lower())
 
-    def is_enabled(self, name: str) -> bool:
+    def is_enabled(self, name: str, user_id: int | None = None) -> bool:
+        if user_id is not None:
+            from .user_state import is_enabled_for_user
+
+            manifest = self.get_manifest(name)
+            return bool(manifest and is_enabled_for_user(user_id, manifest, manifest.name))
         return registry.is_enabled(name)
 
     def enable(self, name: str) -> bool:
@@ -115,6 +134,33 @@ class PluginManager:
 
     def disable(self, name: str) -> bool:
         return registry.disable(name)
+
+    def set_user_enabled(self, user_id: int, name: str, enabled: bool) -> bool:
+        manifest = self.get_manifest(name)
+        if not manifest:
+            return False
+        from .user_state import set_user_skill_enabled
+
+        set_user_skill_enabled(user_id, manifest, enabled)
+        return True
+
+    def add_user_plugin(self, user_id: int, name: str, *, source_type: str = "external", source_ref: str = "") -> bool:
+        manifest = self.get_manifest(name)
+        if not manifest:
+            return False
+        from .user_state import ensure_user_skill
+
+        ensure_user_skill(user_id, manifest, enabled=True, source_type=source_type, source_ref=source_ref)
+        return True
+
+    def remove_user_plugin(self, user_id: int, name: str) -> bool:
+        manifest = self.get_manifest(name)
+        if not manifest:
+            return False
+        from .user_state import remove_user_skill
+
+        remove_user_skill(user_id, manifest)
+        return True
 
     @property
     def initialized(self) -> bool:

@@ -6,6 +6,7 @@ import json
 import logging
 
 from .base import BaseTool
+from .errors import tool_error_content
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +50,31 @@ def build_runnable(
         tool = name_map.get(tool_name)
         if tool is None:
             logger.warning("No enabled tool registered for '%s'", tool_name)
-            emit_error(idx, tool_name, reason="unknown_tool")
-            results[idx] = {"role": "tool", "tool_call_id": tool_call.id, "content": f"Error: Unknown tool '{tool_name}'"}
+            message = f"Tool '{tool_name}' is not available for this user or is not registered."
+            emit_error(idx, tool_name, reason="unknown_tool", message=message)
+            results[idx] = {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": tool_error_content(tool_name=tool_name, code="unknown_tool", message=message),
+            }
             continue
 
         try:
             args = _parse_arguments(tool_call)
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
             logger.warning("Failed to parse tool call arguments for %s: %s", tool_name, exc)
-            emit_error(idx, tool_name, reason="invalid_arguments", message=str(exc))
-            results[idx] = {"role": "tool", "tool_call_id": tool_call.id, "content": f"Error: Invalid arguments - {exc}"}
+            message = f"Invalid tool arguments: {exc}"
+            emit_error(idx, tool_name, reason="invalid_arguments", message=message)
+            results[idx] = {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": tool_error_content(
+                    tool_name=tool_name,
+                    code="invalid_arguments",
+                    message=message,
+                    details={"raw_arguments": str(tool_call.arguments or "")[:1000]},
+                ),
+            }
             continue
 
         runnable.append((idx, tool_call, tool, tool_name, args))

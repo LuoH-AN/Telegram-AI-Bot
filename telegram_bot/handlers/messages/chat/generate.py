@@ -37,7 +37,7 @@ async def generate_with_tools(
     user_reasoning_effort = normalize_reasoning_effort(settings.get("reasoning_effort", ""))
     show_thinking = bool(settings.get("show_thinking"))
     from plugins import get_all_tools, process_tool_calls
-    tool_definitions = get_all_tools(enabled_tools="all")
+    tool_definitions = get_all_tools(enabled_tools="all", user_id=user_id)
 
     while True:
         full_response, usage_info, thinking_seconds, finish_reason, reasoning_content, tool_calls = await stream_response(

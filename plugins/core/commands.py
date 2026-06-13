@@ -11,14 +11,30 @@ from .manager import get_plugin_manager
 logger = logging.getLogger(__name__)
 
 
+def _user_id(ctx) -> int:
+    return int(getattr(ctx, "session_user_id", getattr(ctx, "local_user_id", 0)))
+
+
+def _find_user_plugin(manager, user_id: int, name: str):
+    lowered = name.lower()
+    return next((p for p in manager.list_plugins(user_id) if p.name.lower() == lowered), None)
+
+
+def _install_source_type(source: str) -> str:
+    if source.startswith("http") or ("/" in source and not source.startswith(("/", "./", "../")) and not Path(source).exists()):
+        return "github"
+    return "local"
+
+
 async def handle_skill_list(ctx) -> str:
+    user_id = _user_id(ctx)
     manager = get_plugin_manager()
-    plugins = manager.list_plugins()
+    plugins = manager.list_plugins(user_id)
     if not plugins:
-        return "📝 **No plugins discovered.**"
-    lines = ["🔌 **Available plugins:**"]
+        return "📝 **No plugins available for your account.**"
+    lines = ["🔌 **Your plugins:**"]
     for p in sorted(plugins, key=lambda x: x.name):
-        status = "✅ enabled" if manager.is_enabled(p.name) else "❌ disabled"
+        status = "✅ enabled" if manager.is_enabled(p.name, user_id) else "❌ disabled"
         builtin = " `[builtin]`" if p.is_builtin else ""
         lines.append(f"• **{p.name}** `{p.version}` ({status}){builtin}")
         if p.description:
@@ -30,7 +46,9 @@ async def handle_skill_install(ctx, source: str) -> str:
     source = source.strip()
     if not source:
         return f"**Usage:** `/skill install <github-url-or-owner/repo>`"
-    if source.startswith("http") or "/" in source:
+    user_id = _user_id(ctx)
+    source_type = _install_source_type(source)
+    if source_type == "github":
         result = install_from_github(source)
     else:
         result = install_from_local(source)
@@ -43,45 +61,64 @@ async def handle_skill_install(ctx, source: str) -> str:
     else:
         plugin_dir = Path(result.get("path", PLUGIN_DIR / name))
         try:
-            manager.hot_load(plugin_dir)
+            name = manager.hot_load(plugin_dir)
         except Exception as exc:
             logger.warning("Failed to hot-load plugin '%s': %s", name, exc)
             return f"⚠️ **Installed but failed to load:** {exc}"
-    return f"✅ **Plugin `{name}` installed successfully.**"
+    manager.add_user_plugin(user_id, name, source_type=source_type, source_ref=source)
+    return f"✅ **Plugin `{name}` installed for your account.**"
 
 
 async def handle_skill_remove(ctx, name: str) -> str:
     name = name.strip()
     if not name:
         return f"**Usage:** `/skill remove <name>`"
-    result = uninstall(name)
-    if not result.get("ok"):
-        return f"❌ **Remove failed:** {result.get('message', 'unknown error')}"
-    get_plugin_manager().disable(name)
-    return f"🗑️ **Plugin `{name}` uninstalled.**"
+    user_id = _user_id(ctx)
+    manager = get_plugin_manager()
+    plugin = _find_user_plugin(manager, user_id, name)
+    if not plugin:
+        return f"❌ Plugin `{name}` is not installed for your account."
+
+    manager.remove_user_plugin(user_id, plugin.name)
+    if plugin.is_builtin:
+        return f"🗑️ **Plugin `{plugin.name}` disabled for your account.**"
+
+    from .user_state import any_user_has_skill
+
+    if any_user_has_skill(plugin.name):
+        return f"🗑️ **Plugin `{plugin.name}` removed from your account.**"
+
+    result = uninstall(plugin.name)
+    if result.get("ok"):
+        manager.unregister(plugin.name)
+        return f"🗑️ **Plugin `{plugin.name}` removed from your account and uninstalled from runtime.**"
+    return f"⚠️ **Removed from your account, but runtime cleanup failed:** {result.get('message', 'unknown error')}"
 
 
 async def handle_skill_enable(ctx, name: str, enable: bool = True) -> str:
     name = name.strip()
     if not name:
         return f"**Usage:** `/skill enable <name>`"
+    user_id = _user_id(ctx)
     manager = get_plugin_manager()
-    ok = manager.enable(name) if enable else manager.disable(name)
-    if not ok:
-        return f"❌ Plugin `{name}` not found."
+    plugin = _find_user_plugin(manager, user_id, name)
+    if not plugin:
+        return f"❌ Plugin `{name}` is not installed for your account."
+    manager.set_user_enabled(user_id, plugin.name, enable)
     status = "enabled" if enable else "disabled"
-    return f"✅ **Plugin `{name}` {status}.**"
+    return f"✅ **Plugin `{plugin.name}` {status} for your account.**"
 
 
 async def handle_skill_info(ctx, name: str) -> str:
     name = name.strip()
     if not name:
         return f"**Usage:** `/skill info <name>`"
+    user_id = _user_id(ctx)
     manager = get_plugin_manager()
-    plugin = next((p for p in manager.list_plugins() if p.name.lower() == name.lower()), None)
+    plugin = _find_user_plugin(manager, user_id, name)
     if not plugin:
-        return f"❌ Plugin `{name}` not found."
-    status = "✅ enabled" if manager.is_enabled(plugin.name) else "❌ disabled"
+        return f"❌ Plugin `{name}` is not installed for your account."
+    status = "✅ enabled" if manager.is_enabled(plugin.name, user_id) else "❌ disabled"
     return "\n".join([
         f"🔌 **Plugin:** `{plugin.name}`",
         f"**Version:** {plugin.version}",

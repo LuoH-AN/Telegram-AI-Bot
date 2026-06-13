@@ -2,7 +2,6 @@
 
 Hosts:
 - ``GET /`` and ``GET /healthz`` for the HF Space health probe.
-- ``GET /s/{user_id}/{url_id}`` for direct S3 object download.
 - ``/tools/terminal/*`` and ``/tools/search/*`` — each tool mounted as a
   separate FastAPI sub-app so OpenWebUI can import each as its own tool
   server with a distinct OpenAPI spec:
@@ -26,7 +25,7 @@ def build_public_app() -> FastAPI:
     app = FastAPI(
         title="Telegram-AI-Bot Public Web",
         version="1.0.0",
-        description="HF Space public surface: health, S3 downloads, and OpenWebUI tool server.",
+        description="HF Space public surface: health and OpenWebUI tool server.",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -44,12 +43,6 @@ def build_public_app() -> FastAPI:
     def _healthz() -> dict:
         return {"ok": True}
 
-    @app.get("/s/{user_id}/{url_id}", tags=["s3"], include_in_schema=False)
-    def _s3_object(user_id: int, url_id: int) -> Response:
-        from plugins.s3.web_route import fetch_s3_object
-        fetched = fetch_s3_object(int(user_id), int(url_id))
-        return Response(content=fetched.body, status_code=fetched.status, media_type=fetched.content_type)
-
     try:
         from openapi_tools.search_routes import build_search_app
         from openapi_tools.terminal_routes import build_terminal_app
@@ -57,7 +50,7 @@ def build_public_app() -> FastAPI:
         app.mount("/tools/search", build_search_app())
         logger.info("web_app: mounted /tools/terminal and /tools/search as separate sub-apps")
     except Exception:
-        logger.exception("web_app: failed to mount /tools — public server still serves health/S3")
+        logger.exception("web_app: failed to mount /tools — public server still serves health")
 
     return app
 

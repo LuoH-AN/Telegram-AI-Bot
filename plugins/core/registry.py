@@ -17,7 +17,9 @@ class PluginRegistry:
         self._enabled_names: set[str] = set()
 
     def register(self, plugin: "BasePlugin") -> None:
+        self.unregister(plugin.name)
         self._tools.append(plugin)
+        self._enabled_names.add(plugin.name.lower())
 
     def unregister(self, name: str) -> bool:
         lowered = name.lower()
@@ -44,9 +46,9 @@ class PluginRegistry:
     def is_enabled(self, name: str) -> bool:
         return name.lower() in self._enabled_names
 
-    def get_definitions(self, enabled_tools: str | list[str] | None = None) -> list[dict]:
+    def get_definitions(self, enabled_tools: str | list[str] | None = None, *, user_id: int | None = None) -> list[dict]:
         definitions: list[dict] = []
-        for plugin in self._get_filtered(enabled_tools):
+        for plugin in self._get_filtered(enabled_tools, user_id=user_id):
             definitions.extend(plugin.definitions())
         return definitions
 
@@ -62,7 +64,7 @@ class PluginRegistry:
 
         token = set_event_callback(event_callback)
         try:
-            filtered = self._get_filtered(enabled_tools)
+            filtered = self._get_filtered(enabled_tools, user_id=user_id)
             emit = lambda event_type, **payload: emit_batch_event(event_callback, user_id, event_type, **payload)
             emit_error = lambda idx, tool_name, **payload: emit("tool_error", index=idx, tool_name=tool_name, **payload)
 
@@ -78,11 +80,17 @@ class PluginRegistry:
         finally:
             reset_event_callback(token)
 
-    def _get_filtered(self, enabled_tools: str | list[str] | None) -> list["BasePlugin"]:
+    def _get_filtered(self, enabled_tools: str | list[str] | None, *, user_id: int | None = None) -> list["BasePlugin"]:
         result: list["BasePlugin"] = []
         for plugin in self._tools:
             if not self.is_enabled(plugin.name):
                 continue
+            if user_id is not None:
+                from .user_state import is_enabled_for_user
+
+                manifest = getattr(plugin, "_plugin_manifest", None)
+                if not is_enabled_for_user(user_id, manifest, plugin.name):
+                    continue
             if enabled_tools is None or enabled_tools == "all":
                 result.append(plugin)
             elif isinstance(enabled_tools, str):
@@ -96,16 +104,16 @@ class PluginRegistry:
                     result.append(plugin)
         return result
 
-    def get_instructions(self, enabled_tools: str | list[str] | None = None) -> str:
-        return "".join(plugin.get_instruction() for plugin in self._get_filtered(enabled_tools))
+    def get_instructions(self, enabled_tools: str | list[str] | None = None, *, user_id: int | None = None) -> str:
+        return "".join(plugin.get_instruction() for plugin in self._get_filtered(enabled_tools, user_id=user_id))
 
     def enrich_system_prompt(self, user_id: int, prompt: str, enabled_tools: str | list[str] | None = None, **kwargs) -> str:
-        for plugin in self._get_filtered(enabled_tools):
+        for plugin in self._get_filtered(enabled_tools, user_id=user_id):
             prompt = plugin.enrich_system_prompt(user_id, prompt, **kwargs)
         return prompt
 
     def post_process(self, user_id: int, text: str, enabled_tools: str | list[str] | None = None) -> str:
-        for plugin in self._get_filtered(enabled_tools):
+        for plugin in self._get_filtered(enabled_tools, user_id=user_id):
             text = plugin.post_process(user_id, text)
         return text
 

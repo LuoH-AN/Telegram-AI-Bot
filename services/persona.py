@@ -13,10 +13,10 @@ TOOL_PROGRESS_PROMPT = (
 )
 
 
-def _get_skill_instructions() -> str:
+def _get_skill_instructions(user_id: int) -> str:
     try:
         from plugins import get_tool_instructions
-        return get_tool_instructions("all")
+        return get_tool_instructions("all", user_id=user_id)
     except Exception:
         return ""
 
@@ -52,7 +52,7 @@ def get_system_prompt(user_id: int, persona_name: str | None = None) -> str:
     persona_prompt = persona.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
     base_prompt = f"{global_prompt}\n\n{persona_prompt}" if global_prompt else persona_prompt
     parts = [base_prompt, TOOL_PROGRESS_PROMPT]
-    skill_instructions = _get_skill_instructions()
+    skill_instructions = _get_skill_instructions(user_id)
     if skill_instructions:
         parts.append(skill_instructions)
     return "\n\n".join(parts)
