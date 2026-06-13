@@ -10,6 +10,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+BOOTSTRAP_FILENAME = "telegram_ai_bot_cli_bootstrap.txt"
+DEFAULT_BOOTSTRAP_PATH = f"/data/{BOOTSTRAP_FILENAME}"
+
 
 def _enabled() -> bool:
     raw = (os.getenv("CLI_BOOTSTRAP_ENABLED", "1") or "1").strip().lower()
@@ -17,8 +20,11 @@ def _enabled() -> bool:
 
 
 def _bootstrap_file() -> Path:
-    raw = (os.getenv("CLI_BOOTSTRAP_PATH", "/data/telegram_ai_bot_cli_bootstrap.txt") or "").strip()
-    return Path(raw or "/data/telegram_ai_bot_cli_bootstrap.txt").expanduser()
+    raw = (os.getenv("CLI_BOOTSTRAP_PATH", DEFAULT_BOOTSTRAP_PATH) or "").strip()
+    path = Path(raw or DEFAULT_BOOTSTRAP_PATH).expanduser()
+    if (path.exists() and path.is_dir()) or raw.endswith(("/", "\\")):
+        return path / BOOTSTRAP_FILENAME
+    return path
 
 
 def _load_commands_from_env() -> list[str]:
@@ -37,6 +43,9 @@ def _load_commands_from_env() -> list[str]:
 
 def _load_commands_from_file(path: Path) -> list[str]:
     if not path.exists():
+        return []
+    if path.is_dir():
+        logger.warning("CLI bootstrap path is a directory, skipping: %s", path)
         return []
     return [line.strip() for line in path.read_text("utf-8", errors="ignore").splitlines() if line.strip() and not line.strip().startswith("#")]
 

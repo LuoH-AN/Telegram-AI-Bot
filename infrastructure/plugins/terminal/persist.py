@@ -16,10 +16,16 @@ INSTALL_PATTERNS = (
     re.compile(r"(^|&&|\|\|)\s*playwright\s+install(-deps)?(\s|$)", re.IGNORECASE),
 )
 
+BOOTSTRAP_FILENAME = "telegram_ai_bot_cli_bootstrap.txt"
+DEFAULT_BOOTSTRAP_PATH = f"/data/{BOOTSTRAP_FILENAME}"
+
 
 def _bootstrap_file() -> Path:
-    raw = (os.getenv("CLI_BOOTSTRAP_PATH", "/data/telegram_ai_bot_cli_bootstrap.txt") or "").strip()
-    return Path(raw or "/data/telegram_ai_bot_cli_bootstrap.txt").expanduser()
+    raw = (os.getenv("CLI_BOOTSTRAP_PATH", DEFAULT_BOOTSTRAP_PATH) or "").strip()
+    path = Path(raw or DEFAULT_BOOTSTRAP_PATH).expanduser()
+    if (path.exists() and path.is_dir()) or raw.endswith(("/", "\\")):
+        return path / BOOTSTRAP_FILENAME
+    return path
 
 
 def _is_install_command(command: str) -> bool:
@@ -48,4 +54,3 @@ def persist_install_command(command: str) -> str | None:
         return f"persist: install command saved to {path}"
     except Exception as exc:
         return f"persist: failed to save install command ({exc})"
-
