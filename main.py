@@ -1,4 +1,4 @@
-"""Unified launcher for Telegram / WeChat / OneBot runtimes."""
+"""Launcher for the Telegram runtime."""
 
 from __future__ import annotations
 
@@ -11,10 +11,8 @@ from dotenv import load_dotenv
 from launcher import (
     UPDATE_RESTART_EXIT_CODE,
     apply_env_text,
-    get_ports,
+    get_telegram_port,
     is_configured_token,
-    is_wechat_enabled,
-    is_onebot_enabled,
     run_cli_bootstrap,
     start_child,
     terminate_children,
@@ -29,22 +27,12 @@ WEB_PORT = int(os.getenv("WEB_PORT", str(DEFAULT_WEB_PORT)))
 
 
 def _start_children() -> list:
-    telegram_port, wechat_port, onebot_port = get_ports()
+    telegram_port = get_telegram_port()
     children = []
     if is_configured_token(os.getenv("TELEGRAM_BOT_TOKEN")):
-        children.append(start_child("Telegram", "platforms.telegram", root_dir=ROOT_DIR, port=telegram_port))
+        children.append(start_child("Telegram", "telegram_bot", root_dir=ROOT_DIR, port=telegram_port))
     else:
         print(">>> Telegram disabled (TELEGRAM_BOT_TOKEN is not configured)", flush=True)
-
-    if is_wechat_enabled():
-        children.append(start_child("WeChat", "platforms.wechat", root_dir=ROOT_DIR, port=wechat_port))
-    else:
-        print(">>> WeChat disabled (WECHAT_ENABLED is not enabled)", flush=True)
-
-    if is_onebot_enabled():
-        children.append(start_child("OneBot/QQ", "platforms.onebot", root_dir=ROOT_DIR, port=onebot_port))
-    else:
-        print(">>> OneBot/QQ disabled (ONEBOT_ENABLED is not enabled)", flush=True)
     return children
 
 
@@ -71,7 +59,7 @@ def main() -> int:
             current_children = _start_children()
             if not current_children:
                 print(
-                    ">>> No bot process configured. Set TELEGRAM_BOT_TOKEN and/or enable WECHAT_ENABLED=1.",
+                    ">>> No bot process configured. Set TELEGRAM_BOT_TOKEN to start the Telegram bot.",
                     flush=True,
                 )
                 print(">>> Web server is still running. Press Ctrl+C to exit.", flush=True)

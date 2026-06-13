@@ -4,7 +4,7 @@ version: 1.0.0
 description: Send media (images, documents, voice, video) directly to the user in the active chat. Source can be a URL, a local file path, or an AI-generated image prompt.
 entry_point: plugins.send_file.tool:SendFileTool
 capabilities: [send_image, send_document, send_voice, send_video, generate_image]
-platforms: [telegram, wechat, onebot]
+platforms: [telegram]
 ---
 
 # send_file

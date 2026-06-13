@@ -28,11 +28,9 @@ COPY utils/ ./utils/
 COPY web/ ./web/
 COPY static/ ./static/
 
-# Health check ports (Telegram / WeChat)
-EXPOSE 7860 7862
+# Health check port (Telegram)
+EXPOSE 7860
 
-# Unified Python launcher:
-# - TELEGRAM_BOT_TOKEN set => Telegram starts
-# - WECHAT_ENABLED=1       => WeChat starts
-# Override defaults via TELEGRAM_PORT / WECHAT_PORT env vars.
+# Python launcher: TELEGRAM_BOT_TOKEN set => Telegram starts.
+# Override the default port via TELEGRAM_PORT.
 CMD ["python", "/app/main.py"]

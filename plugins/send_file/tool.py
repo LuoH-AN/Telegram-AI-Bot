@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from plugins.core.base import BasePlugin
-from platforms.shared.outbound import get_outbound, send_sync
+from telegram_bot.outbound import get_outbound, send_sync
 
 from . import sources
 

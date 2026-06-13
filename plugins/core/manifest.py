@@ -7,7 +7,7 @@ A SKILL.md is a markdown file with optional YAML frontmatter:
     description: ...
     entry_point: plugins.foo.tool:FooTool   # optional — only for code plugins
     capabilities: [a, b]
-    platforms: [telegram, wechat]
+    platforms: [telegram]
     ---
 
     (skill body — natural-language guidance for the model)

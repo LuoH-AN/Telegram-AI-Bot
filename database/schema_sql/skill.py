@@ -1,4 +1,4 @@
-"""Schema SQL for skills and WeChat runtime state."""
+"""Schema SQL for skills."""
 
 CREATE_USER_SKILLS_TABLE = """
     CREATE TABLE IF NOT EXISTS user_skills (
@@ -53,18 +53,5 @@ CREATE_USER_SKILL_ARTIFACTS_TABLE = """
         git_revision TEXT DEFAULT '',
         meta_json TEXT DEFAULT '{}',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-"""
-
-CREATE_WECHAT_RUNTIME_STATE_TABLE = """
-    CREATE TABLE IF NOT EXISTS wechat_runtime_state (
-        account_key TEXT PRIMARY KEY,
-        token TEXT DEFAULT '',
-        user_id TEXT DEFAULT '',
-        base_url TEXT DEFAULT '',
-        get_updates_buf TEXT DEFAULT '',
-        peer_map TEXT DEFAULT '{}',
-        context_tokens TEXT DEFAULT '{}',
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
 """

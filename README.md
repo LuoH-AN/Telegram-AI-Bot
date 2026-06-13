@@ -1,6 +1,6 @@
 # Telegram-AI-Bot (Gemen)
 
-一个支持 **Telegram / WeChat / OneBot(QQ)** 的多平台 AI Bot 项目，支持多角色管理、多会话管理、记忆系统、Token 用量统计与定时任务。
+一个基于 **Telegram** 的 AI Bot 项目，支持多角色管理、多会话管理、记忆系统、Token 用量统计与定时任务。
 
 ## 功能概览
 
@@ -25,14 +25,12 @@
 
 ```text
 .
-├── main.py                   # 统一启动入口（按环境变量拉子进程）
-├── launcher/                 # 多进程拉起、热更新、CLI bootstrap
+├── main.py                   # 启动入口（拉起 Telegram 子进程）
+├── launcher/                 # 子进程拉起、热更新、CLI bootstrap
 ├── platforms/                # 平台运行时
 │   ├── telegram/             # Telegram bot + handlers
-│   ├── onebot/               # OneBot/NapCat (QQ)
-│   ├── wechat/               # WeChat 个人号 + 公众号
-│   ├── commands/             # 跨平台命令分发
-│   └── shared/               # 共享 chat 流水线、context 协议、runtime 辅助
+│   ├── commands/             # 共享命令实现
+│   └── shared/               # 共享 outbound 发送与 prompt 上传
 ├── core/                     # 命令编排（persona / session / provider / plugins）
 ├── services/                 # 业务逻辑层（user / persona / session / memory / cron 等）
 ├── ai/                       # AI 客户端封装（OpenAI 兼容）+ 流式协议
@@ -63,9 +61,7 @@ cp .env.example .env
 至少需要配置：
 
 - `DATABASE_URL`
-- `TELEGRAM_BOT_TOKEN`（启 Telegram 时）
-- `WECHAT_ENABLED=1`（启 WeChat 时）
-- `ONEBOT_ENABLED=1`（启 OneBot/QQ 时）
+- `TELEGRAM_BOT_TOKEN`
 - `OPENAI_API_KEY`（也支持每个用户在 Bot 内单独配置）
 
 ### 3. 准备数据库
@@ -80,12 +76,12 @@ python main.py
 
 说明：
 
-- `main.py` 会按环境变量自动拉起 Telegram / WeChat / OneBot 子进程
-- 每个平台独立进程，互不影响
+- `main.py` 会在配置了 `TELEGRAM_BOT_TOKEN` 时自动拉起 Telegram 子进程
+- 子进程退出或热更新会触发自动重启
 
 ## 常用命令
 
-Telegram 使用 `/` 前缀；OneBot/WeChat 默认使用各自前缀（见 `.env.example`）。
+命令使用 `/` 前缀：
 
 - `start`
 - `help`
@@ -109,12 +105,6 @@ Telegram 使用 `/` 前缀；OneBot/WeChat 默认使用各自前缀（见 `.env.
 
 - 基础：`DATABASE_URL`
 - Telegram：`TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_BASE`
-- OneBot：
-  - `ONEBOT_ENABLED`, `ONEBOT_MODE`（client/server/ws）
-  - `ONEBOT_WS_URL`（client 模式连接目标）
-  - `ONEBOT_WS_BIND_HOST`、`ONEBOT_WS_BIND_PORT`、`ONEBOT_WS_PATH`（ws 模式监听）
-  - `QQ_COMMAND_PREFIX`
-- WeChat：`WECHAT_ENABLED`, `WECHAT_COMMAND_PREFIX`
 - 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`, `OPENAI_REASONING_EFFORT`
 - 其他：`SHOW_THINKING`
 
@@ -124,9 +114,9 @@ Telegram 使用 `/` 前缀；OneBot/WeChat 默认使用各自前缀（见 `.env.
 
 - 新增业务逻辑放到 `services/`
 - 新增模型能力走 `ai/` 抽象层
-- 跨平台命令编排放 `core/`，平台特定 handler 放 `platforms/<platform>/`
-- 共用对话流水线在 `platforms/shared/chat/inbound.py`
-- 用户面文案优先复用 `utils/platform/`，保持平台一致
+- 跨平台命令编排放 `core/`，Telegram handler 放 `platforms/telegram/`
+- Telegram 对话流水线在 `platforms/telegram/handlers/messages/chat/`
+- 用户面文案优先复用 `utils/platform/`
 
 ## 许可证
 
