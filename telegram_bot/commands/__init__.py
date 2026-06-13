@@ -1,6 +1,7 @@
 """Command handlers module."""
 
-from .basic import start, help_command, clear, stop, update, restart
+from .basic import start, help_command, clear
+from .lifecycle import stop, update, restart
 from .usage import usage_command, export_command
 from .memory import remember_command, memories_command, forget_command
 from .persona import persona_command

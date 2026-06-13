@@ -18,4 +18,4 @@ def build_application(logger):
 def configure_platform_logging():
     """Configure platform logging."""
     from .logging_config import configure_platform_logging as _configure
-    _configure()
+    return _configure()

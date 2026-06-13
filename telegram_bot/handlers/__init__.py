@@ -1,38 +1,34 @@
 """Telegram handlers module."""
 
-# Commands
-from .commands import (
-    start,
-    help_command,
-    clear,
-    stop,
-    update,
-    restart,
-    settings_command,
-    set_command,
-    usage_command,
-    export_command,
-    remember_command,
-    memories_command,
-    forget_command,
-    persona_command,
-    chat_command,
-    skill_command,
-)
+from importlib import import_module
 
-# Messages
-from .messages import chat, handle_photo, handle_document
-
-# Callbacks
-from .callback import model_callback, help_callback
-
-# Common
-from .common import should_respond_in_group
+_COMMAND_EXPORTS = {
+    "start",
+    "help_command",
+    "clear",
+    "stop",
+    "update",
+    "restart",
+    "settings_command",
+    "set_command",
+    "usage_command",
+    "export_command",
+    "remember_command",
+    "memories_command",
+    "forget_command",
+    "persona_command",
+    "chat_command",
+    "skill_command",
+}
+_MESSAGE_EXPORTS = {"chat", "handle_photo", "handle_document"}
+_CALLBACK_EXPORTS = {"model_callback", "help_callback"}
+_COMMON_EXPORTS = {"should_respond_in_group"}
 
 __all__ = [
     "start",
     "help_command",
     "clear",
+    "stop",
     "restart",
     "update",
     "settings_command",
@@ -52,3 +48,19 @@ __all__ = [
     "help_callback",
     "should_respond_in_group",
 ]
+
+
+def __getattr__(name: str):
+    if name in _COMMAND_EXPORTS:
+        module = import_module("telegram_bot.commands")
+    elif name in _MESSAGE_EXPORTS:
+        module = import_module("telegram_bot.handlers.messages")
+    elif name in _CALLBACK_EXPORTS:
+        module = import_module("telegram_bot.handlers.callback")
+    elif name in _COMMON_EXPORTS:
+        module = import_module("telegram_bot.handlers.common")
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

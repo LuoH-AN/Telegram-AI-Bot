@@ -26,11 +26,9 @@
 ```text
 .
 ├── main.py                   # 启动入口（拉起 Telegram 子进程）
+├── telegram_bot/             # Telegram bot、commands、handlers 与发送限流
 ├── launcher/                 # 子进程拉起、热更新、CLI bootstrap
-├── platforms/                # 平台运行时
-│   ├── telegram/             # Telegram bot + handlers
-│   ├── commands/             # 共享命令实现
-│   └── shared/               # 共享 outbound 发送与 prompt 上传
+├── platforms/commands/       # 平台无关命令适配
 ├── core/                     # 命令编排（persona / session / provider / plugins）
 ├── services/                 # 业务逻辑层（user / persona / session / memory / cron 等）
 ├── ai/                       # AI 客户端封装（OpenAI 兼容）+ 流式协议
@@ -38,7 +36,9 @@
 ├── database/                 # PostgreSQL 连接与 schema
 ├── config/                   # 常量与环境变量
 ├── utils/                    # 通用工具函数
-├── tools/                    # 内置插件（plugin 架构）
+├── plugins/                  # 内置插件与 plugin 运行框架
+├── openapi_tools/            # OpenAPI tool server 路由
+├── static/                   # Web 静态资源
 └── scripts/                  # 一次性脚本与维护工具
 ```
 
@@ -99,7 +99,7 @@ python main.py
 
 ## 工具/插件系统说明
 
-工具基于 plugin 架构（`core/plugins/`）。`tools/` 下为内置插件，第三方插件可通过 `/skill install <github-url>` 安装到 `~/.gemen/plugins/`。
+工具基于 plugin 架构。`plugins/` 下为内置插件和运行框架，第三方插件可通过 `/skill install <github-url>` 安装到 `~/.gemen/plugins/`。
 
 ## 关键环境变量
 
@@ -114,8 +114,8 @@ python main.py
 
 - 新增业务逻辑放到 `services/`
 - 新增模型能力走 `ai/` 抽象层
-- 跨平台命令编排放 `core/`，Telegram handler 放 `platforms/telegram/`
-- Telegram 对话流水线在 `platforms/telegram/handlers/messages/chat/`
+- 跨平台命令编排放 `core/` 或 `platforms/commands/`，Telegram handler 放 `telegram_bot/handlers/`
+- Telegram 对话流水线在 `telegram_bot/handlers/messages/chat/`
 - 用户面文案优先复用 `utils/platform/`
 
 ## 许可证

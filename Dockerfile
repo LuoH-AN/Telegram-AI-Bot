@@ -13,8 +13,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY main.py ./
-COPY platforms/ ./platforms/
+COPY main.py web_app.py ./
+COPY telegram_bot/ ./telegram_bot/
 COPY launcher/ ./launcher/
 COPY config/ ./config/
 COPY core/ ./core/
@@ -22,10 +22,10 @@ COPY database/ ./database/
 COPY cache/ ./cache/
 COPY services/ ./services/
 COPY ai/ ./ai/
-COPY handlers/ ./handlers/
-COPY tools/ ./tools/
+COPY platforms/ ./platforms/
+COPY plugins/ ./plugins/
+COPY openapi_tools/ ./openapi_tools/
 COPY utils/ ./utils/
-COPY web/ ./web/
 COPY static/ ./static/
 
 # Health check port (Telegram)

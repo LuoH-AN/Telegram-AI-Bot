@@ -6,8 +6,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services import get_user_settings, update_user_setting
+from telegram_bot.commands.settings import _build_model_keyboard
 from telegram_bot.handlers.common import get_log_context
-from telegram_bot.handlers.commands.settings import _build_model_keyboard
 from utils.platform import (
     build_advanced_help_section,
     build_memory_help_section,
