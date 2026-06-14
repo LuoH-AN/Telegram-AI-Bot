@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from ..core.base import BaseTool
+from .agent_plugins import register_external_skill_manifest, unregister_external_skill_manifest
 from .files import detect_format, discover_config_files, discover_env_keys, ensure_supported_config_target, resolve_config_path
 from .formats import delete_value, dump_data, get_value, load_data, render_value, set_value
 
@@ -57,7 +58,8 @@ class ProjectConfigTool(BaseTool):
                     "description": (
                         "Inspect and modify repository infrastructure.config files, prompt-only agent plugin manifests, "
                         "or user infrastructure.database records. Use source='file' for config files or "
-                        "runtime/plugins/<name>/SKILL.md, source='infrastructure.database' for user records."
+                        "runtime/plugins/<name>/SKILL.md, source='infrastructure.database' for user records. "
+                        "Writing a valid SKILL.md hot-loads and registers it for the current user."
                     ),
                     "parameters": self._parameters(),
                 },
@@ -103,9 +105,11 @@ class ProjectConfigTool(BaseTool):
             "- Use source='file' for config files and `runtime/plugins/<name>/SKILL.md`: inspect to discover, get to read, set to write.\n"
             "- To create an external prompt plugin, write the full markdown file with action='set', format_hint='text', and no key.\n"
             "- External prompt plugins live at `runtime/plugins/<name>/SKILL.md` and need frontmatter: name, version, description.\n"
+            "- Writing a valid external SKILL.md automatically hot-loads it and registers it so `/skill list` can show it.\n"
             "- Add repository/capabilities/platforms when useful. Omit entry_point unless a real Python tool plugin is implemented.\n"
             "- Third-party CLI skill installers do not install this agent's runtime plugin; use terminal for the CLI, then write SKILL.md here.\n"
-            "- Restart or reload the runtime after changing `runtime/plugins/*/SKILL.md` before expecting prompt changes.\n"
+            "- If an official integration exists only for another agent, adapt its CLI guidance into this agent's prompt-only SKILL.md.\n"
+            "- If automatic registration reports a failure, restart or reload the runtime before expecting prompt changes.\n"
             "- Use source='infrastructure.database' for user records: target='settings' for AI settings, 'personas' for personalities,\n"
             "  'sessions' for chat sessions, 'conversations' for message history, 'skills' for plugin enable/visibility states.\n"
             "- Database queries use the calling user's ID automatically.\n"
@@ -120,9 +124,9 @@ class ProjectConfigTool(BaseTool):
             return self._execute_db(user_id, action, arguments)
 
         # File operations (original behavior)
-        return self._execute_file(action, arguments)
+        return self._execute_file(user_id, action, arguments)
 
-    def _execute_file(self, action: str, arguments: dict) -> str:
+    def _execute_file(self, user_id: int, action: str, arguments: dict) -> str:
         if action == "inspect":
             files = discover_config_files()
             keys = discover_env_keys()
@@ -136,15 +140,17 @@ class ProjectConfigTool(BaseTool):
         file_format = detect_format(path, str(arguments.get("format_hint", "auto")))
         ensure_supported_config_target(path, file_format)
         if action == "delete" and not arguments.get("key") and path.exists():
+            note = unregister_external_skill_manifest(user_id, path)
             path.unlink()
-            return f"Deleted file: {path.name}"
+            return f"Deleted file: {path.name}.{note}"
         data = load_data(path, file_format)
         if action == "get":
             return render_value(get_value(data, file_format, str(arguments.get("key") or "").strip() or None))
         if action == "set":
             updated = set_value(data, file_format, str(arguments.get("key") or "").strip() or None, arguments.get("value"))
             dump_data(path, file_format, updated)
-            return f"Updated {path.name} ({file_format})."
+            note = register_external_skill_manifest(user_id, path)
+            return f"Updated {path.name} ({file_format}).{note}"
         if action == "delete":
             deleted = delete_value(data, file_format, str(arguments.get("key") or "").strip() or None)
             if not deleted:

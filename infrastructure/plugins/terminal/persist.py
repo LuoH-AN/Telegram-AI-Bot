@@ -14,6 +14,9 @@ INSTALL_PATTERNS = (
     re.compile(r"(^|&&|\|\|)\s*yarn\s+global\s+add(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*apt(-get)?\s+install(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*playwright\s+install(-deps)?(\s|$)", re.IGNORECASE),
+    re.compile(r"https?://\S+/install\.sh\b.*\|\s*(ba)?sh", re.IGNORECASE),
+    re.compile(r"(^|&&|\|\|)\s*npx\s+skills\s+add\s+\S+(\s|$)", re.IGNORECASE),
+    re.compile(r"(^|&&|\|\|)\s*[A-Za-z0-9_.-]+\s+skills\s+add(\s|$)", re.IGNORECASE),
 )
 
 BOOTSTRAP_FILENAME = "telegram_ai_bot_cli_bootstrap.txt"
