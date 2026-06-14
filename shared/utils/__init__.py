@@ -27,7 +27,10 @@ from shared.utils.resolve import (
     resolve_provider_model,
 )
 from shared.utils.format import (
+    build_rich_message,
     markdown_to_telegram_html,
+    markdown_to_telegram_rich_markdown,
+    should_use_rich_message,
     split_message,
     latex_to_unicode,
     html_to_markdown,
@@ -58,7 +61,10 @@ __all__ = [
     # resolve
     "resolve_provider_model",
     # format
+    "build_rich_message",
     "markdown_to_telegram_html",
+    "markdown_to_telegram_rich_markdown",
+    "should_use_rich_message",
     "split_message",
     "latex_to_unicode",
     "html_to_markdown",

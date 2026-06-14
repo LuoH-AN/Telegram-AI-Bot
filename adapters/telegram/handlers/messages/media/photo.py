@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from adapters.telegram.rich_text import reply_rich_text
 from adapters.telegram.handlers.common import (
     get_log_context,
     preflight_media_request,
@@ -30,6 +31,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     session_id = media_ctx.session_id
 
     ctx = get_log_context(update)
+    message = update.effective_message
 
     logger.info(
         "%s photo batch (%d item(s), caption: %s)",
@@ -38,7 +40,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         (next((m.caption for m in grouped_messages if m.caption), "") or "")[:50],
     )
 
-    await update.message.chat.send_action(ChatAction.TYPING)
+    await message.chat.send_action(ChatAction.TYPING)
 
     try:
         image_parts = []
@@ -57,7 +59,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
 
         if not image_parts:
-            await update.message.reply_text(build_retry_message())
+            await reply_rich_text(message, build_retry_message())
             return
 
         user_content = list(image_parts)
@@ -80,4 +82,4 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     except Exception:
         logger.exception("%s error processing image", ctx)
-        await update.message.reply_text(build_retry_message())
+        await reply_rich_text(message, build_retry_message())

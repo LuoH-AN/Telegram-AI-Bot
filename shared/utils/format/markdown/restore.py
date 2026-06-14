@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 import html
+import re
+
+
+def _format_code_block(code: str, language: str | None) -> str:
+    escaped = html.escape(code)
+    if not language:
+        return f"<pre>{escaped}</pre>"
+    safe_language = re.sub(r"[^A-Za-z0-9_+.#-]", "", language)
+    if not safe_language:
+        return f"<pre>{escaped}</pre>"
+    return f'<pre><code class="language-{safe_language}">{escaped}</code></pre>'
 
 
 def restore_markdown_placeholders(
     text: str,
     *,
-    code_blocks: list[str],
+    code_blocks: list[tuple[str, str | None]],
     inline_codes: list[str],
     tables: list[str],
     headings: list[str],
     spoilers: list[str],
 ) -> str:
-    for index, code in enumerate(code_blocks):
-        text = text.replace(f"\x02CODEBLOCK{index}\x02", f"<pre>{html.escape(code)}</pre>")
+    for index, (code, language) in enumerate(code_blocks):
+        text = text.replace(f"\x02CODEBLOCK{index}\x02", _format_code_block(code, language))
     for index, code in enumerate(inline_codes):
         text = text.replace(f"\x02INLINECODE{index}\x02", f"<code>{html.escape(code)}</code>")
     for index, table_html in enumerate(tables):

@@ -6,6 +6,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from adapters.telegram.prompt_upload import apply_prompt_upload, parse_prompt_upload_caption
+from adapters.telegram.rich_text import reply_rich_text
 from adapters.telegram.handlers.common import get_log_context, preflight_media_request
 from adapters.telegram.handlers.messages.media.payload import build_document_payload
 from adapters.telegram.handlers.messages.media.prompt_upload import (
@@ -27,6 +28,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session_id = media_ctx.session_id
 
     ctx = get_log_context(update)
+    message = update.effective_message
 
     documents = [msg.document for msg in grouped_messages if msg.document]
     if not documents:
@@ -34,7 +36,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     logger.info("%s document batch (%d item(s))", ctx, len(documents))
 
-    await update.message.chat.send_action(ChatAction.TYPING)
+    await message.chat.send_action(ChatAction.TYPING)
 
     prompt_cmd = parse_prompt_upload_caption(caption)
     if prompt_cmd is not None:
@@ -42,15 +44,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             text = await extract_first_text_file(grouped_messages, context)
         except Exception:
             logger.exception("%s error extracting prompt file", ctx)
-            await update.message.reply_text(build_retry_message())
+            await reply_rich_text(message, build_retry_message())
             return
         if text is None:
-            await update.message.reply_text(
+            await reply_rich_text(
+                message,
                 "No readable .txt file found. Attach a UTF-8 text file with this command."
             )
             return
         reply = apply_prompt_upload(prompt_cmd, update.effective_user.id, text)
-        await update.message.reply_text(reply)
+        await reply_rich_text(message, reply)
         return
 
     try:
@@ -69,4 +72,4 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     except Exception:
         logger.exception("%s error processing document", ctx)
-        await update.message.reply_text(build_retry_message())
+        await reply_rich_text(message, build_retry_message())

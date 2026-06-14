@@ -3,9 +3,12 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Awaitable, Callable
-from infrastructure.config import MAX_MESSAGE_LENGTH, STREAM_FORCE_UPDATE_INTERVAL
+from infrastructure.config import MAX_MESSAGE_LENGTH, STREAM_FORCE_UPDATE_INTERVAL, TELEGRAM_NATIVE_DRAFTS
+from adapters.telegram.rich_text import send_rich_text
 from shared.utils.stream import ChatEventPump, StreamOutboundAdapter, edit_message_safe, send_message_safe
 from shared.utils.ai import build_tool_status_text
+
+from .draft import build_draft_id, can_use_native_draft, send_native_draft
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +19,9 @@ class RenderState:
     status_seed_cancelled: bool = False
     user_message_persisted: bool = False
     tool_message: object | None = None
+    native_draft_enabled: bool = False
+    native_draft_failed: bool = False
+    draft_id: int = 0
 @dataclass
 class RenderRuntime:
     state: RenderState
@@ -26,18 +32,27 @@ class RenderRuntime:
     tool_event_callback: Callable[[dict], None]
     clear_placeholder: Callable[[], None]
     status_seed_task: asyncio.Task
-async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
-    state = RenderState(bot_message=bot_message)
+async def setup_render_runtime(update, context, bot_message, ctx: str) -> RenderRuntime:
+    message = update.effective_message
+    native_draft = TELEGRAM_NATIVE_DRAFTS and bot_message is None and can_use_native_draft(update)
+    draft_id = build_draft_id(update) if native_draft else 0
+    state = RenderState(bot_message, native_draft_enabled=native_draft, draft_id=draft_id)
     async def _edit_placeholder(text: str) -> bool:
         if state.bot_message is None:
-            sent_messages = await send_message_safe(update.message, text)
+            if state.native_draft_enabled and not state.native_draft_failed:
+                if await send_native_draft(update, context, state.draft_id, text):
+                    return True
+                state.native_draft_failed = True
+            sent_messages = await send_message_safe(message, text)
             if not sent_messages:
                 return False
             state.bot_message = sent_messages[-1]
             return True
         return await edit_message_safe(state.bot_message, text)
     async def _send_text(text: str) -> bool:
-        return bool(await send_message_safe(update.message, text))
+        if await send_rich_text(message, text):
+            return True
+        return bool(await send_message_safe(message, text))
     async def _delete_placeholder() -> None:
         if state.bot_message is None:
             return
@@ -49,6 +64,7 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
     outbound = StreamOutboundAdapter(
         max_message_length=MAX_MESSAGE_LENGTH,
         has_placeholder=lambda: True,
+        can_edit_final=lambda: state.bot_message is not None,
         edit_placeholder=_edit_placeholder,
         send_text=_send_text,
         delete_placeholder=_delete_placeholder,
@@ -57,7 +73,7 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
     )
     async def _render_tool_status(text: str) -> bool:
         if state.tool_message is None:
-            sent_messages = await send_message_safe(update.message, text)
+            sent_messages = await send_message_safe(message, text)
             if not sent_messages:
                 return False
             state.tool_message = sent_messages[-1]
@@ -93,7 +109,6 @@ async def setup_render_runtime(update, bot_message, ctx: str) -> RenderRuntime:
             return
         except Exception:
             logger.debug("%s failed to seed Telegram delayed status", ctx, exc_info=True)
-
     return RenderRuntime(
         state=state,
         outbound=outbound,

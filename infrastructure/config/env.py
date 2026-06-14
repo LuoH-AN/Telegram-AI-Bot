@@ -19,6 +19,8 @@ apply_env_text()
 DATABASE_URL = os.getenv("DATABASE_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE", "").rstrip("/")
+TELEGRAM_NATIVE_DRAFTS = normalize_bool(os.getenv("TELEGRAM_NATIVE_DRAFTS", "1"), default=True)
+TELEGRAM_RICH_MESSAGES = normalize_bool(os.getenv("TELEGRAM_RICH_MESSAGES", "1"), default=True)
 
 TELEGRAM_SEND_GLOBAL_RATE = float(os.getenv("TELEGRAM_SEND_GLOBAL_RATE", "25"))
 TELEGRAM_SEND_GLOBAL_PERIOD = float(os.getenv("TELEGRAM_SEND_GLOBAL_PERIOD", "1"))
@@ -45,7 +47,10 @@ DEFAULT_TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoMultilingualNeural")
 DEFAULT_TTS_STYLE = os.getenv("TTS_STYLE", "general")
 DEFAULT_TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "")
 DEFAULT_TTS_OUTPUT_FORMAT = os.getenv("TTS_OUTPUT_FORMAT", "ogg-24khz-16bit-mono-opus")
-DEFAULT_REASONING_EFFORT = normalize_reasoning_effort(os.getenv("OPENAI_REASONING_EFFORT", ""), ALLOWED_REASONING_EFFORTS)
+DEFAULT_REASONING_EFFORT = normalize_reasoning_effort(
+    os.getenv("OPENAI_REASONING_EFFORT", ""),
+    ALLOWED_REASONING_EFFORTS,
+)
 DEFAULT_SHOW_THINKING = normalize_bool(os.getenv("SHOW_THINKING", "0"), default=False)
 SHOW_THINKING_MAX_CHARS = max(200, int(os.getenv("SHOW_THINKING_MAX_CHARS", "1200")))
 

@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from infrastructure.ai import get_ai_client
 from adapters.telegram.outbound import bind_outbound, reset_outbound
+from adapters.telegram.rich_text import edit_rich_text
 from adapters.telegram.sender import TelegramOutbound
 from domain.services import add_user_message, conversation_slot, get_system_prompt
 from domain.services.log import record_error
@@ -49,11 +50,11 @@ async def chat(
     )
     if req is None:
         return
-    runtime = await setup_render_runtime(update, bot_message, req["ctx"])
+    runtime = await setup_render_runtime(update, context, bot_message, req["ctx"])
     cancelled = cancel_user_responses(update.effective_chat.id, req["user_id"], platform="telegram")
     if cancelled:
-        logger.info("%s cancelled %d active Telegram response(s) due to new incoming message", req["ctx"], len(cancelled))
-    request_token = update.message.message_id or int(time.time() * 1000)
+        logger.info("%s cancelled %d active Telegram response(s)", req["ctx"], len(cancelled))
+    request_token = update.effective_message.message_id or int(time.time() * 1000)
     conversation_key = f"telegram:{update.effective_chat.id}:{req['user_id']}:{req['session_id']}"
     response_key = f"{conversation_key}:{request_token}"
     current_task = asyncio.current_task()
@@ -86,7 +87,7 @@ async def chat(
             logger.debug("%s failed to persist user message after cancellation", req["ctx"], exc_info=True)
         if not runtime.state.final_delivery_confirmed and runtime.state.bot_message:
             try:
-                await runtime.state.bot_message.edit_text("(Response stopped)")
+                await edit_rich_text(runtime.state.bot_message, "(Response stopped)")
             except Exception:
                 pass
     except Exception as exc:

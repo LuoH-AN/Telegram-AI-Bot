@@ -5,6 +5,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from adapters.telegram.rich_text import edit_query_rich_text
 from domain.services import get_user_settings, update_user_setting
 from adapters.telegram.commands.settings import _build_model_keyboard
 from adapters.telegram.handlers.common import get_log_context
@@ -32,7 +33,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     text = HELP_SECTIONS.get(query.data)
     if text:
-        await query.edit_message_text(text)
+        await edit_query_rich_text(query, text)
 
 
 async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -51,7 +52,7 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info("%s model page %d", get_log_context(update), page)
         models = context.user_data.get("models", [])
         if not models:
-            await query.edit_message_text("Session expired. Use /set model again.")
+            await edit_query_rich_text(query, "Session expired. Use /set model again.")
             return
 
         settings = get_user_settings(user_id)
@@ -62,4 +63,4 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         model = data.split(":", 1)[1]
         update_user_setting(user_id, "model", model)
         logger.info("%s set model = %s (callback)", get_log_context(update), model)
-        await query.edit_message_text(f"Model set to: {model}")
+        await edit_query_rich_text(query, f"Model set to: {model}")

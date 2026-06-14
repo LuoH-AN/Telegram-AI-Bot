@@ -20,11 +20,13 @@ class StreamOutboundAdapter:
         edit_placeholder: Callable[[str], Awaitable[bool]],
         send_text: Callable[[str], Awaitable[bool]],
         delete_placeholder: Callable[[], Awaitable[None]],
+        can_edit_final: Callable[[], bool] | None = None,
         empty_placeholder_text: str = "Thinking...",
         stream_edit_min_interval_seconds: float = 1.2,
     ):
         self.max_message_length = max_message_length
         self._has_placeholder = has_placeholder
+        self._can_edit_final = can_edit_final or has_placeholder
         self._edit_placeholder = edit_placeholder
         self._send_text = send_text
         self._delete_placeholder = delete_placeholder
@@ -61,7 +63,7 @@ class StreamOutboundAdapter:
                 await self._safe_delete_placeholder()
             return await self._send_text(safe_text)
 
-        if self._has_placeholder():
+        if self._can_edit_final():
             edited = await self._edit_placeholder(safe_text)
             if edited:
                 return True

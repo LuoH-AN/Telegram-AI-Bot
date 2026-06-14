@@ -9,6 +9,7 @@ import math
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from adapters.telegram.rich_text import edit_rich_text, reply_rich_text
 from infrastructure.ai import get_ai_client
 from infrastructure.config import MODELS_PER_PAGE
 from domain.services import get_user_settings, has_api_key
@@ -49,16 +50,17 @@ def _build_model_keyboard(models: list[str], page: int, current_model: str) -> I
 async def show_model_list(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0) -> None:
     user_id = update.effective_user.id
     settings = get_user_settings(user_id)
+    message = update.effective_message
     if not has_api_key(user_id):
-        await update.message.reply_text(build_api_key_required_message("/"))
+        await reply_rich_text(message, build_api_key_required_message("/"))
         return
 
-    msg = await update.message.reply_text("Fetching models...")
+    msg = await reply_rich_text(message, "Fetching models...")
     models = await asyncio.get_event_loop().run_in_executor(None, lambda: fetch_models(user_id))
     if not models:
-        await msg.edit_text("Failed to fetch models. Check your API key and base_url.")
+        await edit_rich_text(msg, "Failed to fetch models. Check your API key and base_url.")
         return
 
     context.user_data["models"] = models
     keyboard = _build_model_keyboard(models, page, settings["model"])
-    await msg.edit_text(f"Select a model (current: {settings['model']}):", reply_markup=keyboard)
+    await edit_rich_text(msg, f"Select a model (current: {settings['model']}):", reply_markup=keyboard)

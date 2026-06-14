@@ -20,7 +20,9 @@ async def should_respond_in_group(update: Update, context: ContextTypes.DEFAULT_
     if update.effective_chat.type == "private":
         return True
 
-    message = update.message
+    message = update.effective_message
+    if message is None:
+        return False
     bot_username = context.bot.username
     if message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id:
         return True
@@ -38,4 +40,3 @@ async def should_respond_in_group(update: Update, context: ContextTypes.DEFAULT_
         if mention == f"@{bot_username}":
             return True
     return False
-

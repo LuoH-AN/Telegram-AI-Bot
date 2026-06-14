@@ -8,17 +8,23 @@ from .table import markdown_table_to_html
 
 
 def extract_markdown_placeholders(text: str) -> tuple[str, list, list, list, list, list]:
-    code_blocks: list[str] = []
+    code_blocks: list[tuple[str, str | None]] = []
     inline_codes: list[str] = []
     tables: list[str] = []
     spoilers: list[str] = []
     headings: list[str] = []
 
     def _save_code_block(match):
-        code_blocks.append(match.group(1) or match.group(2))
+        language = match.group(1)
+        code_blocks.append((match.group(2), language))
         return f"\x02CODEBLOCK{len(code_blocks) - 1}\x02"
 
-    text = re.sub(r'```(?:\w*\n)?(.*?)```|```(.*?)```', _save_code_block, text, flags=re.DOTALL)
+    text = re.sub(
+        r"```([A-Za-z0-9_+.#-]+)?[ \t]*\n(.*?)```",
+        _save_code_block,
+        text,
+        flags=re.DOTALL,
+    )
 
     def _save_table(match):
         block = match.group(0)
@@ -47,7 +53,7 @@ def extract_markdown_placeholders(text: str) -> tuple[str, list, list, list, lis
 
     def _save_heading(match):
         heading = match.group(1).strip()
-        heading = re.sub(r'(\*\*|__|~~|`)', '', heading)
+        heading = re.sub(r'(\*\*|__|\+\+|~~|`|\|\|)', '', heading)
         heading = re.sub(r'(?<!\*)\*(?!\*)', '', heading)
         heading = re.sub(r'(?<!_)_(?!_)', '', heading)
         headings.append(heading.strip())

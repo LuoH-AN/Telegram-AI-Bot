@@ -18,13 +18,27 @@ def _detect_platform(bot) -> str:
 
 def _send_telegram(bot, chat_id: int, text: str, loop) -> None:
     from telegram.constants import ParseMode
-    from shared.utils.format import markdown_to_telegram_html, split_message
+    from adapters.telegram.bot_api import send_rich_message
+    from infrastructure.config import TELEGRAM_RICH_MESSAGES
+    from shared.utils.format import (
+        build_rich_message,
+        markdown_to_telegram_html,
+        should_use_rich_message,
+        split_message,
+    )
 
-    html_text = markdown_to_telegram_html(text)
-    chunks = split_message(html_text, max_length=4096)
+    if TELEGRAM_RICH_MESSAGES and should_use_rich_message(text):
+        rich_message = build_rich_message(text)
+        if rich_message:
+            future = asyncio.run_coroutine_threadsafe(send_rich_message(chat_id, rich_message), loop)
+            if future.result(timeout=60):
+                return
+
+    chunks = split_message(text, max_length=4096)
     for chunk in chunks:
+        html_text = markdown_to_telegram_html(chunk)
         future = asyncio.run_coroutine_threadsafe(
-            bot.send_message(chat_id=chat_id, text=chunk, parse_mode=ParseMode.HTML),
+            bot.send_message(chat_id=chat_id, text=html_text, parse_mode=ParseMode.HTML),
             loop,
         )
         future.result(timeout=60)
