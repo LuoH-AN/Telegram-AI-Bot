@@ -7,6 +7,10 @@ import signal
 import sys
 from pathlib import Path
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from dotenv import load_dotenv
 
 from entrypoints.launcher import (
@@ -20,8 +24,6 @@ from entrypoints.launcher import (
     wait_for_first_exit,
 )
 from adapters.http.web_app import serve_in_thread
-
-ROOT_DIR = Path(__file__).resolve().parent.parent
 
 DEFAULT_WEB_PORT = 7860
 WEB_PORT = int(os.getenv("WEB_PORT", str(DEFAULT_WEB_PORT)))
@@ -68,7 +70,8 @@ def main() -> int:
             status = wait_for_first_exit(current_children)
             if status == UPDATE_RESTART_EXIT_CODE:
                 print(">>> Runtime restart requested. Re-executing launcher with latest code...", flush=True)
-                os.execv(sys.executable, [sys.executable, *sys.argv])
+                os.chdir(ROOT_DIR)
+                os.execv(sys.executable, [sys.executable, "-m", "entrypoints.main"])
             return status
     except KeyboardInterrupt:
         terminate_children(current_children)
