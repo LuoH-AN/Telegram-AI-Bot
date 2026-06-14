@@ -20,8 +20,10 @@ class MemoriesMixin:
         memories = self.get_memories(user_id)
         if 0 <= memory_index < len(memories):
             removed = memories.pop(memory_index)
-            if removed.get("id") is not None:
-                with self._lock:
+            with self._lock:
+                if removed.get("id") is None:
+                    self._new_memories = [memory for memory in self._new_memories if memory is not removed]
+                else:
                     self._deleted_memory_ids.append(removed["id"])
             return True
         return False
@@ -29,6 +31,7 @@ class MemoriesMixin:
     def clear_memories(self, user_id: int) -> None:
         self._memories_cache[user_id] = []
         with self._lock:
+            self._new_memories = [memory for memory in self._new_memories if memory.get("user_id") != user_id]
             self._cleared_memories.add(user_id)
 
     def set_memories(self, user_id: int, memories: list[dict]) -> None:

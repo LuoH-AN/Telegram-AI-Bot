@@ -12,7 +12,7 @@
 - 记忆系统
 - Token 用量统计与限额
 - 定时任务
-- AI 工具系统（plugin 架构，当前内置：terminal、search、send_file、project_config）
+- AI 工具系统（plugin 架构，当前内置：memory、terminal、search、send_file、project_config）
 
 ## 技术栈
 

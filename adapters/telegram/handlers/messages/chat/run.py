@@ -11,7 +11,7 @@ from infrastructure.ai import get_ai_client
 from adapters.telegram.outbound import bind_outbound, reset_outbound
 from adapters.telegram.rich_text import edit_rich_text
 from adapters.telegram.sender import TelegramOutbound
-from domain.services import add_user_message, conversation_slot, get_system_prompt
+from domain.services import add_user_message, conversation_slot, format_memories_for_prompt, get_system_prompt
 from domain.services.log import record_error
 from domain.services.queue import cancel_user_responses, register_response, unregister_response
 from shared.utils.files import get_datetime_prompt
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 def _build_messages(req: dict) -> list[dict]:
     system_prompt = get_system_prompt(req["user_id"], req["persona_name"])
+    memory_prompt = format_memories_for_prompt(req["user_id"], req.get("user_content"))
+    if memory_prompt:
+        system_prompt += "\n\n" + memory_prompt
     system_prompt += "\n\n" + get_datetime_prompt() + build_latex_guidance()
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(req["conversation"])
