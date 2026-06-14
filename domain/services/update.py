@@ -12,7 +12,16 @@ from pathlib import Path
 from infrastructure.cache import sync_to_database
 from entrypoints.launcher import UPDATE_RESTART_EXIT_CODE
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _find_repo_root() -> Path:
+    path = Path(__file__).resolve()
+    for parent in path.parents:
+        if (parent / "main.py").is_file() and (parent / "domain").is_dir():
+            return parent
+    return path.parents[2]
+
+
+REPO_ROOT = _find_repo_root()
 
 
 def _run(command: list[str], *, timeout: int = 1200) -> subprocess.CompletedProcess:
@@ -22,10 +31,10 @@ def _run(command: list[str], *, timeout: int = 1200) -> subprocess.CompletedProc
 def _bootstrap_git_repo(branch: str) -> tuple[bool, str]:
     repo_url = (os.getenv("HOT_UPDATE_REPO_URL", "") or "").strip()
     if not repo_url:
-        return False, "HOT_UPDATE_REPO_URL is required when /app has no .git metadata."
+        return False, f"HOT_UPDATE_REPO_URL is required when {REPO_ROOT} has no .git metadata."
     for command in (
         ["git", "init"],
-        ["git", "infrastructure.config", "--global", "--add", "safe.directory", str(REPO_ROOT)],
+        ["git", "config", "--global", "--add", "safe.directory", str(REPO_ROOT)],
         ["git", "remote", "remove", "origin"],
     ):
         _run(command, timeout=60)
@@ -35,7 +44,10 @@ def _bootstrap_git_repo(branch: str) -> tuple[bool, str]:
     fetch = _run(["git", "fetch", "--depth=1", "origin", branch], timeout=1200)
     if fetch.returncode != 0:
         return False, (fetch.stderr or fetch.stdout or "git fetch failed").strip()
-    checkout = _run(["git", "checkout", "-B", branch, "FETCH_HEAD"], timeout=300)
+    reset = _run(["git", "reset", "--hard", "FETCH_HEAD"], timeout=300)
+    if reset.returncode != 0:
+        return False, (reset.stderr or reset.stdout or "git reset failed").strip()
+    checkout = _run(["git", "checkout", "-B", branch], timeout=60)
     if checkout.returncode != 0:
         return False, (checkout.stderr or checkout.stdout or "git checkout failed").strip()
     return True, "git metadata initialized"
@@ -43,25 +55,31 @@ def _bootstrap_git_repo(branch: str) -> tuple[bool, str]:
 
 def run_hot_update() -> dict:
     branch = (os.getenv("HOT_UPDATE_BRANCH", "") or "").strip() or "main"
+    bootstrapped = False
+    bootstrap_message = ""
     if not (REPO_ROOT / ".git").exists():
-        ok, msg = _bootstrap_git_repo(branch)
+        ok, bootstrap_message = _bootstrap_git_repo(branch)
         if not ok:
-            return {"ok": False, "message": msg}
-    head_before = (_run(["git", "rev-parse", "HEAD"]).stdout or "").strip()
+            return {"ok": False, "message": bootstrap_message}
+        bootstrapped = True
+        head_before = ""
+        output = bootstrap_message
+    else:
+        head_before = (_run(["git", "rev-parse", "HEAD"]).stdout or "").strip()
 
-    fetch_proc = _run(["git", "fetch", "origin", branch])
-    if fetch_proc.returncode != 0:
-        return {"ok": False, "message": (fetch_proc.stderr or fetch_proc.stdout or "git fetch failed").strip()}
+        fetch_proc = _run(["git", "fetch", "origin", branch])
+        if fetch_proc.returncode != 0:
+            return {"ok": False, "message": (fetch_proc.stderr or fetch_proc.stdout or "git fetch failed").strip()}
 
-    pull_proc = _run(["git", "pull", "--ff-only", "origin", branch])
-    if pull_proc.returncode != 0:
-        return {"ok": False, "message": (pull_proc.stderr or pull_proc.stdout or "git pull failed").strip()}
+        pull_proc = _run(["git", "pull", "--ff-only", "origin", branch])
+        if pull_proc.returncode != 0:
+            return {"ok": False, "message": (pull_proc.stderr or pull_proc.stdout or "git pull failed").strip()}
+        output = (pull_proc.stdout or pull_proc.stderr or "").strip()
 
     head_after = (_run(["git", "rev-parse", "HEAD"]).stdout or "").strip()
-    changed = bool(head_before and head_after and head_before != head_after)
-    output = (pull_proc.stdout or pull_proc.stderr or "").strip()
-    requirements_changed = False
-    if changed:
+    changed = bootstrapped or bool(head_before and head_after and head_before != head_after)
+    requirements_changed = bootstrapped
+    if changed and head_before:
         diff_proc = _run(["git", "diff", "--name-only", head_before, head_after])
         if diff_proc.returncode == 0:
             files = [line.strip() for line in (diff_proc.stdout or "").splitlines() if line.strip()]
@@ -72,13 +90,25 @@ def run_hot_update() -> dict:
             return {"ok": False, "message": (pip_proc.stderr or pip_proc.stdout or "pip install failed").strip()}
     if not changed:
         return {"ok": True, "changed": False, "branch": branch, "message": output or "Already up to date."}
-    return {"ok": True, "changed": True, "branch": branch, "old": head_before, "new": head_after, "message": output or "Updated."}
+    return {
+        "ok": True,
+        "changed": True,
+        "branch": branch,
+        "old": "no-git" if bootstrapped else head_before,
+        "new": head_after,
+        "message": output or "Updated.",
+    }
 
 
 def schedule_process_restart(*, delay_seconds: float = 1.2) -> None:
     def _worker() -> None:
         time.sleep(max(0.1, float(delay_seconds)))
-        os._exit(UPDATE_RESTART_EXIT_CODE)
+        if os.getenv("BOT_LAUNCHER_MANAGED") == "1":
+            os._exit(UPDATE_RESTART_EXIT_CODE)
+        try:
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+        except Exception:
+            os._exit(UPDATE_RESTART_EXIT_CODE)
 
     threading.Thread(target=_worker, daemon=True).start()
 

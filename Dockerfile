@@ -1,5 +1,11 @@
 FROM python:3.12-slim
 
+ARG REPO_URL="https://github.com/LuoH-AN/Telegram-AI-Bot.git"
+ARG REPO_BRANCH="main"
+
+ENV HOT_UPDATE_REPO_URL="${REPO_URL}"
+ENV HOT_UPDATE_BRANCH="${REPO_BRANCH}"
+
 WORKDIR /app
 
 # Install runtime deps. Git is required for hot update support.

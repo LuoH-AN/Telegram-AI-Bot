@@ -8,6 +8,9 @@ ENV PYTHONUNBUFFERED=1
 ARG REPO_URL="https://github.com/LuoH-AN/Telegram-AI-Bot.git"
 ARG REPO_BRANCH="main"
 
+ENV HOT_UPDATE_REPO_URL="${REPO_URL}"
+ENV HOT_UPDATE_BRANCH="${REPO_BRANCH}"
+
 WORKDIR /app
 
 # System dependencies

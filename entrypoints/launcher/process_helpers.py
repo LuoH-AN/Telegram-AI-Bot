@@ -34,6 +34,7 @@ def _build_command(module_name: str) -> list[str]:
 def start_child(name: str, module_name: str, *, root_dir: Path, port: str) -> ChildProcess:
     env = os.environ.copy()
     env["PORT"] = str(port)
+    env["BOT_LAUNCHER_MANAGED"] = "1"
     print(f">>> Starting {name} bot on PORT={port}", flush=True)
     process = subprocess.Popen(_build_command(module_name), cwd=root_dir, env=env)
     return ChildProcess(name=name, process=process)

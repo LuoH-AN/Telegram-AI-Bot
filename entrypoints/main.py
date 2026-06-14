@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import signal
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -66,8 +67,8 @@ def main() -> int:
                 signal.pause()
             status = wait_for_first_exit(current_children)
             if status == UPDATE_RESTART_EXIT_CODE:
-                print(">>> Hot update requested. Restarting all bot processes with latest code...", flush=True)
-                continue
+                print(">>> Runtime restart requested. Re-executing launcher with latest code...", flush=True)
+                os.execv(sys.executable, [sys.executable, *sys.argv])
             return status
     except KeyboardInterrupt:
         terminate_children(current_children)

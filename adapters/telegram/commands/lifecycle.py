@@ -34,7 +34,7 @@ async def _update(ctx, command_prefix: str) -> None:
         "Update applied successfully.\n"
         f"Branch: {result.get('branch')}\n"
         f"Commit: {result.get('old', '')[:7]} -> {result.get('new', '')[:7]}\n"
-        "Restarting bot processes now..."
+        "Restarting runtime now..."
     )
     schedule_process_restart()
 
@@ -45,7 +45,7 @@ async def _restart(ctx) -> None:
     if not result.get("ok"):
         await ctx.reply_text(f"Restart cancelled:\n{result.get('message')}")
         return
-    await ctx.reply_text("State synced. Restarting bot processes now...")
+    await ctx.reply_text("State synced. Restarting runtime now...")
     schedule_process_restart()
 
 
