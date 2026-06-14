@@ -6,10 +6,6 @@ from infrastructure.config import VALID_REASONING_EFFORTS
 from shared.utils.ai import extract_thinking_blocks, filter_thinking_content, format_thinking_block
 
 
-def make_thinking_prefix(seconds: int | float) -> str:
-    return f"_Thinking for {int(seconds)}s_\n\n" if seconds > 0 else ""
-
-
 def normalize_reasoning_effort(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     return normalized if normalized in VALID_REASONING_EFFORTS else ""
@@ -58,10 +54,5 @@ def build_final_display(
             max_chars=thinking_max_chars,
         )
 
-    if thinking_block:
-        display_final = thinking_block + final_text
-    elif final_text != "(Empty response)" and total_thinking_seconds > 0:
-        display_final = make_thinking_prefix(total_thinking_seconds) + final_text
-    else:
-        display_final = final_text
+    display_final = thinking_block + final_text if thinking_block else final_text
     return final_text, thinking_block, display_final
