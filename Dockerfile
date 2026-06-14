@@ -5,8 +5,9 @@ ARG REPO_BRANCH="main"
 
 ENV HOT_UPDATE_REPO_URL="${REPO_URL}"
 ENV HOT_UPDATE_BRANCH="${REPO_BRANCH}"
+ENV APP_DIR="/opt/telegram-ai-bot"
 
-WORKDIR /app
+WORKDIR ${APP_DIR}
 
 # Install runtime deps. Git is required for hot update support.
 RUN set -eux; \
@@ -27,9 +28,11 @@ COPY domain/ ./domain/
 COPY infrastructure/ ./infrastructure/
 COPY shared/ ./shared/
 
+RUN test -f "${APP_DIR}/entrypoints/main.py" && python -m py_compile "${APP_DIR}/entrypoints/main.py"
+
 # Public web / health probe port
 EXPOSE 7860
 
 # Python launcher: TELEGRAM_BOT_TOKEN set => Telegram starts.
 # Override the default port via TELEGRAM_PORT.
-CMD ["python", "/app/main.py"]
+CMD ["python", "-m", "entrypoints.main"]

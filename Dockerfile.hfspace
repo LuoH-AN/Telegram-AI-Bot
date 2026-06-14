@@ -10,8 +10,9 @@ ARG REPO_BRANCH="main"
 
 ENV HOT_UPDATE_REPO_URL="${REPO_URL}"
 ENV HOT_UPDATE_BRANCH="${REPO_BRANCH}"
+ENV APP_DIR="/opt/telegram-ai-bot"
 
-WORKDIR /app
+WORKDIR ${APP_DIR}
 
 # System dependencies
 RUN set -eux; \
@@ -29,12 +30,14 @@ ADD https://api.github.com/repos/LuoH-AN/Telegram-AI-Bot/commits/main /tmp/sourc
 
 # Clone repo
 RUN set -eux; \
-    git clone --depth=1 --branch "${REPO_BRANCH}" "${REPO_URL}" /app
+    git clone --depth=1 --branch "${REPO_BRANCH}" "${REPO_URL}" "${APP_DIR}"
 
 # Install Python dependencies
 RUN set -eux; \
-    python -m pip install --no-cache-dir -r /app/requirements.txt
+    test -f "${APP_DIR}/entrypoints/main.py"; \
+    python -m py_compile "${APP_DIR}/entrypoints/main.py"; \
+    python -m pip install --no-cache-dir -r "${APP_DIR}/requirements.txt"
 
 EXPOSE 7860
 
-CMD ["python", "/app/main.py"]
+CMD ["python", "-m", "entrypoints.main"]
