@@ -60,10 +60,13 @@ class TerminalTool(BaseTool):
             "- For normal shell commands, call terminal with action='exec' and command.\n"
             "- Only call action='bg_check' when you already have a real PID returned by a previous background run.\n"
             "- Never use bg_check with 0/1 or guessed values.\n"
-            "\nSkill installation helper:\n"
-            "- When user asks to install a skill from GitHub, first suggest using `/skill install <url>` in chat.\n"
-            "- If manual installation needed: skills go to `runtime/plugins/<name>/`. Download from GitHub, extract, ensure SKILL.md exists.\n"
-            "- For subdirectory URLs (e.g., `owner/repo/tree/main/skills/name`), extract the repo and move the subdirectory to `runtime/plugins/name/`.\n"
+            "\nCLI and agent plugin setup:\n"
+            "- Use terminal for requested CLI/package installs and checks, such as npm/curl/pip commands, command -v, --version, and real sample runs.\n"
+            "- If the user asks to run a third-party skill manager such as `npx skills add` or `curl.md skills add`, run it as that tool's own setup.\n"
+            "- Third-party skill managers do not register this agent's plugins. This agent discovers external prompt plugins at `runtime/plugins/<name>/SKILL.md`.\n"
+            "- Use terminal to download, clone, extract, or inspect plugin docs. Use project_config to write prompt-only `SKILL.md` files when possible.\n"
+            "- For official agent plugins, inspect the official docs first, then adapt the documented guidance into `runtime/plugins/<name>/SKILL.md`.\n"
+            "- After manually creating or changing a `runtime/plugins/*/SKILL.md`, restart or reload the runtime before expecting the plugin in prompts.\n"
         )
 
     def execute(self, user_id: int, tool_name: str, arguments: dict) -> str:

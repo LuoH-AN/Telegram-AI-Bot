@@ -55,8 +55,9 @@ class ProjectConfigTool(BaseTool):
                 "function": {
                     "name": self.name,
                     "description": (
-                        "Inspect and modify repository infrastructure.config files (env, JSON, INI) or user infrastructure.database records. "
-                        "Use source='file' for infrastructure.config files, source='infrastructure.database' for user settings/personas/sessions/conversations."
+                        "Inspect and modify repository infrastructure.config files, prompt-only agent plugin manifests, "
+                        "or user infrastructure.database records. Use source='file' for config files or "
+                        "runtime/plugins/<name>/SKILL.md, source='infrastructure.database' for user records."
                     ),
                     "parameters": self._parameters(),
                 },
@@ -75,10 +76,10 @@ class ProjectConfigTool(BaseTool):
                 "source": {
                     "type": "string",
                     "enum": ["file", "infrastructure.database"],
-                    "description": "Data source: 'file' for infrastructure.config files, 'infrastructure.database' for user records",
+                    "description": "Data source: 'file' for config/plugin files, 'infrastructure.database' for user records",
                 },
                 # File args
-                "path": {"type": "string", "description": "Repository-relative infrastructure.config file path (source=file)."},
+                "path": {"type": "string", "description": "Repository-relative config file or runtime/plugins/<name>/SKILL.md."},
                 "key": {"type": "string", "description": "Key path for structured configs. Use SECTION.key for INI."},
                 "value": {"description": "Value to set."},
                 "format_hint": {"type": "string", "enum": ["auto", "env", "json", "ini", "text"]},
@@ -97,11 +98,16 @@ class ProjectConfigTool(BaseTool):
 
     def get_instruction(self) -> str:
         return (
-            "\nProject infrastructure.config tool usage:\n"
-            "- Prefer project_config over terminal when reading or changing repository configuration.\n"
-            "- Use source='file' for infrastructure.config files: action='inspect' to discover, 'get' to read, 'set' to write.\n"
+            "\nProject config and agent plugin tool usage:\n"
+            "- Prefer project_config over terminal when reading or changing repository configuration and prompt-only agent plugins.\n"
+            "- Use source='file' for config files and `runtime/plugins/<name>/SKILL.md`: inspect to discover, get to read, set to write.\n"
+            "- To create an external prompt plugin, write the full markdown file with action='set', format_hint='text', and no key.\n"
+            "- External prompt plugins live at `runtime/plugins/<name>/SKILL.md` and need frontmatter: name, version, description.\n"
+            "- Add repository/capabilities/platforms when useful. Omit entry_point unless a real Python tool plugin is implemented.\n"
+            "- Third-party CLI skill installers do not install this agent's runtime plugin; use terminal for the CLI, then write SKILL.md here.\n"
+            "- Restart or reload the runtime after changing `runtime/plugins/*/SKILL.md` before expecting prompt changes.\n"
             "- Use source='infrastructure.database' for user records: target='settings' for AI settings, 'personas' for personalities,\n"
-            "  'sessions' for chat sessions, 'conversations' for message history, 'skills' for plugin states.\n"
+            "  'sessions' for chat sessions, 'conversations' for message history, 'skills' for plugin enable/visibility states.\n"
             "- Database queries use the calling user's ID automatically.\n"
         )
 
@@ -131,7 +137,7 @@ class ProjectConfigTool(BaseTool):
         ensure_supported_config_target(path, file_format)
         if action == "delete" and not arguments.get("key") and path.exists():
             path.unlink()
-            return f"Deleted infrastructure.config file: {path.name}"
+            return f"Deleted file: {path.name}"
         data = load_data(path, file_format)
         if action == "get":
             return render_value(get_value(data, file_format, str(arguments.get("key") or "").strip() or None))

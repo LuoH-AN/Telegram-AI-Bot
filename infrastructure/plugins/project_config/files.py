@@ -40,17 +40,42 @@ def detect_format(path: Path, format_hint: str = "auto") -> str:
     return "text"
 
 
+def is_external_skill_manifest(path: Path) -> bool:
+    try:
+        rel_path = path.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        return False
+    parts = rel_path.parts
+    return (
+        len(parts) == 4
+        and parts[0] == "runtime"
+        and parts[1] == "plugins"
+        and bool(parts[2])
+        and parts[3] == "SKILL.md"
+    )
+
+
 def ensure_supported_config_target(path: Path, file_format: str) -> None:
     suffix = path.suffix.lower()
     if file_format in {"env", "json", "ini"}:
         return
+    if file_format == "text" and is_external_skill_manifest(path):
+        return
     if suffix in {".yaml", ".yml", ".toml", ".txt"}:
         return
-    raise ValueError("project_config only supports repository infrastructure.config files, not source code files")
+    raise ValueError(
+        "project_config supports config files and runtime/plugins/<name>/SKILL.md manifests, not source code files"
+    )
 
 
 def discover_config_files(limit: int = 200) -> list[str]:
     found: list[str] = []
+    plugin_root = REPO_ROOT / "runtime" / "plugins"
+    if plugin_root.is_dir():
+        for path in plugin_root.glob("*/SKILL.md"):
+            found.append(str(path.relative_to(REPO_ROOT)))
+            if len(found) >= limit:
+                return sorted(set(found))
     for path in REPO_ROOT.rglob("*"):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
