@@ -2,6 +2,7 @@
 
 from telegram import Update
 
+import infrastructure.runtime  # records process start time for /status
 from infrastructure.cache import init_database
 from infrastructure.config import TELEGRAM_BOT_TOKEN
 

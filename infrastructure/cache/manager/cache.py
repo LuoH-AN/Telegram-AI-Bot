@@ -13,6 +13,7 @@ from .session.current import SessionsCurrentMixin
 from .session.store import SessionsStoreMixin
 from .settings import SettingsMixin
 from .skill import SkillsMixin
+from .stats import StatsMixin
 from .state.maps import init_cache_maps
 from .state.dirty import init_dirty_state
 from .token import TokensMixin
@@ -28,6 +29,7 @@ class CacheManager(
     MemoriesMixin,
     CronMixin,
     SkillsMixin,
+    StatsMixin,
     DirtyMixin,
 ):
     """Manages in-memory caches and dirty sync state."""

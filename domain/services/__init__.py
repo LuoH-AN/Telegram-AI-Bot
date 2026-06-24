@@ -60,6 +60,7 @@ from .conversation import (
 )
 from .queue import conversation_slot
 from .update import run_hot_update, schedule_process_restart, run_safe_restart
+from .status import build_status_text
 
 __all__ = [
     "get_user_settings", "update_user_setting", "has_api_key",
@@ -81,4 +82,5 @@ __all__ = [
     "clear_conversation", "get_message_count",
     "conversation_slot",
     "run_hot_update", "schedule_process_restart", "run_safe_restart",
+    "build_status_text",
 ]

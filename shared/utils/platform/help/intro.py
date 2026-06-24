@@ -49,6 +49,7 @@ def build_help_message(prefix: str) -> str:
         f"• `{prefix}memories` - view memories\n"
         f"• `{prefix}forget <num|all>` - delete memory\n"
         f"• `{prefix}usage` - view usage\n"
+        f"• `{prefix}status` - view project status\n"
         f"• `{prefix}export` - export conversation\n"
         f"• `{prefix}skill <list|install|remove|enable|disable|info>` - manage skills"
     )

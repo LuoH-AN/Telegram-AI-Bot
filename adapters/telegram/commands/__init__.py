@@ -2,6 +2,7 @@
 
 from .basic import start, help_command, clear
 from .lifecycle import stop, update, restart
+from .status import status
 from .usage import usage_command, export_command
 from .memory import remember_command, memories_command, forget_command
 from .persona import persona_command
@@ -16,6 +17,7 @@ __all__ = [
     "stop",
     "update",
     "restart",
+    "status",
     "settings_command",
     "set_command",
     "_build_model_keyboard",

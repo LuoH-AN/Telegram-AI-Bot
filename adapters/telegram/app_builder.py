@@ -32,6 +32,7 @@ from adapters.telegram.handlers import (
     settings_command,
     skill_command,
     start,
+    status,
     stop,
     restart,
     usage_command,
@@ -43,6 +44,7 @@ from .error_handler import build_error_handler
 def _register_handlers(application: Application) -> None:
     for name, handler in (
         ("start", start),
+        ("status", status),
         ("help", help_command),
         ("clear", clear),
         ("stop", stop),

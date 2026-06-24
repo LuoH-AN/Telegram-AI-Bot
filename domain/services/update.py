@@ -28,6 +28,22 @@ def _run(command: list[str], *, timeout: int = 1200) -> subprocess.CompletedProc
     return subprocess.run(command, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=timeout)
 
 
+def git_info() -> dict:
+    head = _run(["git", "rev-parse", "--short", "HEAD"], timeout=30)
+    if head.returncode != 0:
+        return {"available": False}
+    branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], timeout=30)
+    status = _run(["git", "status", "--porcelain"], timeout=30)
+    branch_out = (branch.stdout or "").strip()
+    changed = len([line for line in (status.stdout or "").splitlines() if line.strip()])
+    return {
+        "available": True,
+        "commit": (head.stdout or "").strip(),
+        "branch": branch_out if branch_out not in ("", "HEAD") else "detached",
+        "changed_files": changed,
+    }
+
+
 def _bootstrap_git_repo(branch: str) -> tuple[bool, str]:
     repo_url = (os.getenv("HOT_UPDATE_REPO_URL", "") or "").strip()
     if not repo_url:
