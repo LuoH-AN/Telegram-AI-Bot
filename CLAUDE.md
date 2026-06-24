@@ -1,4 +1,4 @@
-When writing code, the number of lines per file should not exceed 120.
+When you write code, don't overload each file with non-single-responsibility code, and focus on frugality.
 
 Don't use too many comments to explain.
 
