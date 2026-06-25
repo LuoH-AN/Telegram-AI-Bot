@@ -1,32 +1,24 @@
-"""Command handlers module."""
+"""Telegram command handlers.
 
-from .basic import start, help_command, clear
-from .lifecycle import stop, update, restart
-from .status import status
-from .usage import usage_command, export_command
-from .memory import remember_command, memories_command, forget_command
-from .persona import persona_command
-from .chat import chat_command
-from .settings import settings_command, set_command, _build_model_keyboard
-from .skill import skill_command
+Importing this package imports every command module, which registers each
+command with the registry via its ``@command`` decorator. ``app_builder`` then
+builds ``CommandHandler``s from ``all_commands()`` and ``/help`` renders from it.
+"""
 
-__all__ = [
-    "start",
-    "help_command",
-    "clear",
-    "stop",
-    "update",
-    "restart",
-    "status",
-    "settings_command",
-    "set_command",
-    "_build_model_keyboard",
-    "usage_command",
-    "export_command",
-    "remember_command",
-    "memories_command",
-    "forget_command",
-    "persona_command",
-    "chat_command",
-    "skill_command",
-]
+from .registry import all_commands, command
+
+# Importing these registers their commands (side effect of @command decorators).
+# Import order sets the /help listing order (registration order).
+from . import (  # noqa: F401
+    basic,
+    persona,
+    chat,
+    settings,
+    lifecycle,
+    memory,
+    usage,
+    status,
+    skill,
+)
+
+__all__ = ["all_commands", "command"]

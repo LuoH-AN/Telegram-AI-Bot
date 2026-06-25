@@ -1,1 +1,1 @@
-"""Application use cases and commands."""
+"""Application use cases."""

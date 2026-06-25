@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 
 def format_log_context(*, platform: str, user_id: int, scope: str, chat_id: int) -> str:
     return f"[platform={platform} user={user_id} scope={scope} chat={chat_id}]"
@@ -27,29 +29,15 @@ def build_start_message_returning(persona: str, prefix: str) -> str:
     )
 
 
-def build_help_message(prefix: str) -> str:
-    return (
-        "📚 **AI Bot Help**\n\n"
-        "Send text, images, or files to chat with AI.\n"
-        "AI can use installed tools during chat when the current model supports them.\n\n"
-        "📍 **In groups:** mention the bot or reply to a bot message\n"
-        "📍 **In private chats/DMs:** direct chat works\n\n"
-        "**Commands:**\n"
-        f"• `{prefix}start` - show welcome message\n"
-        f"• `{prefix}help` - show this help\n"
-        f"• `{prefix}persona` - manage personas\n"
-        f"• `{prefix}chat` - manage sessions\n"
-        f"• `{prefix}settings` - view settings\n"
-        f"• `{prefix}set <key> <value>` - modify settings\n"
-        f"• `{prefix}clear` - clear conversation\n"
-        f"• `{prefix}stop` - stop active response\n"
-        f"• `{prefix}restart` - restart bot processes safely\n"
-        f"• `{prefix}update` - pull latest bot code\n"
-        f"• `{prefix}remember <text>` - add memory\n"
-        f"• `{prefix}memories` - view memories\n"
-        f"• `{prefix}forget <num|all>` - delete memory\n"
-        f"• `{prefix}usage` - view usage\n"
-        f"• `{prefix}status` - view project status\n"
-        f"• `{prefix}export` - export conversation\n"
-        f"• `{prefix}skill <list|install|remove|enable|disable|info>` - manage skills"
-    )
+def build_help_message(prefix: str, commands: Iterable[tuple[str, str]]) -> str:
+    lines = [
+        "📚 **AI Bot Help**\n",
+        "Send text, images, or files to chat with AI.",
+        "AI can use installed tools during chat when the current model supports them.\n",
+        "📍 **In groups:** mention the bot or reply to a bot message",
+        "📍 **In private chats/DMs:** direct chat works\n",
+        "**Commands:**",
+    ]
+    for usage, help in commands:
+        lines.append(f"• `{prefix}{usage}` - {help}")
+    return "\n".join(lines)

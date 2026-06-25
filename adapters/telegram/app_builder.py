@@ -14,54 +14,20 @@ from infrastructure.config import (
     TELEGRAM_SEND_QUEUE_WARN_THRESHOLD,
     TELEGRAM_SEND_RETRY_JITTER,
 )
+from adapters.telegram.commands import all_commands
 from adapters.telegram.handlers import (
     chat,
-    chat_command,
-    clear,
-    export_command,
-    forget_command,
     handle_document,
     handle_photo,
     help_callback,
-    help_command,
-    memories_command,
     model_callback,
-    persona_command,
-    remember_command,
-    set_command,
-    settings_command,
-    skill_command,
-    start,
-    status,
-    stop,
-    restart,
-    usage_command,
-    update,
 )
 from .rate import QueuedRateLimiter
 from .error_handler import build_error_handler
 
 def _register_handlers(application: Application) -> None:
-    for name, handler in (
-        ("start", start),
-        ("status", status),
-        ("help", help_command),
-        ("clear", clear),
-        ("stop", stop),
-        ("restart", restart),
-        ("update", update),
-        ("persona", persona_command),
-        ("chat", chat_command),
-        ("settings", settings_command),
-        ("set", set_command),
-        ("export", export_command),
-        ("usage", usage_command),
-        ("remember", remember_command),
-        ("memories", memories_command),
-        ("forget", forget_command),
-        ("skill", skill_command),
-    ):
-        application.add_handler(CommandHandler(name, handler))
+    for cmd in all_commands():
+        application.add_handler(CommandHandler(cmd.name, cmd.handler))
     application.add_handler(CallbackQueryHandler(model_callback, pattern=r"^model:|^models_"))
     application.add_handler(CallbackQueryHandler(help_callback, pattern=r"^help:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))

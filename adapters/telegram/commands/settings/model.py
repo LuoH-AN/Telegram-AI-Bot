@@ -1,4 +1,4 @@
-"""Model list helpers for /set model interaction."""
+"""Model picker UI and provider-prefixed model `/set` handlers."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import asyncio
 import logging
 import math
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
 
 from adapters.telegram.rich_text import edit_rich_text, reply_rich_text
 from infrastructure.ai import get_ai_client
 from infrastructure.config import MODELS_PER_PAGE
-from domain.services import get_user_settings, has_api_key
-from shared.utils.platform import build_api_key_required_message
+from domain.services import get_user_settings, has_api_key, update_user_setting
+from shared.utils.platform import build_api_key_required_message, build_provider_save_hint_message
 
 logger = logging.getLogger(__name__)
 
@@ -64,3 +64,30 @@ async def show_model_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
     context.user_data["models"] = models
     keyboard = _build_model_keyboard(models, page, settings["model"])
     await edit_rich_text(msg, f"Select a model (current: {settings['model']}):", reply_markup=keyboard)
+
+
+async def handle_specialized_model_set(
+    message: Message, *, user_id: int, settings: dict, key: str, value: str, command_prefix: str
+) -> bool:
+    val = value.strip()
+    if not val or val.lower() in {"off", "clear", "none"}:
+        update_user_setting(user_id, key, "")
+        await reply_rich_text(message, f"{key} cleared (will use current provider + model)")
+        return True
+    update_user_setting(user_id, key, val)
+    if ":" not in val:
+        await reply_rich_text(message, f"{key} set to: {val}\n(uses current provider's API)")
+        return True
+    provider, model = val.split(":", 1)
+    presets = settings.get("api_presets", {})
+    found = any(name.lower() == provider.lower() for name in presets)
+    if found:
+        await reply_rich_text(message, f"{key} set to: {val}\nProvider: {provider} | Model: {model}")
+        return True
+    available = ", ".join(presets.keys()) if presets else "(none)"
+    await reply_rich_text(
+        message,
+        f"{key} set to: {val}\nProvider '{provider}' not found in presets.\n"
+        f"Available: {available}\n{build_provider_save_hint_message(command_prefix)}",
+    )
+    return True

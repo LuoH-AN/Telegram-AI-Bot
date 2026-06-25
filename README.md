@@ -107,7 +107,8 @@ python main.py
 
 - 新增业务逻辑放到 `domain/services/`
 - 新增模型能力走 `infrastructure/ai/` 抽象层
-- 应用命令编排放到 `application/commands/` 或 `application/use_cases/`
+- 平台无关命令逻辑放到 `application/use_cases/`
+- Telegram 命令实现放到 `adapters/telegram/commands/`（命令注册见该处注册表）
 - Telegram handler 放到 `adapters/telegram/handlers/`
 - 用户面文案优先复用 `shared/utils/platform/`
 
