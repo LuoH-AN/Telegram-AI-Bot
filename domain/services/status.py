@@ -39,8 +39,8 @@ def _memory_mb() -> str:
 
 def _plugin_names() -> list[str]:
     try:
-        from infrastructure.plugins.core.manager import get_plugin_manager
-        return [manifest.name for manifest in get_plugin_manager().list_plugins()]
+        from infrastructure.tools.skills.manager import get_skill_manager
+        return [manifest.name for manifest in get_skill_manager().list_manifests()]
     except Exception:
         return []
 

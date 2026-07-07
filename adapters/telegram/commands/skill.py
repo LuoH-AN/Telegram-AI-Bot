@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 
 from adapters.telegram.handlers.common import get_log_context
 from adapters.telegram.rich_text import reply_rich_text
-from infrastructure.plugins.core import dispatch_skill_command
+from infrastructure.tools.skills.commands import dispatch_skill_command
 
 from .registry import command
 

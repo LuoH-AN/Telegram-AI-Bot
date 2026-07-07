@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from infrastructure.config import SHOW_THINKING_MAX_CHARS, STREAM_UPDATE_MODE
@@ -36,7 +35,7 @@ async def generate_with_tools(
     user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
     user_reasoning_effort = normalize_reasoning_effort(settings.get("reasoning_effort", ""))
     show_thinking = bool(settings.get("show_thinking"))
-    from infrastructure.plugins import get_all_tools, process_tool_calls
+    from infrastructure.tools import get_all_tools, process_tool_calls
     tool_definitions = get_all_tools(enabled_tools="all", user_id=user_id)
 
     while True:
@@ -63,8 +62,7 @@ async def generate_with_tools(
                 if visible:
                     await runtime.outbound.deliver_final(visible)
                     runtime.clear_placeholder()
-            tool_results = await asyncio.to_thread(
-                process_tool_calls,
+            tool_results = await process_tool_calls(
                 user_id,
                 tool_calls,
                 "all",

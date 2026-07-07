@@ -1,0 +1,20 @@
+[
+  {
+    "name": "fetch",
+    "transport": "http",
+    "url": "https://mcp.example.com/mcp",
+    "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+  },
+  {
+    "name": "filesystem",
+    "transport": "sse",
+    "url": "https://mcp.example.com/sse"
+  },
+  {
+    "name": "git",
+    "transport": "stdio",
+    "command": "uvx",
+    "args": ["mcp-server-git", "--repository", "/path/to/repo"],
+    "env": {}
+  }
+]

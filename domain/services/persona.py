@@ -15,7 +15,7 @@ TOOL_PROGRESS_PROMPT = (
 
 def _get_skill_instructions(user_id: int) -> str:
     try:
-        from infrastructure.plugins import get_tool_instructions
+        from infrastructure.tools import get_tool_instructions
         return get_tool_instructions("all", user_id=user_id)
     except Exception:
         return ""
