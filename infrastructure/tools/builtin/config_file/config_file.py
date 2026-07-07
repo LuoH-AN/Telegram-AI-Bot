@@ -25,8 +25,8 @@ CONFIG_FILE_INSTRUCTION = (
 
 
 def _run_file(action: str, path_raw: str, key: str, value: Any, format_hint: str, user_id: int) -> ToolResult:
-    from infrastructure.tools.admin.files import detect_format, discover_config_files, discover_env_keys, ensure_supported_config_target, resolve_config_path
-    from infrastructure.tools.admin.formats import delete_value, dump_data, get_value, load_data, render_value, set_value
+    from infrastructure.tools.builtin.config_file.files import detect_format, discover_config_files, discover_env_keys, ensure_supported_config_target, resolve_config_path
+    from infrastructure.tools.builtin.config_file.formats import delete_value, dump_data, get_value, load_data, render_value, set_value
     from infrastructure.tools.skills.agent_plugins import register_external_skill_manifest, unregister_external_skill_manifest
 
     if action == "inspect":

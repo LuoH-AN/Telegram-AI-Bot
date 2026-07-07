@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from infrastructure.tools.system.state import REPO_ROOT
+from infrastructure.tools.builtin.terminal.state import REPO_ROOT
 
 CONFIG_SUFFIXES = {".json", ".ini", ".cfg", ".yaml", ".yml", ".toml"}
 SKIP_DIRS = {".git", "__pycache__", "runtime", ".venv", "venv", "node_modules"}

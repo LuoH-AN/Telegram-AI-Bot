@@ -10,7 +10,7 @@ from .manifest import load_manifest
 
 def register_external_skill_manifest(user_id: int, path: Path) -> str:
     """Called after writing a runtime/plugins/<name>/SKILL.md: hot-load + register for user."""
-    from infrastructure.tools.admin.files import is_external_skill_manifest as _is_ext
+    from infrastructure.tools.builtin.config_file.files import is_external_skill_manifest as _is_ext
 
     if not _is_ext(path):
         return ""
@@ -24,7 +24,7 @@ def register_external_skill_manifest(user_id: int, path: Path) -> str:
 
 
 def unregister_external_skill_manifest(user_id: int, path: Path) -> str:
-    from infrastructure.tools.admin.files import is_external_skill_manifest as _is_ext
+    from infrastructure.tools.builtin.config_file.files import is_external_skill_manifest as _is_ext
     if not _is_ext(path):
         return ""
     try:
