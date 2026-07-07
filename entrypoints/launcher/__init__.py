@@ -1,5 +1,6 @@
 """Launcher helpers for multi-platform runtime."""
 
+from .backup import restore as restore_backup, start_daemon as start_backup_daemon
 from .bootstrap_cli import run_cli_bootstrap
 from .env_helpers import apply_env_text, get_telegram_port, is_configured_token
 from .process_helpers import (
@@ -16,6 +17,8 @@ __all__ = [
     "apply_env_text",
     "get_telegram_port",
     "is_configured_token",
+    "restore_backup",
+    "start_backup_daemon",
     "ChildProcess",
     "start_child",
     "terminate_children",

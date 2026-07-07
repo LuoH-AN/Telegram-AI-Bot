@@ -11,6 +11,16 @@
 # Deps go to the app user's ~/.local via PIP_USER=1, so the runtime hot-update
 # path (`pip install -r requirements.txt`, which inherits this env) installs to
 # the same place as the build — no drift between build and /update.
+#
+# Persistence model (ephemeral container):
+#   /data    runtime-generated state (CLI bootstrap list, installed plugins).
+#            Ephemeral by default — wiped on every container rebuild.
+#   /backup  the ONLY durable location. The operator mounts HF Space persistent
+#            storage here. On startup the app restores /data from /backup/data.zip;
+#            a background daemon snapshots /data -> /backup/data.zip every
+#            BACKUP_INTERVAL_SECONDS (default 600). Keep /backup persistent or
+#            nothing survives a rebuild. Tune via BACKUP_* env vars; disable with
+#            BACKUP_ENABLED=0.
 
 FROM python:3.12-slim
 
@@ -43,6 +53,13 @@ RUN set -eux; \
     groupadd --gid 1000 --system app; \
     useradd --uid 1000 --gid app --system --create-home --shell /bin/bash app
 
+# Persistence dirs. /data holds runtime state; /backup is the durable snapshot
+# target (mount HF Space persistent storage here). Both owned by app so the
+# non-root process can read/write without privilege escalation.
+RUN set -eux; \
+    mkdir -p /data /backup; \
+    chown -R app:app /data /backup
+
 WORKDIR ${APP_DIR}
 
 # Clone as the app user so the bundled .git is owned by app — runtime
@@ -64,7 +81,7 @@ RUN --mount=type=cache,target=/home/app/.cache/pip,sharing=locked \
 # fast on syntax/import errors instead of crashing at runtime in the Space.
 RUN set -eux; \
     python -m compileall -q "${APP_DIR}"; \
-    python -c "import adapters.http.web_app, adapters.telegram.app, entrypoints.main; print('smoke import OK')"
+    python -c "import adapters.http.web_app, adapters.telegram.app, entrypoints.main, entrypoints.launcher.backup; print('smoke import OK')"
 
 EXPOSE 7860
 

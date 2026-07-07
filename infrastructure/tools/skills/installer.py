@@ -15,7 +15,7 @@ from pathlib import Path
 from .manifest import SKILL_FILENAME, load_manifest
 
 logger = logging.getLogger(__name__)
-PLUGIN_DIR = Path(os.getenv("PLUGIN_DIR", "runtime/plugins"))
+PLUGIN_DIR = Path(os.getenv("PLUGIN_DIR", "/data/plugins"))
 INSTALLED_MARKER = PLUGIN_DIR / ".installed"
 
 

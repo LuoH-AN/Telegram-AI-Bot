@@ -18,7 +18,9 @@ from entrypoints.launcher import (
     apply_env_text,
     get_telegram_port,
     is_configured_token,
+    restore_backup,
     run_cli_bootstrap,
+    start_backup_daemon,
     start_child,
     terminate_children,
     wait_for_first_exit,
@@ -42,9 +44,17 @@ def _start_children() -> list:
 def main() -> int:
     load_dotenv()
 
+    # Restore /data from the latest /backup snapshot before anything reads it
+    # (CLI bootstrap, plugins). Ephemeral-container persistence: /backup is the
+    # only durable location; /data is rebuilt from it on each cold start.
+    restore_backup()
+
     serve_in_thread(WEB_PORT)
     print(f">>> Web server running on http://0.0.0.0:{WEB_PORT}", flush=True)
     print(f">>> OpenAPI tools available at http://0.0.0.0:{WEB_PORT}/tools (spec: /openapi.json)", flush=True)
+
+    # Periodically snapshot /data -> /backup so the next cold start can restore.
+    start_backup_daemon()
 
     current_children: list = []
 

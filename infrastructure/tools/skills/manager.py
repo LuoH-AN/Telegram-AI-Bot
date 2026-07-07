@@ -18,7 +18,7 @@ from .manifest import SkillManifest, load_manifest
 logger = logging.getLogger(__name__)
 
 BUILTIN_SKILL_ROOTS = [Path(__file__).resolve().parent / "builtin"]
-EXTERNAL_SKILL_DIR = Path(os.getenv("PLUGIN_DIR", "runtime/plugins"))
+EXTERNAL_SKILL_DIR = Path(os.getenv("PLUGIN_DIR", "/data/plugins"))
 
 
 class SkillLoadError(Exception):
