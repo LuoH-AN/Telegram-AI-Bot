@@ -1,43 +1,72 @@
+# syntax=docker/dockerfile:1.7
+# Docker image for Hugging Face Spaces.
+#
+# Runtime shape:
+#   - The repo is cloned at build time; the /update Telegram command runs
+#     `git fetch && git pull` at runtime, so `git` is a runtime dependency.
+#   - PostgreSQL is external: only the psycopg2 driver is installed here.
+#     Set DATABASE_URL in Space Secrets to a hosted PG (Neon/Supabase/...).
+#   - Listens on 7860 (HF Space default). HF Spaces require a non-root user.
+#
+# Deps go to the app user's ~/.local via PIP_USER=1, so the runtime hot-update
+# path (`pip install -r requirements.txt`, which inherits this env) installs to
+# the same place as the build — no drift between build and /update.
+
 FROM python:3.12-slim
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-ENV PIP_ROOT_USER_ACTION=ignore
-ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_USER=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 ARG REPO_URL="https://github.com/LuoH-AN/Telegram-AI-Bot.git"
 ARG REPO_BRANCH="main"
 
-ENV HOT_UPDATE_REPO_URL="${REPO_URL}"
-ENV HOT_UPDATE_BRANCH="${REPO_BRANCH}"
-ENV APP_DIR="/opt/telegram-ai-bot"
+ENV HOT_UPDATE_REPO_URL="${REPO_URL}" \
+    HOT_UPDATE_BRANCH="${REPO_BRANCH}" \
+    APP_DIR="/opt/telegram-ai-bot" \
+    PATH="/home/app/.local/bin:${PATH}" \
+    PYTHONPATH="${APP_DIR}"
+
+# System deps: git for runtime hot-update (fetch/pull), curl for health checks
+# and the third-party installer skill. APT caches are BuildKit-mounted.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends bash ca-certificates curl git
+
+# Non-root user (HF Spaces requirement). UID 1000 is the conventional choice.
+RUN set -eux; \
+    groupadd --gid 1000 --system app; \
+    useradd --uid 1000 --gid app --system --create-home --shell /bin/bash app
 
 WORKDIR ${APP_DIR}
 
-# System dependencies
+# Clone as the app user so the bundled .git is owned by app — runtime
+# `git pull` (via /update) then has write access without privilege issues.
 RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-      bash \
-      ca-certificates \
-      curl \
-      git; \
-    rm -rf /var/lib/apt/lists/*
+    mkdir -p "${APP_DIR}"; \
+    chown -R app:app "${APP_DIR}"; \
+    su app -c "git clone --depth=1 --branch '${REPO_BRANCH}' '${REPO_URL}' '${APP_DIR}'"
 
-# Invalidate the clone layer when the default GitHub branch changes.
-# If REPO_URL or REPO_BRANCH is changed, update this URL to match.
-ADD https://api.github.com/repos/LuoH-AN/Telegram-AI-Bot/commits/main /tmp/source-revision.json
+USER app
 
-# Clone repo
-RUN set -eux; \
-    git clone --depth=1 --branch "${REPO_BRANCH}" "${REPO_URL}" "${APP_DIR}"
-
-# Install Python dependencies
-RUN set -eux; \
-    test -f "${APP_DIR}/entrypoints/main.py"; \
-    python -m py_compile "${APP_DIR}/entrypoints/main.py"; \
+# Install Python deps. No GitHub-API cache-bust hack: layer caching is keyed on
+# the cloned requirements.txt content, so rebuilds only happen on real changes.
+RUN --mount=type=cache,target=/home/app/.cache/pip,sharing=locked \
+    set -eux; \
     python -m pip install --no-cache-dir -r "${APP_DIR}/requirements.txt"
+
+# Pre-flight: compile the whole tree + import smoke test, so the build fails
+# fast on syntax/import errors instead of crashing at runtime in the Space.
+RUN set -eux; \
+    python -m compileall -q "${APP_DIR}"; \
+    python -c "import adapters.http.web_app, adapters.telegram.app, entrypoints.main; print('smoke import OK')"
 
 EXPOSE 7860
 
+USER app
 CMD ["python", "-m", "entrypoints.main"]
