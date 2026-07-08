@@ -15,7 +15,7 @@ from shared.utils.platform import (
 from .registry import CommandContext, command
 
 
-@command("remember", usage="remember <text>", help="add memory")
+@command("remember", usage="remember <text>", help="add memory", category="Memory")
 async def remember_command(ctx: CommandContext) -> str:
     content = ctx.arg_text.strip() or None
     if not content:
@@ -24,7 +24,7 @@ async def remember_command(ctx: CommandContext) -> str:
     return f"Remembered: {content}"
 
 
-@command("memories", help="view memories")
+@command("memories", help="view memories", category="Memory")
 async def memories_command(ctx: CommandContext) -> str:
     memories = get_memories(ctx.user_id)
     if not memories:
@@ -37,7 +37,7 @@ async def memories_command(ctx: CommandContext) -> str:
     return "\n".join(lines)
 
 
-@command("forget", usage="forget <num|all>", help="delete memory")
+@command("forget", usage="forget <num|all>", help="delete memory", category="Memory")
 async def forget_command(ctx: CommandContext) -> str:
     target = ctx.args[0] if ctx.args else ""
     if not target:

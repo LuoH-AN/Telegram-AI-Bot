@@ -10,13 +10,13 @@ from domain.services.queue import cancel_user_responses
 from .registry import CommandContext, command
 
 
-@command("stop", help="stop active response", refresh_state=False)
+@command("stop", help="stop active response", category="Chat", refresh_state=False)
 async def stop_command(ctx: CommandContext) -> str:
     cancelled = cancel_user_responses(ctx.chat_id, ctx.user_id, platform="telegram")
     return f"Stopped {len(cancelled)} active response(s)." if cancelled else "No active responses to stop."
 
 
-@command("update", help="pull latest bot code", refresh_state=False)
+@command("update", help="pull latest bot code", category="System", refresh_state=False)
 async def update_command(ctx: CommandContext) -> str:
     await ctx.message.reply_text("Starting hot update: fetching latest code...")
     result = await asyncio.to_thread(run_hot_update)
@@ -33,7 +33,7 @@ async def update_command(ctx: CommandContext) -> str:
     )
 
 
-@command("restart", help="restart bot processes safely")
+@command("restart", help="restart bot processes safely", category="System")
 async def restart_command(ctx: CommandContext) -> str:
     await ctx.message.reply_text("Syncing runtime state before restart...")
     result = await asyncio.to_thread(run_safe_restart)

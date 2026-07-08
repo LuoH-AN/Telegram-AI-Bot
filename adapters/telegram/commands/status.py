@@ -7,6 +7,6 @@ from domain.services import build_status_text
 from .registry import CommandContext, command
 
 
-@command("status", help="view project status", refresh_state=False)
+@command("status", help="view project status", category="System", refresh_state=False)
 async def status_command(ctx: CommandContext) -> str:
     return build_status_text(ctx.user_id)

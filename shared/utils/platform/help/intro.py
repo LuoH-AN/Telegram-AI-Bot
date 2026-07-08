@@ -29,15 +29,17 @@ def build_start_message_returning(persona: str, prefix: str) -> str:
     )
 
 
-def build_help_message(prefix: str, commands: Iterable[tuple[str, str]]) -> str:
+def build_help_message(prefix: str, groups: Iterable[tuple[str, Iterable[tuple[str, str]]]]) -> str:
     lines = [
         "📚 **AI Bot Help**\n",
         "Send text, images, or files to chat with AI.",
         "AI can use installed tools during chat when the current model supports them.\n",
         "📍 **In groups:** mention the bot or reply to a bot message",
-        "📍 **In private chats/DMs:** direct chat works\n",
-        "**Commands:**",
+        "📍 **In private chats/DMs:** direct chat works",
     ]
-    for usage, help in commands:
-        lines.append(f"• `{prefix}{usage}` - {help}")
+    for category, commands in groups:
+        lines.append(f"\n**{category}**")
+        for usage, help in commands:
+            lines.append(f"• `{prefix}{usage}` - {help}")
     return "\n".join(lines)
+

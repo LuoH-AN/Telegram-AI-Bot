@@ -12,7 +12,7 @@ from shared.utils.platform import build_usage_reset_message
 from .registry import CommandContext, command
 
 
-@command("usage", usage="usage [reset]", help="view usage")
+@command("usage", usage="usage [reset]", help="view usage", category="Settings")
 async def usage_command(ctx: CommandContext) -> str:
     persona_name = get_current_persona_name(ctx.user_id)
     if ctx.subcommand == "reset":
@@ -21,7 +21,7 @@ async def usage_command(ctx: CommandContext) -> str:
     return build_usage_text(ctx.user_id)
 
 
-@command("export", help="export conversation")
+@command("export", help="export conversation", category="Chat")
 async def export_command(ctx: CommandContext) -> str:
     persona_name = get_current_persona_name(ctx.user_id)
     file_buffer = export_to_markdown(ctx.user_id, persona_name)

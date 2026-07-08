@@ -33,6 +33,7 @@ class CommandContext:
     """Everything a command handler needs, pre-resolved."""
 
     update: Update
+    context: ContextTypes.DEFAULT_TYPE
     user_id: int
     chat_id: int
     message: object
@@ -52,6 +53,7 @@ class Command:
     handler: Handler
     usage: str = ""
     help: str = ""
+    category: str = "Other"
     refresh_state: bool = True  # run ensure_user_state before the handler
 
     @property
@@ -59,17 +61,28 @@ class Command:
         return self.usage or self.name
 
 
+# Display order for /help grouping. Commands in unknown categories land last.
+CATEGORY_ORDER = ["Chat", "Memory", "Persona", "Settings", "Skills", "System"]
+CATEGORY_TITLES = {
+    "Chat": "💬 Chat",
+    "Memory": "🧠 Memory",
+    "Persona": "🎭 Personas",
+    "Settings": "⚙️ Settings",
+    "Skills": "🔌 Skills",
+    "System": "🔧 System",
+}
+
 _REGISTRY: dict[str, Command] = {}
 _ORDER: list[str] = []
 
 
-def command(name: str, *, usage: str = "", help: str = "", refresh_state: bool = True):
+def command(name: str, *, usage: str = "", help: str = "", category: str = "Other", refresh_state: bool = True):
     """Register a command. Handler: ``async def(ctx) -> str``."""
 
     def decorate(handler: Handler) -> Handler:
         if name in _REGISTRY:
             _ORDER.remove(name)
-        _REGISTRY[name] = Command(name=name, handler=handler, usage=usage, help=help, refresh_state=refresh_state)
+        _REGISTRY[name] = Command(name=name, handler=handler, usage=usage, help=help, category=category, refresh_state=refresh_state)
         _ORDER.append(name)
         return handler
 
@@ -78,6 +91,18 @@ def command(name: str, *, usage: str = "", help: str = "", refresh_state: bool =
 
 def all_commands() -> list[Command]:
     return [_REGISTRY[name] for name in _ORDER]
+
+
+def grouped_commands() -> list[tuple[str, list[Command]]]:
+    """Commands grouped by category, in CATEGORY_ORDER; unknown categories last."""
+    buckets: dict[str, list[Command]] = {}
+    for cmd in all_commands():
+        buckets.setdefault(cmd.category, []).append(cmd)
+    ordered = [(cat, buckets[cat]) for cat in CATEGORY_ORDER if cat in buckets]
+    for cat, cmds in buckets.items():
+        if cat not in CATEGORY_ORDER:
+            ordered.append((cat, cmds))
+    return ordered
 
 
 def get_command(name: str) -> Command | None:
@@ -100,15 +125,20 @@ def _declares_command(path: Path) -> bool:
 
 
 def discover() -> list[str]:
-    """Import every command module under this package (side-effect registers)."""
+    """Import every command module under this package, recursing into subpackages.
+
+    A module is imported only if it declares a ``@command`` at module top level,
+    so helper modules inside a subpackage are skipped.
+    """
     package_dir = Path(__file__).resolve().parent
     imported: list[str] = []
-    for path in sorted(package_dir.glob("*.py")):
-        if path.name in {"__init__.py", "registry.py"}:
+    for path in sorted(package_dir.rglob("*.py")):
+        if path.name == "__init__.py" or path.name == "registry.py":
             continue
         if not _declares_command(path):
             continue
-        module = f"adapters.telegram.commands.{path.stem}"
+        rel = path.relative_to(package_dir).with_suffix("")
+        module = "adapters.telegram.commands." + ".".join(rel.parts)
         try:
             importlib.import_module(module)
             imported.append(module)
@@ -130,6 +160,7 @@ async def _invoke(cmd: Command, update: Update, context: ContextTypes.DEFAULT_TY
         await ensure_user_state(user_id)
     ctx = CommandContext(
         update=update,
+        context=context,
         user_id=user_id,
         chat_id=chat_id,
         message=update.effective_message,
