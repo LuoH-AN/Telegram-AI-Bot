@@ -14,7 +14,7 @@ from infrastructure.config import (
     TELEGRAM_SEND_QUEUE_WARN_THRESHOLD,
     TELEGRAM_SEND_RETRY_JITTER,
 )
-from adapters.telegram.commands import all_commands
+from adapters.telegram.commands import all_commands, make_handler
 from adapters.telegram.handlers import (
     chat,
     handle_document,
@@ -27,7 +27,7 @@ from .error_handler import build_error_handler
 
 def _register_handlers(application: Application) -> None:
     for cmd in all_commands():
-        application.add_handler(CommandHandler(cmd.name, cmd.handler))
+        application.add_handler(CommandHandler(cmd.name, make_handler(cmd)))
     application.add_handler(CallbackQueryHandler(model_callback, pattern=r"^model:|^models_"))
     application.add_handler(CallbackQueryHandler(help_callback, pattern=r"^help:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
