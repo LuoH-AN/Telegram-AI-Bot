@@ -1,7 +1,6 @@
 """Session switch use case."""
 
 from domain.services import get_session_message_count, get_sessions, switch_session
-from shared.utils.platform import build_chat_unknown_subcommand_message
 
 
 def switch_session_text(
@@ -14,7 +13,7 @@ def switch_session_text(
     try:
         index = int(subcmd)
     except ValueError:
-        return build_chat_unknown_subcommand_message(command_prefix)
+        return f"❌ Invalid session number. Use `{command_prefix}chat switch <number>`."
 
     if not switch_session(user_id, index, persona_name):
         total = len(get_sessions(user_id, persona_name))

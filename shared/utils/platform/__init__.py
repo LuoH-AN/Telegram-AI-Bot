@@ -3,7 +3,6 @@
 from .chat import (
     build_chat_commands_message,
     build_chat_no_sessions_message,
-    build_chat_unknown_subcommand_message,
 )
 from .config import SHARED_TOOL_STATUS_MAP, SET_COMMAND_KEYS, _build_set_key_lines
 from .help import (

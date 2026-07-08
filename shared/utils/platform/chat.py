@@ -10,21 +10,9 @@ def build_chat_no_sessions_message(persona_name: str, prefix: str) -> str:
     )
 
 
-def build_chat_unknown_subcommand_message(prefix: str) -> str:
-    return (
-        "❌ **Unknown subcommand.**\n\n"
-        "**Usage:**\n"
-        f"• `{prefix}chat` - list sessions\n"
-        f"• `{prefix}chat new [title]` - create session\n"
-        f"• `{prefix}chat <number>` - switch session\n"
-        f"• `{prefix}chat rename [number] [title]` - rename (AI if title omitted)\n"
-        f"• `{prefix}chat delete <number>` - delete"
-    )
-
-
 def build_chat_commands_message(prefix: str) -> str:
     return (
-        f"• `{prefix}chat <number>` - switch\n"
+        f"• `{prefix}chat switch <number>` - switch (`{prefix}chat <number>` shortcut)\n"
         f"• `{prefix}chat new [title]` - create session\n"
         f"• `{prefix}chat rename [number] [title]` - rename (AI if title omitted)\n"
         f"• `{prefix}chat delete <number>` - delete"

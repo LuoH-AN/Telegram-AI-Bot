@@ -116,21 +116,40 @@ async def handle_skill_info(user_id: int, name: str) -> str:
     ])
 
 
+from shared.utils.subcommands import SubContext, Subcommands
+
+_skill = Subcommands("skill", help_intro="🔌 **Skill management.**")
+
+
+@_skill.subcommand("list", help="list your skills", default=True)
+async def _list(subctx: SubContext) -> str:
+    return await handle_skill_list(subctx.user_id)
+
+
+@_skill.subcommand("install", "new", "add", usage="install <github-url|owner/repo|path>", help="install a skill")
+async def _install(subctx: SubContext) -> str:
+    return await handle_skill_install(subctx.user_id, subctx.rest_text)
+
+
+@_skill.subcommand("remove", "delete", "uninstall", usage="remove <name>", help="remove a skill")
+async def _remove(subctx: SubContext) -> str:
+    return await handle_skill_remove(subctx.user_id, subctx.rest_text)
+
+
+@_skill.subcommand("enable", usage="enable <name>", help="enable a skill")
+async def _enable(subctx: SubContext) -> str:
+    return await handle_skill_enable(subctx.user_id, subctx.rest_text, enable=True)
+
+
+@_skill.subcommand("disable", usage="disable <name>", help="disable a skill")
+async def _disable(subctx: SubContext) -> str:
+    return await handle_skill_enable(subctx.user_id, subctx.rest_text, enable=False)
+
+
+@_skill.subcommand("info", usage="info <name>", help="show skill details")
+async def _info(subctx: SubContext) -> str:
+    return await handle_skill_info(subctx.user_id, subctx.rest_text)
+
+
 async def dispatch_skill_command(user_id: int, args: list[str]) -> str:
-    if not args:
-        return "**Usage:** `/skill <list|install|remove|enable|disable|info> [args]`"
-    sub = args[0].lower()
-    arg = args[1] if len(args) > 1 else ""
-    if sub == "list":
-        return await handle_skill_list(user_id)
-    if sub == "install":
-        return await handle_skill_install(user_id, arg)
-    if sub == "remove":
-        return await handle_skill_remove(user_id, arg)
-    if sub == "enable":
-        return await handle_skill_enable(user_id, arg, enable=True)
-    if sub == "disable":
-        return await handle_skill_enable(user_id, arg, enable=False)
-    if sub == "info":
-        return await handle_skill_info(user_id, arg)
-    return f"❌ **Unknown subcommand:** `{sub}`. Use: `list`, `install`, `remove`, `enable`, `disable`, `info`."
+    return await _skill.dispatch(args, user_id=user_id, command_prefix="/")

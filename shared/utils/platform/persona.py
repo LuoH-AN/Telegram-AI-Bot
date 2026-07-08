@@ -36,7 +36,7 @@ def build_persona_not_found_message(name: str, prefix: str) -> str:
 def build_persona_commands_message(prefix: str) -> str:
     return (
         "**Commands:**\n"
-        f"• `{prefix}persona <name>` - switch\n"
+        f"• `{prefix}persona switch <name>` - switch\n"
         f"• `{prefix}persona new <name>` - create\n"
         f"• `{prefix}persona delete <name>` - delete\n"
         f"• `{prefix}persona prompt <text>` - set prompt"
