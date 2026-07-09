@@ -21,7 +21,9 @@ def main() -> None:
 
     application = build_application(logger)
     logger.info("Starting bot...")
+    from .cron_delivery import register as register_cron_delivery
     from domain.services.cron import start_cron_scheduler
 
+    register_cron_delivery(application.bot)
     start_cron_scheduler(application.bot)
     application.run_polling(allowed_updates=Update.ALL_TYPES)

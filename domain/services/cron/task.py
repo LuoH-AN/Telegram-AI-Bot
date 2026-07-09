@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .delivery import _detect_platform, _send_message
+from .delivery import platform_label, _send_message
 from .heartbeat import _heartbeat_monitor
 
 
@@ -23,7 +23,7 @@ def execute_ai_and_send(
 
     system_prompt = get_system_prompt(user_id)
     system_prompt += "\n\n" + get_datetime_prompt()
-    platform_hint = _detect_platform(bot)
+    platform_hint = platform_label(bot)
     system_prompt += "\n\nYou are executing a scheduled task. Provide a concise, useful response."
     system_prompt += f"\n\nScheduled task results are delivered via {platform_hint}."
 

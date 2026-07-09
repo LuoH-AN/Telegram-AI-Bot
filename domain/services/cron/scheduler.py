@@ -9,7 +9,7 @@ from datetime import datetime
 
 from infrastructure.cache.manager import cache
 
-from .delivery import _detect_platform
+from .delivery import platform_label
 from .execution import _execute_cron_task
 from .matcher import _cron_matches
 from .state import (
@@ -73,7 +73,7 @@ def start_cron_scheduler(bot) -> None:
     set_bot_ref(bot)
     thread = threading.Thread(target=_scheduler_loop, args=(bot,), daemon=True)
     thread.start()
-    platform = _detect_platform(bot)
+    platform = platform_label(bot)
     logger.info(
         "Cron scheduler started (platform=%s, poll interval=%ds)",
         platform,
