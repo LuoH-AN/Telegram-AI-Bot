@@ -11,8 +11,6 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from dotenv import load_dotenv
-
 from entrypoints.launcher import (
     UPDATE_RESTART_EXIT_CODE,
     apply_env_text,
@@ -26,6 +24,7 @@ from entrypoints.launcher import (
     wait_for_first_exit,
 )
 from adapters.http.web_app import serve_in_thread
+from infrastructure.config import load_env
 
 DEFAULT_WEB_PORT = 7860
 WEB_PORT = int(os.getenv("WEB_PORT", str(DEFAULT_WEB_PORT)))
@@ -42,7 +41,9 @@ def _start_children() -> list:
 
 
 def main() -> int:
-    load_dotenv()
+    # Environment is also loaded at config import time; this re-applies .env /
+    # ENV_TEXT after a possible hot-reload exec so subprocesses see fresh values.
+    load_env(force=True)
 
     # Restore /data from the latest /backup snapshot before anything reads it
     # (CLI bootstrap, plugins). Ephemeral-container persistence: /backup is the

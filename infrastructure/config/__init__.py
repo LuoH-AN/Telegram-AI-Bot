@@ -55,6 +55,7 @@ from .env import (
     OWNER_ID,
     TOOL_FILE_ROOTS,
     is_admin,
+    load_env,
     get_default_settings,
     get_default_persona,
     get_default_token_usage,

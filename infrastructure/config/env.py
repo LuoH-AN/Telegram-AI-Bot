@@ -1,6 +1,7 @@
 """Settings and environment variable management."""
 
 import os
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,8 +14,27 @@ from .util import (
 )
 from .app import normalize_reasoning_effort
 
-load_dotenv()
-apply_env_text()
+_ENV_LOADED = False
+_LOAD_LOCK = threading.Lock()
+
+
+def load_env(*, force: bool = False) -> None:
+    """Populate os.environ from .env and ENV_TEXT exactly once (idempotent).
+
+    Runs at import time so module-level constants below see configured values.
+    `force=True` re-applies (used by tests to reset isolation). Neither call
+    overwrites keys already present in os.environ except via an explicit reset.
+    """
+    global _ENV_LOADED
+    with _LOAD_LOCK:
+        if _ENV_LOADED and not force:
+            return
+        load_dotenv()
+        apply_env_text()
+        _ENV_LOADED = True
+
+
+load_env()
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
