@@ -20,6 +20,7 @@ from .persona import (
 from .token import (
     get_token_usage,
     add_token_usage,
+    get_last_turn_prompt,
     get_token_limit,
     set_token_limit,
     reset_token_usage,
@@ -67,7 +68,7 @@ __all__ = [
     "get_personas", "get_persona", "get_current_persona", "get_current_persona_name",
     "get_system_prompt", "switch_persona", "create_persona", "delete_persona",
     "update_persona_prompt", "update_current_prompt", "persona_exists",
-    "get_token_usage", "add_token_usage", "get_token_limit", "set_token_limit",
+    "get_token_usage", "add_token_usage", "get_last_turn_prompt", "get_token_limit", "set_token_limit",
     "reset_token_usage", "get_total_tokens_all_personas",
     "get_remaining_tokens", "get_usage_percentage",
     "export_to_markdown",

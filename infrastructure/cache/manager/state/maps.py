@@ -13,6 +13,9 @@ def init_cache_maps(obj) -> None:
     obj._persisted_msg_count = {}
     obj._conv_offset = {}
     obj._persona_tokens_cache = {}
+    # In-memory only: prompt-token size of each (user, persona)'s most recent
+    # turn, for the /usage context-window bar. Not persisted to the DB.
+    obj._last_turn_prompt = {}
     obj._memories_cache = {}
     obj._cron_tasks_cache = {}
     obj._skills_cache = {}

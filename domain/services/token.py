@@ -13,6 +13,11 @@ def add_token_usage(user_id: int, prompt_tokens: int, completion_tokens: int, pe
     cache.add_token_usage(user_id, prompt_tokens, completion_tokens, persona_name)
 
 
+def get_last_turn_prompt(user_id: int, persona_name: str = None) -> int:
+    """Prompt-token size of the most recent turn (context occupied this turn)."""
+    return cache.get_last_turn_prompt(user_id, persona_name)
+
+
 def get_token_limit(user_id: int, persona_name: str = None) -> int:
     """Get token limit for the current or specified persona."""
     return cache.get_token_limit(user_id, persona_name)

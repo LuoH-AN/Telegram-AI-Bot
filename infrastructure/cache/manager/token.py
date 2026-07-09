@@ -21,7 +21,21 @@ class TokensMixin:
             usage["prompt_tokens"] += prompt_tokens
             usage["completion_tokens"] += completion_tokens
             usage["total_tokens"] += prompt_tokens + completion_tokens
+            self._last_turn_prompt[(user_id, persona)] = prompt_tokens
             self._dirty_tokens.add((user_id, persona))
+
+    def get_last_turn_prompt(self, user_id: int, persona_name: str = None) -> int:
+        """Prompt-token size of the most recent turn (context occupied this turn).
+        In-memory only; not persisted. 0 if no turn recorded yet."""
+        with self._lock:
+            persona = persona_name or self.get_current_persona_name(user_id)
+            return self._last_turn_prompt.get((user_id, persona), 0)
+
+    def reset_token_usage(self, user_id: int, persona_name: str = None) -> None:
+        with self._lock:
+            persona = persona_name or self.get_current_persona_name(user_id)
+            usage = self.get_token_usage(user_id, persona)
+            usage.update({"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 
     def reset_token_usage(self, user_id: int, persona_name: str = None) -> None:
         with self._lock:

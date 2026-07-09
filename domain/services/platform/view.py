@@ -3,6 +3,7 @@
 from domain.services import (
     get_current_persona,
     get_current_persona_name,
+    get_last_turn_prompt,
     get_remaining_tokens,
     get_token_limit,
     get_token_usage,
@@ -59,22 +60,43 @@ def _usage_bar(percent: float) -> str:
 
 
 def build_usage_text(user_id: int) -> str:
+    from infrastructure.ai.model_context import get_model_context_limit
+
     persona_name = get_current_persona_name(user_id)
     usage = get_token_usage(user_id, persona_name)
-    token_limit = get_token_limit(user_id, persona_name)
+    last_prompt = get_last_turn_prompt(user_id, persona_name)
+
+    # The context bar measures how full the model's context window is right now,
+    # using the most recent turn's prompt size (the actual context in play) vs
+    # the current model's window. A manual token_limit, if tighter, caps it.
+    model = (get_user_settings(user_id).get("model") or "").strip()
+    model_ctx = get_model_context_limit(model)
+    manual_limit = get_token_limit(user_id, persona_name)
+    ceilings = [c for c in (model_ctx, manual_limit) if c and c > 0]
+
     message = (
         f"📊 **Token Usage** (Persona: `{persona_name}`)\n\n"
-        f"• **Prompt:** {usage['prompt_tokens']:,}\n"
-        f"• **Completion:** {usage['completion_tokens']:,}\n"
+        f"• **Prompt (total):** {usage['prompt_tokens']:,}\n"
+        f"• **Completion (total):** {usage['completion_tokens']:,}\n"
         f"• **Total:** {usage['total_tokens']:,}"
     )
-    if token_limit > 0:
-        percent = get_usage_percentage(user_id, persona_name) or 0
+
+    if ceilings and last_prompt:
+        ceiling = min(ceilings)
+        percent = min(100.0, last_prompt / ceiling * 100)
+        label = "Context window" if ceiling == model_ctx else "Limit"
+        source = f" · model `{model}`" if ceiling == model_ctx and model_ctx else ""
         message += (
-            f"\n\n{_usage_bar(percent)}  **{percent:.1f}%**\n"
-            f"Limit: {token_limit:,} · Remaining: {get_remaining_tokens(user_id, persona_name):,}"
+            f"\n\n{_usage_bar(percent)}  **{percent:.1f}%** of context\n"
+            f"Last turn: {last_prompt:,} / {ceiling:,}{source}"
         )
+    elif ceilings:
+        # No turn recorded yet (fresh session); just show the ceiling.
+        ceiling = min(ceilings)
+        label = "Context window" if ceiling == model_ctx else "Limit"
+        source = f" · model `{model}`" if ceiling == model_ctx and model_ctx else ""
+        message += f"\n\n{label}: {ceiling:,}{source}"
     else:
-        message += "\n\n♾️ **Unlimited** (no limit set)"
+        message += "\n\n♾️ **No limit known** (model context unknown, no manual limit set)"
     total_all = get_total_tokens_all_personas(user_id)
     return f"{message}\n\n━━ **All Personas** ━━\n**Total:** {total_all:,}"
