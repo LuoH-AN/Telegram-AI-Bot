@@ -55,11 +55,22 @@ def test_red_when_near_full(monkeypatch):
     assert "🔴" in view.build_usage_text(1)
 
 
-def test_no_turn_recorded_shows_ceiling_only(monkeypatch):
-    _mock_view(monkeypatch, model="gpt-4o", last_prompt=0)
+def test_no_turn_recorded_falls_back_to_cumulative(monkeypatch):
+    # last_prompt=0 (restart/persona switch) but cumulative prompt exists -> bar uses it
+    _mock_view(monkeypatch, model="gpt-4o", last_prompt=0, total=64000)
+    text = view.build_usage_text(1)
+    # total=64000 -> prompt_tokens=32000 (mock halves it) -> 32000/128000 = 25%
+    assert "25.0%" in text
+    assert "of context" in text
+    assert "Prompt (total): 32,000 / 128,000" in text  # fallback label
+
+
+def test_no_turn_no_total_shows_ceiling_only(monkeypatch):
+    # brand new: nothing recorded at all -> just the window, no bar
+    _mock_view(monkeypatch, model="gpt-4o", last_prompt=0, total=0)
     text = view.build_usage_text(1)
     assert "Context window: 128,000" in text
-    assert "🟩" not in text  # no bar without a turn
+    assert "🟩" not in text
 
 
 def test_unknown_model_no_limit_shows_unlimited(monkeypatch):
