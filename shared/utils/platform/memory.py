@@ -52,7 +52,7 @@ def build_remember_usage_message(prefix: str) -> str:
 
 def build_memory_list_footer_message(prefix: str) -> str:
     return (
-        "\n`[user]` = added by you | `[AI]` = added by AI\n\n"
+        "\n👤 = added by you | 🤖 = added by AI\n\n"
         f"💡 `{prefix}forget <number>` to delete | `{prefix}forget all` to clear all"
     )
 

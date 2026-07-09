@@ -21,25 +21,29 @@ def build_settings_summary_message(
     prompt: str,
     providers_info: str,
 ) -> str:
+    on, off = "🟢", "⚪"
+    thinking_icon = on if show_thinking == "on" else off
     return (
         "⚙️ **Current Settings**\n\n"
+        "🔌 **Connection**\n"
         f"• `base_url`: {base_url}\n"
         f"• `api_key`: {masked_api_key}\n"
+        f"• `providers`: {providers_info}\n\n"
+        "🤖 **Models**\n"
         f"• `model`: {model}\n"
+        f"• `title_model`: {title_model}\n"
+        f"• `cron_model`: {cron_model}\n\n"
+        "🎨 **Generation**\n"
         f"• `temperature`: {temperature}\n"
         f"• `reasoning_effort`: {reasoning_effort}\n"
-        f"• `show_thinking`: {show_thinking}\n"
         f"• `stream_mode`: {stream_mode}\n"
-        f"• `title_model`: {title_model}\n"
-        f"• `cron_model`: {cron_model}\n"
-        f"• `persona`: {persona_name}\n"
-        f"• `token_limit({persona_name})`: {token_limit_display}\n"
+        f"• `show_thinking`: {thinking_icon} {show_thinking}\n\n"
+        "🎭 **Persona**\n"
+        f"• `current`: {persona_name}\n"
+        f"• `token_limit`: {token_limit_display}\n"
         f"• `global_prompt`: {global_prompt}\n"
         f"• `prompt`: {prompt}\n\n"
-        f"**Providers:** {providers_info}\n\n"
-        f"💡 `{prefix}persona` to manage personas and prompts.\n"
-        f"💡 `{prefix}chat` to manage chat sessions.\n"
-        f"💡 `{prefix}set provider` to manage API providers."
+        f"💡 `{prefix}persona` · `{prefix}chat` · `{prefix}set provider`"
     )
 
 

@@ -33,11 +33,35 @@ def _format_uptime(seconds: float) -> str:
     return f"{minutes}m"
 
 
-def _memory_mb() -> str:
+def _memory_mb() -> int | None:
     if _resource is None:
-        return "n/a"
+        return None
     rss_kb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
-    return f"{max(1, rss_kb) // 1024} MB"
+    return max(1, rss_kb) // 1024
+
+
+def _cgroup_limit_mb() -> int | None:
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(path) as f:
+                value = int(f.read().strip())
+        except (OSError, ValueError):
+            continue
+        if 0 < value < 1 << 44:  # sane container limit (< 16 TB)
+            return value // (1024 * 1024)
+    return None
+
+
+def _memory_bar() -> str:
+    mb = _memory_mb()
+    if mb is None:
+        return "n/a"
+    limit = _cgroup_limit_mb()
+    if not limit:
+        return f"{mb:,} MB"
+    percent = min(100.0, mb / limit * 100)
+    status = "🔴" if percent >= 90 else ("🟡" if percent >= 70 else "🟢")
+    return f"{status} {mb:,} / {limit:,} MB ({percent:.0f}%)"
 
 
 def _plugin_names() -> list[str]:
@@ -65,19 +89,19 @@ def build_status_text(user_id: int) -> str:
         ]
 
     python = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    mode = "managed" if os.getenv("BOT_LAUNCHER_MANAGED") == "1" else "standalone"
+    mode = "🛡️ managed" if os.getenv("BOT_LAUNCHER_MANAGED") == "1" else "🖥️ standalone"
     lines += [
         "⚙️ **Runtime**",
-        f"• Uptime: {_format_uptime(time.time() - PROCESS_START_TIME)}",
-        f"• Memory: {_memory_mb()}",
+        f"• Uptime: ⏱️ {_format_uptime(time.time() - PROCESS_START_TIME)}",
+        f"• Memory: {_memory_bar()}",
         f"• Python: {python}",
         f"• Mode: {mode}",
         "",
         "💾 **Data**",
-        f"• Users: {stats['users']}",
-        f"• Sessions: {stats['sessions']}",
-        f"• Messages: {stats['messages']:,}",
-        f"• Cron tasks: {stats['cron_tasks']}",
+        f"• 👤 Users: {stats['users']}",
+        f"• 💬 Sessions: {stats['sessions']}",
+        f"• ✉️ Messages: {stats['messages']:,}",
+        f"• ⏰ Cron tasks: {stats['cron_tasks']}",
         "",
     ]
 

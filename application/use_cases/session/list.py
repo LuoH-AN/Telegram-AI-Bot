@@ -17,10 +17,10 @@ def build_session_list_text(
 
     lines = [f"💬 **Sessions** (persona: `{persona_name}`)\n"]
     for index, session in enumerate(sessions, 1):
-        marker = "▶ " if session["id"] == current_id else "  "
-        title = session.get("title") or "New Chat"
+        marker = "✅ " if session["id"] == current_id else "🔹 "
+        title = session.get("title") or "🆕 New Chat"
         msg_count = get_session_message_count(session["id"])
-        lines.append(f"{marker}**{index}.** {title} `{msg_count} msgs`")
+        lines.append(f"{marker}**{index}.** {title} · `{msg_count} msgs`")
 
     lines.append("")
     lines.append(build_chat_commands_message(command_prefix))

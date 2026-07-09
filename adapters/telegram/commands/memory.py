@@ -29,9 +29,9 @@ async def memories_command(ctx: CommandContext) -> str:
     memories = get_memories(ctx.user_id)
     if not memories:
         return build_memory_empty_message("/")
-    lines = ["Your memories:\n"]
+    lines = ["🧠 **Your memories:**\n"]
     for index, memory in enumerate(memories, 1):
-        source_tag = "[AI]" if memory["source"] == "infrastructure.ai" else "[user]"
+        source_tag = "🤖" if memory["source"] == "infrastructure.ai" else "👤"
         lines.append(f"{index}. {source_tag} {memory['content']}")
     lines.append(build_memory_list_footer_message("/"))
     return "\n".join(lines)
