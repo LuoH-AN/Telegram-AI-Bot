@@ -26,8 +26,14 @@ def _cron_matches(expr: str, dt: datetime) -> bool:
 
 
 def _field_matches(field: str, value: int, lo: int, hi: int) -> bool:
-    """Check if a single cron field matches the given value."""
-    del hi  # kept for compatibility with existing call signature
+    """Check if a single cron field matches the given value.
+
+    Supports: *, exact N, a-b ranges, and /step on any base (incl. single value
+    like 5/2 = 5,7,9...). Ranges are clamped to [lo, hi]; out-of-range single
+    values simply never match.
+    """
+    if value < lo or value > hi:
+        return False
     for item in field.split(","):
         item = item.strip()
         if not item:
@@ -40,6 +46,8 @@ def _field_matches(field: str, value: int, lo: int, hi: int) -> bool:
                 step = int(step_str)
             except ValueError:
                 continue
+            if step <= 0:
+                continue
             item = base
 
         if item == "*":
@@ -51,14 +59,21 @@ def _field_matches(field: str, value: int, lo: int, hi: int) -> bool:
                 start, end = int(start), int(end)
             except ValueError:
                 continue
+            start = max(lo, start)
+            end = min(hi, end)
             if start <= value <= end and (value - start) % step == 0:
                 return True
         else:
             try:
-                exact = int(item)
+                base = int(item)
             except ValueError:
                 continue
-            if exact == value:
+            if base < lo:
+                continue
+            if step == 1:
+                if base == value:
+                    return True
+            elif value >= base and (value - base) % step == 0:
                 return True
 
     return False

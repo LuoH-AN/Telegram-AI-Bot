@@ -34,6 +34,12 @@ MAX_CRON_TASKS_PER_USER = 10       # per-user limit on scheduled tasks
 # --- Reasoning ---------------------------------------------------------------
 VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
+
+def normalize_reasoning_effort(value: str | None) -> str:
+    """Return the canonical lowercase effort name, or '' if invalid. Single source of truth."""
+    current = (value or "").strip().lower()
+    return current if current in VALID_REASONING_EFFORTS else ""
+
 # Supported file extensions for text-based processing
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".c", ".cpp",

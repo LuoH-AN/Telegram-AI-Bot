@@ -2,13 +2,8 @@
 
 from __future__ import annotations
 
-from infrastructure.config import VALID_REASONING_EFFORTS
+from infrastructure.config import VALID_REASONING_EFFORTS, normalize_reasoning_effort
 from shared.utils.ai import extract_thinking_blocks, filter_thinking_content, format_thinking_block
-
-
-def normalize_reasoning_effort(value: str | None) -> str:
-    normalized = (value or "").strip().lower()
-    return normalized if normalized in VALID_REASONING_EFFORTS else ""
 
 
 def append_thinking_segments(

@@ -10,10 +10,9 @@ from .util import (
     build_default_jwt_secret,
     build_default_settings,
     normalize_bool,
-    normalize_reasoning_effort,
 )
+from .app import normalize_reasoning_effort
 
-ALLOWED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 load_dotenv()
 apply_env_text()
 
@@ -90,7 +89,6 @@ DEFAULT_TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "")
 DEFAULT_TTS_OUTPUT_FORMAT = os.getenv("TTS_OUTPUT_FORMAT", "ogg-24khz-16bit-mono-opus")
 DEFAULT_REASONING_EFFORT = normalize_reasoning_effort(
     os.getenv("OPENAI_REASONING_EFFORT", ""),
-    ALLOWED_REASONING_EFFORTS,
 )
 DEFAULT_SHOW_THINKING = normalize_bool(os.getenv("SHOW_THINKING", "0"), default=False)
 SHOW_THINKING_MAX_CHARS = max(200, int(os.getenv("SHOW_THINKING_MAX_CHARS", "1200")))
