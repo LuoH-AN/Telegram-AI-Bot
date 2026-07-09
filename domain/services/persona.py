@@ -1,7 +1,11 @@
 """Persona management service."""
 
+import logging
+
 from infrastructure.config import DEFAULT_SYSTEM_PROMPT
 from infrastructure.cache import cache
+
+logger = logging.getLogger(__name__)
 
 TOOL_PROGRESS_PROMPT = (
     "Tool execution policy:\n"
@@ -18,6 +22,7 @@ def _get_skill_instructions(user_id: int) -> str:
         from infrastructure.tools import get_tool_instructions
         return get_tool_instructions("all", user_id=user_id)
     except Exception:
+        logger.warning("tool instructions unavailable for user=%s; proceeding without skill hints", user_id, exc_info=True)
         return ""
 
 

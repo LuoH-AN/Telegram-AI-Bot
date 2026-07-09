@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -16,6 +17,8 @@ from infrastructure.runtime import PROCESS_START_TIME
 
 from .token import get_total_tokens_all_personas
 from .update import git_info
+
+logger = logging.getLogger(__name__)
 
 
 def _format_uptime(seconds: float) -> str:
@@ -42,6 +45,7 @@ def _plugin_names() -> list[str]:
         from infrastructure.tools.skills.manager import get_skill_manager
         return [manifest.name for manifest in get_skill_manager().list_manifests()]
     except Exception:
+        logger.warning("skill manager unavailable; status will omit skill list", exc_info=True)
         return []
 
 

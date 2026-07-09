@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from infrastructure.ai import get_ai_client
 from infrastructure.config import VALID_REASONING_EFFORTS, normalize_reasoning_effort
+
+logger = logging.getLogger(__name__)
 
 
 def mask_key(api_key: str) -> str:
@@ -23,4 +27,5 @@ def fetch_models_for_user(user_id: int) -> list[str]:
     try:
         return get_ai_client(user_id).list_models()
     except Exception:
+        logger.warning("failed to list models for user=%s; returning empty list", user_id, exc_info=True)
         return []
