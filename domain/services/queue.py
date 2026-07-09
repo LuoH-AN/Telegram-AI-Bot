@@ -10,6 +10,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _LOCKS: dict[str, asyncio.Lock] = {}
+_REFCOUNT: dict[str, int] = {}
 _LOCKS_GUARD = asyncio.Lock()
 
 # Active response tracking: slot_key -> {"task": asyncio.Task, "pump": Any}
@@ -18,11 +19,20 @@ _ACTIVE_RESPONSES: dict[str, dict] = {}
 
 async def _get_lock(key: str) -> asyncio.Lock:
     async with _LOCKS_GUARD:
+        _REFCOUNT[key] = _REFCOUNT.get(key, 0) + 1
         lock = _LOCKS.get(key)
         if lock is None:
             lock = asyncio.Lock()
             _LOCKS[key] = lock
         return lock
+
+
+async def _release_lock(key: str, lock: asyncio.Lock) -> None:
+    async with _LOCKS_GUARD:
+        _REFCOUNT[key] = _REFCOUNT.get(key, 1) - 1
+        if _REFCOUNT[key] <= 0:
+            _LOCKS.pop(key, None)
+            _REFCOUNT.pop(key, None)
 
 
 @asynccontextmanager
@@ -39,6 +49,7 @@ async def conversation_slot(key: str):
         yield queued
     finally:
         lock.release()
+        await _release_lock(key, lock)
 
 
 def register_response(key: str, *, task: asyncio.Task, pump: Any) -> None:

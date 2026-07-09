@@ -86,10 +86,10 @@ class SkillManager:
     def discover(self) -> None:
         if self._initialized:
             return
-        self._initialized = True
         for manifest in self._collect():
             self._records[manifest.name] = SkillRecord(manifest)
             logger.info("Loaded skill: %s", manifest.name)
+        self._initialized = True
         logger.info("Skill discovery complete: %d loaded (%s)", len(self._records), ", ".join(self._records))
 
     def hot_load(self, skill_dir: Path) -> str:

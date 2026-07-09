@@ -76,9 +76,9 @@ def discover_mcp() -> int:
     global _REGISTERED
     if _REGISTERED:
         return 0
-    _REGISTERED = True
     servers = load_servers()
     if not servers:
+        _REGISTERED = True
         return 0
     total = 0
     for config in servers:
@@ -90,6 +90,7 @@ def discover_mcp() -> int:
         registered = _register_server(config, tools)
         logger.info("MCP server '%s': registered %d tool(s)", config.name, registered)
         total += registered
+    _REGISTERED = True
     return total
 
 
