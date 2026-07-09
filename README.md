@@ -12,11 +12,11 @@
 - 记忆系统
 - Token 用量统计与限额
 - 定时任务
-- AI 工具系统（plugin 架构，当前内置：memory、terminal、search、send_file、project_config）
+- AI 工具系统（注册式架构，当前内置：config_file、database、memory、search、send_file、terminal）
 
 ## 技术栈
 
-- Python 3.11+
+- Python 3.10+
 - `python-telegram-bot`
 - PostgreSQL + `psycopg2-binary`
 - OpenAI Compatible API
@@ -30,7 +30,7 @@
 ├── adapters/                 # 外部平台适配：Telegram 与 HTTP/OpenAPI/Web
 ├── application/              # 应用用例与命令编排
 ├── domain/                   # 业务服务：user / persona / session / memory / cron 等
-├── infrastructure/           # AI、cache、database、config、plugins 等基础设施
+├── infrastructure/           # AI、cache、database、config、tools 等基础设施
 ├── shared/                   # 通用格式化、文案、文件、stream 等 helper
 └── scripts/                  # 一次性脚本与维护工具
 ```
@@ -88,11 +88,17 @@ python main.py
 - `remember`
 - `memories`
 - `forget`
-- `skill`（插件管理：list / install / remove / enable / disable / info）
+- `skill`（技能管理：list / install / remove / enable / disable / info）
+- `model`
+- `reset`
+- `restart`
+- `status`
+- `stop`
+- `update`
 
-## 工具/插件系统说明
+## 工具/技能系统说明
 
-工具基于 plugin 架构。`infrastructure/plugins/` 下为内置插件和运行框架，第三方插件可通过 `/skill install <github-url>` 安装到 `runtime/plugins/`。
+工具基于注册式 `@tool` 架构（`infrastructure/tools/`）。内置工具位于 `infrastructure/tools/builtin/`，第三方技能可通过 `/skill install <github-url>` 安装。
 
 ## 关键环境变量
 
