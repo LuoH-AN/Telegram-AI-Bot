@@ -1,10 +1,10 @@
 """Per-model context-window and max-output token limits.
 
-Extracted from lobehub/lobe-chat v2.2.9 (MIT) — packages/model-bank/src/
-aiModels/*.ts. 1188 model ids across 81 providers. On id conflicts the
-model's own vendor (by id-family) wins over proxy/aggregate providers.
-Resolve at runtime via get_model_context_limit() (exact, then variant-suffix
-fallback); max-output via get_model_max_output().
+Extracted from lobehub/lobe-chat v2.2.9 (MIT) — packages/model-bank/src/aiModels/*.ts. 1188 model ids. On id conflicts the model's own vendor
+(by id-family) wins over proxy/aggregate providers. Regenerate via
+scripts/refresh_model_context.py. Resolve at runtime via
+get_model_context_limit() (exact, then variant-suffix fallback);
+max-output via get_model_max_output().
 """
 
 from __future__ import annotations
@@ -1803,7 +1803,6 @@ MODEL_MAX_OUTPUT: dict[str, int] = {
     "zai-org/glm-4.5": 98304,
     "zai-org/glm-4.5v": 16384,
 }
-
 
 import re as _re
 
