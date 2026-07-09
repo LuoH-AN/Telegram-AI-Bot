@@ -48,6 +48,8 @@ class SessionsStoreMixin:
             sessions = self._sessions_cache.get(key, [])
             self._sessions_cache[key] = [s for s in sessions if s["id"] != session_id]
             self._conversations_cache.pop(session_id, None)
+            self._persisted_msg_count.pop(session_id, None)
+            self._conv_offset.pop(session_id, None)
             self._deleted_sessions.add(session_id)
             self._dirty_conversations.discard(session_id)
             self._cleared_conversations.discard(session_id)

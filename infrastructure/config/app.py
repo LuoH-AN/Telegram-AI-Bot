@@ -1,5 +1,7 @@
 """Application constants."""
 
+import os
+
 # Telegram message length limit
 MAX_MESSAGE_LENGTH = 4096
 
@@ -9,6 +11,11 @@ STREAM_UPDATE_INTERVAL = 0.35
 
 # Database sync interval (seconds)
 DB_SYNC_INTERVAL = 30
+
+# Soft cap on messages held per session in memory. Old, already-persisted
+# messages past this cap are dropped from the in-memory cache (they remain in
+# the DB and are reloaded on next read). 0 disables eviction.
+CONVERSATION_CACHE_CAP = int(os.getenv("CONVERSATION_CACHE_CAP", "0"))
 
 # Models per page for pagination
 MODELS_PER_PAGE = 5

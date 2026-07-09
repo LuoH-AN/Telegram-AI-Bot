@@ -16,6 +16,7 @@ from .app import (
     TOOL_TIMEOUT,
     TOOL_CONTINUE_OR_FINISH_PROMPT,
     MAX_CRON_TASKS_PER_USER,
+    CONVERSATION_CACHE_CAP,
     VALID_REASONING_EFFORTS,
     normalize_reasoning_effort,
 )

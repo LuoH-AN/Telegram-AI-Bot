@@ -65,12 +65,19 @@ def sync_conversations(cur, cache, dirty: dict) -> None:
                 "INSERT INTO user_conversations (user_id, persona_name, session_id, role, content, reasoning_content) VALUES (%s, %s, %s, %s, %s, %s)",
                 (session["user_id"], session["persona_name"], session_id, msg["role"], msg["content"], msg.get("reasoning_content")),
             )
+        # Everything now matches the DB: record the persisted total so eviction
+        # knows which cached prefix is safe to drop.
+        cache.mark_conversation_persisted(session_id, len(cached))
 
 
 def _rekey(cache, dirty: dict, session: dict, old_id: int, new_id: int) -> None:
     with cache._lock:
         if old_id in cache._conversations_cache:
             cache._conversations_cache[new_id] = cache._conversations_cache.pop(old_id)
+        if old_id in cache._persisted_msg_count:
+            cache._persisted_msg_count[new_id] = cache._persisted_msg_count.pop(old_id)
+        if old_id in cache._conv_offset:
+            cache._conv_offset[new_id] = cache._conv_offset.pop(old_id)
         if old_id in dirty["conversations"]:
             dirty["conversations"].discard(old_id)
             dirty["conversations"].add(new_id)
