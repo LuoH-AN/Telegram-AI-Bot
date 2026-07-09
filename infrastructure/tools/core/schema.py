@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import types
 import typing
 from typing import Annotated
 
@@ -11,23 +12,40 @@ _INJECTED = {"self", "ctx", "context"}
 
 
 def _strip_optional(annotation):
-    if typing.get_origin(annotation) is typing.Union:
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union or origin is types.UnionType:
         args = [a for a in typing.get_args(annotation) if a is not type(None)]
         if len(args) == 1:
             return args[0]
     return annotation
 
 
+def _unwrap(annotation):
+    """Peel Optional/Union and Annotated layers -> (base_type, description).
+
+    Handles nesting like Optional[Annotated[bool | None, "..."]] that
+    typing.get_type_hints produces for params with a None default.
+    """
+    description = None
+    base = annotation
+    for _ in range(5):
+        if typing.get_origin(base) is Annotated:
+            metas = typing.get_args(base)
+            base = metas[0]
+            for meta in metas[1:]:
+                if isinstance(meta, str) and description is None:
+                    description = meta
+            continue
+        stripped = _strip_optional(base)
+        if stripped is base:
+            break
+        base = stripped
+    return base, description
+
+
 def _type_info(annotation):
     """Return (json_type, enum, description) for an annotation."""
-    description = None
-    if typing.get_origin(annotation) is Annotated:
-        metas = typing.get_args(annotation)
-        annotation = metas[0]
-        for meta in metas[1:]:
-            if isinstance(meta, str):
-                description = meta
-    base = _strip_optional(annotation)
+    base, description = _unwrap(annotation)
     if typing.get_origin(base) is typing.Literal:
         return "string", list(typing.get_args(base)), description
     if typing.get_origin(base) is list:
@@ -69,10 +87,7 @@ def build_schema(func, *, name: str, description: str) -> dict:
 
 
 def _coerce(value, annotation) -> tuple[object, str | None]:
-    base = annotation
-    if typing.get_origin(base) is Annotated:
-        base = typing.get_args(base)[0]
-    base = _strip_optional(base)
+    base, _ = _unwrap(annotation)
     if typing.get_origin(base) is typing.Literal:
         allowed = list(typing.get_args(base))
         return (value, None) if value in allowed else (value, f"value must be one of {allowed}")
