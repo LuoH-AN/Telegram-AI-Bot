@@ -30,7 +30,7 @@ RISKY = (
     re.compile(r"\brm\b[^|;&\n]*-[A-Za-z]*r", re.I),     # any recursive remove
     re.compile(r"\bsudo\b", re.I),
     re.compile(r"\bchmod\b[^|;&\n]*\b777\b", re.I),
-    re.compile(r"\bgit\b[^|;&\n]*push[^|;&\n]*--(?:force|f)\b", re.I),
+    re.compile(r"\bgit\b[^|;&\n]*push[^|;&\n]*(?:--(?:force|f)\b|-f\b)", re.I),
     re.compile(r"\b(?:curl|wget)\b", re.I),              # network egress (covers |sh too)
     re.compile(r">\s*/etc/", re.I),
     re.compile(r"\b(?:bash|sh|zsh|fish|python\d?|perl|ruby|node)\b[^|;&\n]*<\s*(?:/dev/|https?://|ftp://)", re.I),
