@@ -8,6 +8,7 @@ import uuid
 from typing import Iterator
 from urllib.parse import urlparse
 
+import httpx
 from openai import OpenAI
 
 from infrastructure.ai.types import AIClient, StreamChunk
@@ -17,10 +18,15 @@ from .models import list_models_with_logging
 
 logger = logging.getLogger(__name__)
 
+# Bounds hung sockets so a stalled upstream surfaces instead of occupying a
+# worker thread for the SDK's 600s default. read=180s > live.py's 120s output
+# idle timeout, so graceful idle handling wins; this is only a backstop.
+_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=180.0, write=60.0, pool=10.0)
+
 
 class OpenAIClient(AIClient):
     def __init__(self, api_key: str, base_url: str, log_context: str = ""):
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=_HTTP_TIMEOUT)
         parsed = urlparse(base_url or "")
         self.base_host = parsed.netloc or (base_url or "")
         self.log_context = (log_context or "").strip()

@@ -81,6 +81,8 @@ async def chat(
             await deliver_and_persist(generated=generated, runtime=runtime, req=req, request_start=request_start)
     except asyncio.CancelledError:
         logger.info("%s response cancelled by /stop", req["ctx"])
+        runtime.state.status_seed_cancelled = True
+        runtime.status_seed_task.cancel()
         runtime.render_pump.force_stop()
         try:
             if not runtime.state.user_message_persisted:

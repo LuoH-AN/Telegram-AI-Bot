@@ -3,24 +3,43 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from .config import EDIT_ENDPOINTS
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimiterWorkerMixin:
     async def _worker_loop(self) -> None:
         try:
             while True:
-                item = await self._next_ready_item()
+                try:
+                    item = await self._next_ready_item()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("rate limiter: error fetching next item")
+                    continue
                 if item is None:
                     return
                 if item.canceled:
                     self._clear_dedup_if_owner(item)
                     continue
                 if self._should_delay_for_limits(item):
-                    await self._enqueue(item)
+                    try:
+                        await self._enqueue(item)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("rate limiter: error re-enqueueing delayed item")
                     continue
-                await self._dispatch_item(item)
+                try:
+                    await self._dispatch_item(item)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("rate limiter: error dispatching %s", item.endpoint)
         except asyncio.CancelledError:
             return
 

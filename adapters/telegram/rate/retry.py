@@ -34,13 +34,21 @@ class RateLimiterRetryMixin:
         item.retries += 1
         item.dispatched = False
         item.ready_at = asyncio.get_running_loop().time() + retry_after + random.uniform(0, self._retry_jitter)
+        if item.dedup_key and self._pending_edits.get(item.dedup_key) is not item:
+            if not item.future.done():
+                item.future.set_result(True)
+            logger.info(
+                "Telegram RetryAfter abandoned, edit superseded while in flight: %s chat=%s",
+                item.endpoint,
+                item.chat_key,
+            )
+            return
+        self._global_next_at = max(self._global_next_at, item.ready_at)
         if item.chat_key is not None:
             if item.endpoint in EDIT_ENDPOINTS:
                 self._chat_edit_next_at[item.chat_key] = max(self._chat_edit_next_at.get(item.chat_key, 0.0), item.ready_at)
             else:
                 self._chat_next_at[item.chat_key] = max(self._chat_next_at.get(item.chat_key, 0.0), item.ready_at)
-        else:
-            self._global_next_at = max(self._global_next_at, item.ready_at)
         logger.warning(
             "Telegram RetryAfter on %s chat=%s, retry=%d/%s, wait=%.2fs, queue=%d",
             item.endpoint,

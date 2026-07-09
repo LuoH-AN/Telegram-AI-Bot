@@ -82,6 +82,13 @@ def run_chat_completion(
             int((time.monotonic() - request_start) * 1000),
         )
         raise
+    finally:
+        close = getattr(response, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                logger.debug("failed to close chat completion stream", exc_info=True)
 
     logger.info(
         "%sAI response done req=%s endpoint=chat.completions model=%s stream=true chunks=%d finish_reason=%s content_chars=%d reasoning_chars=%d tool_calls=%d usage_prompt=%d usage_completion=%d latency_ms=%d",

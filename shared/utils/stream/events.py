@@ -25,24 +25,33 @@ class ChatEventPump:
         self._queue: asyncio.Queue[ChatRenderEvent | None] = asyncio.Queue()
         self._runner_task: asyncio.Task | None = None
         self._last_rendered_text: str | None = None
+        self._stopped = False
 
     def start(self) -> None:
         """Start the background render worker."""
-        if self._runner_task is not None:
+        if self._runner_task is not None or self._stopped:
             return
         self._runner_task = asyncio.create_task(self._runner(), name="chat-event-pump")
 
     async def emit(self, kind: str, text: str) -> bool:
         """Queue an event for rendering."""
+        if self._stopped:
+            return False
         if self._runner_task is None:
             self.start()
+        if self._stopped:
+            return False
         await self._queue.put(ChatRenderEvent(kind=kind, text=text))
         return True
 
     def emit_threadsafe(self, loop: asyncio.AbstractEventLoop, kind: str, text: str) -> None:
         """Queue an event from a non-event-loop thread."""
+        if self._stopped:
+            return
 
         def _put_now() -> None:
+            if self._stopped:
+                return
             self._queue.put_nowait(ChatRenderEvent(kind=kind, text=text))
 
         loop.call_soon_threadsafe(_put_now)
@@ -61,7 +70,8 @@ class ChatEventPump:
         self._runner_task = None
 
     def force_stop(self) -> None:
-        """Immediately cancel the render worker without draining."""
+        """Immediately cancel the render worker without draining. Sticky: a later emit cannot revive it."""
+        self._stopped = True
         if self._runner_task is not None:
             self._runner_task.cancel()
             self._runner_task = None

@@ -96,6 +96,12 @@ async def stream_live_response(
                 logger.warning("AI stream stalled: no activity for %ss (has_output=%s)", idle_limit, has_output)
                 state.finish_reason = state.finish_reason or ("timeout" if has_output else "no_output_timeout")
                 break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("AI stream interrupted, returning partial output: %s", exc)
+                state.finish_reason = state.finish_reason or "interrupted"
+                break
             if chunk is end:
                 break
             await process_chunk(
@@ -114,6 +120,13 @@ async def stream_live_response(
         state.waiting_active = False
         if waiting_task and not waiting_task.done():
             waiting_task.cancel()
+        if stream is not None:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    await loop.run_in_executor(None, close)
+                except Exception:
+                    logger.debug("failed to close AI stream", exc_info=True)
 
     if state.thinking_start_time is not None and not state.thinking_locked:
         state.thinking_seconds = max(1, int(loop.time() - state.thinking_start_time))

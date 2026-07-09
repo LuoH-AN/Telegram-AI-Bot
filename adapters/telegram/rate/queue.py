@@ -20,7 +20,13 @@ class RateLimiterQueueMixin:
         async with condition:
             if item.dedup_key:
                 previous = self._pending_edits.get(item.dedup_key)
-                if previous is not None and previous is not item and not previous.dispatched and not previous.future.done():
+                if (
+                    previous is not None
+                    and previous is not item
+                    and item.sequence >= previous.sequence
+                    and not previous.dispatched
+                    and not previous.future.done()
+                ):
                     previous.canceled = True
                     previous.future.set_result(True)
                     self.edit_superseded_count += 1
