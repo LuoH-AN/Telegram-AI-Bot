@@ -20,8 +20,6 @@ AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120  # seconds idle timeout once output has star
 
 # --- Tool dispatch -----------------------------------------------------------
 TOOL_TIMEOUT = 30                  # default per-round timeout for tool execution (s)
-MAX_TOOL_ERROR_SNIPPETS = 3        # max error snippets kept for empty-response fallback
-TOOL_EXECUTOR_WORKERS = 4          # max parallel workers for tool calls
 TOOL_CONTINUE_OR_FINISH_PROMPT = (
     "First decide internally whether the task is fully complete. "
     "If it is already complete, immediately return the complete final answer to the user. "

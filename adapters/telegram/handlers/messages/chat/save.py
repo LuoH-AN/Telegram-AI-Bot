@@ -20,6 +20,15 @@ from .title import generate_and_set_title
 
 logger = logging.getLogger(__name__)
 
+# Hold strong refs to background title tasks so the GC can't cancel them mid-run.
+_title_tasks: set = set()
+
+
+def _spawn_title_task(user_id: int, session_id: int, user_message: str, ai_response: str) -> None:
+    task = asyncio.create_task(generate_and_set_title(user_id, session_id, user_message, ai_response))
+    _title_tasks.add(task)
+    task.add_done_callback(_title_tasks.discard)
+
 
 async def deliver_and_persist(
     *,
@@ -39,12 +48,16 @@ async def deliver_and_persist(
     final_delivery_ok = False
     if display_final == "(Empty response)" and not thinking_block:
         final_delivery_ok = True
+        runtime.state.final_delivery_confirmed = True
         if runtime.state.bot_message:
-            await runtime.state.bot_message.delete()
+            try:
+                await runtime.state.bot_message.delete()
+            except Exception:
+                logger.debug("%s failed to delete placeholder for empty response", req["ctx"], exc_info=True)
             runtime.state.bot_message = None
     else:
         final_delivery_ok = await runtime.outbound.deliver_final(display_final)
-    runtime.state.final_delivery_confirmed = final_delivery_ok
+        runtime.state.final_delivery_confirmed = final_delivery_ok
 
     if not runtime.state.user_message_persisted:
         add_user_message(req["session_id"], req["save_msg"])
@@ -54,9 +67,7 @@ async def deliver_and_persist(
     if final_delivery_ok and has_assistant_text:
         add_assistant_message(req["session_id"], generated["final_text"], generated.get("reasoning_content"))
         if get_session_message_count(req["session_id"]) <= 2:
-            asyncio.create_task(
-                generate_and_set_title(req["user_id"], req["session_id"], req["save_msg"], generated["final_text"])
-            )
+            _spawn_title_task(req["user_id"], req["session_id"], req["save_msg"], generated["final_text"])
     elif not final_delivery_ok:
         logger.error(
             "%s final response was not delivered (stream_ack=%d/%d); persisted user message only",

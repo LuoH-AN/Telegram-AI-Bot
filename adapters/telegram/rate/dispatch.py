@@ -12,16 +12,20 @@ from .config import EDIT_ENDPOINTS
 class RateLimiterDispatchMixin:
     async def _dispatch_item(self, item) -> None:
         item.dispatched = True
+        self._in_flight[id(item)] = item
         try:
             result = await item.callback(*item.args, **item.kwargs)
         except RetryAfter as exc:
+            self._in_flight.pop(id(item), None)
             await self._handle_retry_after(item, exc)
             return
         except Exception as exc:
+            self._in_flight.pop(id(item), None)
             self._clear_dedup_if_owner(item)
             if not item.future.done():
                 item.future.set_exception(exc)
             return
+        self._in_flight.pop(id(item), None)
         self._clear_dedup_if_owner(item)
         self._advance_windows(item)
         if not item.future.done():

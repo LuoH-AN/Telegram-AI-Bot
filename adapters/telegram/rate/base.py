@@ -47,6 +47,7 @@ class QueuedRateLimiterBase(BaseRateLimiter[int]):
         self._chat_edit_next_at: dict[int | str, float] = {}
         self._queue = []
         self._pending_edits = {}
+        self._in_flight: dict[int, object] = {}
         self._condition: asyncio.Condition | None = None
         self._worker: asyncio.Task[None] | None = None
         self._initialized = False

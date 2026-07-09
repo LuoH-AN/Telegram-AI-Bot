@@ -45,6 +45,10 @@ class RateLimiterLifecycleMixin:
                 if not item.future.done():
                     item.future.cancel()
             self._queue.clear()
+            for item in self._in_flight.values():
+                if not item.future.done():
+                    item.future.cancel()
+            self._in_flight.clear()
             self._pending_edits.clear()
             self._chat_next_at.clear()
             self._chat_edit_next_at.clear()

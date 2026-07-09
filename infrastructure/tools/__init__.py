@@ -34,13 +34,14 @@ def _ensure_discovered() -> None:
     global _DISCOVERED
     if _DISCOVERED:
         return
-    _DISCOVERED = True
     try:
         _discover_native()
         _bridge_skills()
         _bridge_mcp()
     except Exception:
         logger.exception("tool discovery failed")
+        return
+    _DISCOVERED = True
 
 
 def _bridge_mcp() -> None:
