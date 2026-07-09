@@ -1,4 +1,10 @@
-"""Write-side log recording operations."""
+"""Write-side log recording — raw SQL inserts into user_logs.
+
+This is an infrastructure concern (parameterized INSERTs), moved out of domain
+to keep domain free of direct database calls.
+"""
+
+from __future__ import annotations
 
 import json
 import logging
