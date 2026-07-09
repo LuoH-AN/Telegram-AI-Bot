@@ -1,4 +1,6 @@
-"""Database-to-infrastructure.cache refresh implementation."""
+"""DB -> cache refresh for a single user (infrastructure concern: raw SQL + loader mapping)."""
+
+from __future__ import annotations
 
 from infrastructure.cache import cache
 from infrastructure.database.db import get_connection, get_dict_cursor

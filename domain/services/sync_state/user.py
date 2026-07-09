@@ -3,8 +3,8 @@
 import logging
 
 from infrastructure.cache import sync_to_database
+from infrastructure.cache.sync.refresh import refresh_cache_from_db
 
-from .db import refresh_cache_from_db
 from .dirty import has_local_dirty_state
 from .policy import should_refresh
 
