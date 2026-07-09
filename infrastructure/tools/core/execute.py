@@ -14,6 +14,8 @@ from .events import bind_callback, emit, release_callback
 from .registry import ToolEntry, registry
 from .schema import validate
 
+from infrastructure.config import TOOL_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,10 +71,16 @@ async def _run_one(user_id, item, build_context, event_callback):
     ctx = build_context(user_id) if build_context else ToolContext(user_id=user_id)
     started = time.monotonic()
     emit(event_callback, user_id, "tool_start", index=idx, tool_name=name, arguments=args)
+    timeout = getattr(entry, "timeout", 0) or TOOL_TIMEOUT
     try:
-        result = await invoke_entry(entry, ctx, args)
+        result = await asyncio.wait_for(invoke_entry(entry, ctx, args), timeout=timeout)
         content = _truncate(result.content, entry.max_result_chars)
         ok = result.ok
+    except asyncio.TimeoutError:
+        logger.warning("[user=%d] tool %s timed out after %ds", user_id, name, timeout)
+        emit(event_callback, user_id, "tool_error", index=idx, tool_name=name, reason="timeout")
+        content = error_content("timeout", f"Tool '{name}' timed out after {timeout}s", tool_name=name)
+        ok = False
     except Exception as exc:
         logger.exception("[user=%d] tool %s failed", user_id, name)
         content = error_content("execution_failed", f"Tool execution failed: {exc}", exception_type=type(exc).__name__)
@@ -88,8 +96,10 @@ async def execute_tool_calls(
     *,
     event_callback: Callable | None = None,
     build_context: Callable[[int], ToolContext] | None = None,
+    visible: dict[str, ToolEntry] | None = None,
 ) -> list[dict]:
-    visible = {entry.name: entry for entry in registry.all()}
+    if visible is None:
+        visible = {entry.name: entry for entry in registry.all()}
     plan: list[tuple[int, object, ToolEntry | None, dict | None, str | None]] = []
     for idx, tool_call in enumerate(tool_calls):
         entry, args, error = _resolve(tool_call, visible)

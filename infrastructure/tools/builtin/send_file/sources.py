@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import mimetypes
+import socket
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+from infrastructure.config import TOOL_FILE_ROOTS
 
 logger = logging.getLogger(__name__)
 
 MAX_BYTES = 50 * 1024 * 1024
 _DEFAULT_EXT = {"image": ".png", "voice": ".mp3", "video": ".mp4", "document": ".bin"}
+
+_ALLOWED_SCHEMES = {"http", "https"}
+_BLOCKED_HOSTS = {"localhost", "metadata.google.internal", "metadata", "ip-ranges.amazonaws.com"}
+_SECRET_SUFFIXES = (".pem", ".key", ".ppk", ".p12", ".keystore", ".kdbx")
+_SECRET_NAMES = {
+    ".env", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "shadow",
+    ".npmrc", ".pypirc", ".htpasswd", "credentials", ".netrc", ".git-credentials",
+}
+_SECRET_NAME_PREFIXES = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", ".env")
 
 
 def _ext_from_kind(kind: str) -> str:
@@ -25,7 +38,37 @@ def _name_from_url(url: str, kind: str) -> str:
     return base
 
 
+def _is_private_ip(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip.split("%")[0])
+    except ValueError:
+        return True
+    return (
+        addr.is_private or addr.is_loopback or addr.is_link_local
+        or addr.is_reserved or addr.is_multicast or addr.is_unspecified
+    )
+
+
+def _assert_safe_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+        raise ValueError(f"unsupported scheme: {parsed.scheme!r}")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise ValueError("url has no host")
+    if host in _BLOCKED_HOSTS or host.endswith(".internal") or host.endswith(".local"):
+        raise ValueError(f"blocked host: {host}")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise ValueError(f"cannot resolve host {host!r}: {exc}") from exc
+    for info in infos:
+        if _is_private_ip(info[4][0]):
+            raise ValueError(f"blocked private/internal address: {host}")
+
+
 def fetch_url(url: str, *, kind: str) -> tuple[bytes, str]:
+    _assert_safe_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "Telegram-AI-Bot/send_file"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         cl = resp.headers.get("Content-Length")
@@ -35,6 +78,9 @@ def fetch_url(url: str, *, kind: str) -> tuple[bytes, str]:
         if len(data) > MAX_BYTES:
             raise ValueError(f"file too large: > {MAX_BYTES} bytes")
         ctype = resp.headers.get("Content-Type", "")
+        final_host = (urllib.parse.urlparse(resp.geturl()).hostname or "").lower()
+        if final_host and final_host != host and _is_private_ip(socket.gethostbyname(final_host)):
+            raise ValueError(f"redirect to blocked host: {final_host}")
     name = _name_from_url(url, kind)
     if "." not in name:
         ext = mimetypes.guess_extension(ctype.split(";")[0].strip()) or _ext_from_kind(kind)
@@ -42,13 +88,31 @@ def fetch_url(url: str, *, kind: str) -> tuple[bytes, str]:
     return data, name
 
 
+def _assert_safe_path(p: Path) -> Path:
+    resolved = p.resolve()
+    roots = [r.resolve() for r in TOOL_FILE_ROOTS if r.exists()]
+    if not roots or not any(resolved == root or root in resolved.parents for root in roots):
+        raise ValueError(f"path outside allowed roots: {p}")
+    name = resolved.name.lower()
+    if name in _SECRET_NAMES or resolved.suffix.lower() in _SECRET_SUFFIXES:
+        raise ValueError(f"access to sensitive file denied: {p}")
+    if any(name.startswith(prefix) for prefix in _SECRET_NAME_PREFIXES):
+        raise ValueError(f"access to sensitive file denied: {p}")
+    if ".git" in resolved.parts:
+        raise ValueError("access to .git denied")
+    return resolved
+
+
 def read_path(path: str, *, kind: str) -> tuple[bytes, str]:
     p = Path(path).expanduser()
-    if not p.is_file():
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    resolved = _assert_safe_path(p)
+    if not resolved.is_file():
         raise FileNotFoundError(f"no such file: {path}")
-    if p.stat().st_size > MAX_BYTES:
-        raise ValueError(f"file too large: {p.stat().st_size} bytes (limit {MAX_BYTES})")
-    return p.read_bytes(), p.name
+    if resolved.stat().st_size > MAX_BYTES:
+        raise ValueError(f"file too large: {resolved.stat().st_size} bytes (limit {MAX_BYTES})")
+    return resolved.read_bytes(), resolved.name
 
 
 def generate_image(user_id: int, prompt: str, *, size: str = "1024x1024") -> tuple[bytes, str]:

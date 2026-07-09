@@ -1,6 +1,7 @@
 """Settings and environment variable management."""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -15,6 +16,46 @@ from .util import (
 ALLOWED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 load_dotenv()
 apply_env_text()
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _parse_int_set(raw: str) -> set[int]:
+    out: set[int] = set()
+    for part in (raw or "").replace(";", ",").split(","):
+        part = part.strip()
+        if part.lstrip("-").isdigit():
+            out.add(int(part))
+    return out
+
+
+ADMIN_IDS = _parse_int_set(os.getenv("ADMIN_IDS", ""))
+_owner_raw = os.getenv("OWNER_ID", "").strip()
+OWNER_ID = int(_owner_raw) if _owner_raw.lstrip("-").isdigit() else None
+
+
+def is_admin(user_id) -> bool:
+    if user_id is None:
+        return False
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return False
+    return uid in ADMIN_IDS or (OWNER_ID is not None and uid == OWNER_ID)
+
+
+def _parse_roots(raw: str, fallback: list[Path]) -> list[Path]:
+    if not (raw or "").strip():
+        return fallback
+    roots: list[Path] = []
+    for part in raw.replace(":", ",").split(","):
+        part = part.strip()
+        if part:
+            roots.append(Path(part))
+    return roots or fallback
+
+
+TOOL_FILE_ROOTS = _parse_roots(os.getenv("TOOL_FILE_ROOTS", ""), [REPO_ROOT, Path("/data")])
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")

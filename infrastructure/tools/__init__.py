@@ -14,6 +14,8 @@ from .core.context import ToolContext, ToolResult
 from .core.discovery import discover as _discover_native
 from .core.registry import ToolEntry, registry
 
+from infrastructure.config import is_admin
+
 logger = logging.getLogger(__name__)
 _DISCOVERED = False
 
@@ -81,11 +83,19 @@ def _user_enabled(user_id: int | None, skill: str | None) -> bool:
                 return bool(row.get("enabled", True)) and row.get("install_status", "installed") == "installed"
         return True
     except Exception:
-        return True
+        logger.warning("skill availability check failed for user=%s skill=%s; denying (fail-closed)", user_id, skill, exc_info=True)
+        return False
+
+
+def _danger_allowed(entry, user_id: int | None) -> bool:
+    return not getattr(entry, "danger", False) or is_admin(user_id)
 
 
 def _visible(user_id: int | None) -> list[ToolEntry]:
-    return [entry for entry in registry.all() if check_available(entry) and _user_enabled(user_id, entry.skill)]
+    return [
+        entry for entry in registry.all()
+        if check_available(entry) and _user_enabled(user_id, entry.skill) and _danger_allowed(entry, user_id)
+    ]
 
 
 def get_all_tools(enabled_tools="all", *, user_id: int | None = None) -> list[dict]:
@@ -96,7 +106,8 @@ def get_all_tools(enabled_tools="all", *, user_id: int | None = None) -> list[di
 async def process_tool_calls(user_id, tool_calls, enabled_tools="all", event_callback=None):
     _ensure_discovered()
     from .core.execute import execute_tool_calls
-    return await execute_tool_calls(user_id, tool_calls, event_callback=event_callback, build_context=_default_context)
+    visible = {entry.name: entry for entry in _visible(user_id)}
+    return await execute_tool_calls(user_id, tool_calls, event_callback=event_callback, build_context=_default_context, visible=visible)
 
 
 def _skill_instructions(user_id: int | None, seen: set[str]) -> list[str]:
@@ -130,7 +141,7 @@ async def invoke_tool(user_id: int, name: str, arguments: dict):
     from .core.schema import validate
 
     entry = registry.get(name)
-    if entry is None or not check_available(entry):
+    if entry is None or not check_available(entry) or not _danger_allowed(entry, user_id):
         return ToolResult.error("unknown_tool", f"Tool '{name}' is not available.")
     if getattr(entry, "raw_args", False):
         args = arguments or {}

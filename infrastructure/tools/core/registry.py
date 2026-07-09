@@ -18,6 +18,8 @@ class ToolEntry:
     is_async: bool
     serial: bool = False
     risk: str = "safe"
+    danger: bool = False
+    timeout: int = 0
     requires_env: tuple[str, ...] = ()
     check_fn: Callable[[], bool] | None = None
     max_result_chars: int = 20000
@@ -69,6 +71,8 @@ def tool(
     toolset: str = "general",
     risk: str = "safe",
     serial: bool = False,
+    danger: bool = False,
+    timeout: int = 0,
     requires_env: tuple[str, ...] = (),
     check_fn: Callable[[], bool] | None = None,
     max_result_chars: int = 20000,
@@ -87,6 +91,8 @@ def tool(
             is_async=inspect.iscoroutinefunction(func),
             serial=serial,
             risk=risk,
+            danger=danger,
+            timeout=timeout,
             requires_env=tuple(requires_env),
             check_fn=check_fn,
             max_result_chars=max_result_chars,

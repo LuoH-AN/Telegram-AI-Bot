@@ -26,7 +26,7 @@ TERMINAL_INSTRUCTION = (
 )
 
 
-@tool(toolset="system", skill="terminal", risk="confirm", max_result_chars=20000, instruction=TERMINAL_INSTRUCTION, description="Execute a shell command without sandbox. Foreground by default; background=true for long-running jobs. Risky commands need confirmed=true after the user agrees.")
+@tool(toolset="system", skill="terminal", risk="confirm", danger=True, timeout=620, max_result_chars=20000, instruction=TERMINAL_INSTRUCTION, description="Execute a shell command without sandbox. Foreground by default; background=true for long-running jobs. Risky commands need confirmed=true after the user agrees. Admin-only.")
 async def terminal(ctx: ToolContext, command: str, cwd: str = "", timeout: int = 60, background: bool = False, confirmed: bool = False) -> ToolResult:
     command = (command or "").strip()
     if not command:
@@ -42,12 +42,12 @@ async def terminal(ctx: ToolContext, command: str, cwd: str = "", timeout: int =
     return await asyncio.to_thread(exec_foreground, command, cwd_path, max(1, min(600, int(timeout))))
 
 
-@tool(toolset="system", skill="terminal", max_result_chars=4000, description="List currently running and recently finished background terminal jobs.")
+@tool(toolset="system", skill="terminal", danger=True, max_result_chars=4000, description="List currently running and recently finished background terminal jobs.")
 async def terminal_bg_list(ctx: ToolContext) -> ToolResult:
     return ToolResult.text(await asyncio.to_thread(list_background_jobs))
 
 
-@tool(toolset="system", skill="terminal", serial=True, max_result_chars=20000, description="Check the status and output of a background terminal job by pid.")
+@tool(toolset="system", skill="terminal", danger=True, serial=True, max_result_chars=20000, description="Check the status and output of a background terminal job by pid.")
 async def terminal_bg_check(ctx: ToolContext, pid: int) -> ToolResult:
     if int(pid) <= 1:
         return ToolResult.error("invalid_pid", "pid must be a real PID returned by a previous background run (not 0/1).")
