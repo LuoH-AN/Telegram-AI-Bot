@@ -37,7 +37,7 @@ def test_context_bar_uses_last_turn_vs_model_window(monkeypatch):
     text = view.build_usage_text(1)
     assert "25.0%" in text
     assert "of context" in text
-    assert "Last turn: 32,000 / 128,000" in text
+    assert "Last turn: 32K tokens / 128K tokens" in text
     assert "model `gpt-4o`" in text
 
 
@@ -46,7 +46,7 @@ def test_manual_limit_caps_ceiling_when_tighter(monkeypatch):
     _mock_view(monkeypatch, model="gpt-4o", last_prompt=32000, limit=50000)
     text = view.build_usage_text(1)
     assert "64.0%" in text
-    assert "32,000 / 50,000" in text
+    assert "32K tokens / 50K tokens" in text
     assert "model `gpt-4o`" not in text  # manual limit won, so no model label
 
 
@@ -62,14 +62,14 @@ def test_no_turn_recorded_falls_back_to_cumulative(monkeypatch):
     # total=64000 -> prompt_tokens=32000 (mock halves it) -> 32000/128000 = 25%
     assert "25.0%" in text
     assert "of context" in text
-    assert "Prompt (total): 32,000 / 128,000" in text  # fallback label
+    assert "Prompt (total): 32K tokens / 128K tokens" in text  # fallback label
 
 
 def test_no_turn_no_total_shows_ceiling_only(monkeypatch):
     # brand new: nothing recorded at all -> just the window, no bar
     _mock_view(monkeypatch, model="gpt-4o", last_prompt=0, total=0)
     text = view.build_usage_text(1)
-    assert "Context window: 128,000" in text
+    assert "Context window: 128K tokens" in text
     assert "🟩" not in text
 
 

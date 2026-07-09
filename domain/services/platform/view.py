@@ -75,11 +75,13 @@ def build_usage_text(user_id: int) -> str:
     manual_limit = get_token_limit(user_id, persona_name)
     ceilings = [c for c in (model_ctx, manual_limit) if c and c > 0]
 
+    from shared.utils.format import format_tokens
+
     message = (
         f"📊 **Token Usage** (Persona: `{persona_name}`)\n\n"
-        f"• **Prompt (total):** {usage['prompt_tokens']:,}\n"
-        f"• **Completion (total):** {usage['completion_tokens']:,}\n"
-        f"• **Total:** {usage['total_tokens']:,}"
+        f"• **Prompt (total):** {format_tokens(usage['prompt_tokens'])}\n"
+        f"• **Completion (total):** {format_tokens(usage['completion_tokens'])}\n"
+        f"• **Total:** {format_tokens(usage['total_tokens'])}"
     )
 
     if ceilings:
@@ -91,12 +93,12 @@ def build_usage_text(user_id: int) -> str:
             percent = min(100.0, used / ceiling * 100) if ceiling else 0
             message += (
                 f"\n\n{_usage_bar(percent)}  **{percent:.1f}%** of context\n"
-                f"{note}: {used:,} / {ceiling:,}{source}"
+                f"{note}: {format_tokens(used)} / {format_tokens(ceiling)}{source}"
             )
         else:
             label = "Context window" if ceiling == model_ctx else "Limit"
-            message += f"\n\n{label}: {ceiling:,}{source}"
+            message += f"\n\n{label}: {format_tokens(ceiling)}{source}"
     else:
         message += "\n\n♾️ **No limit known** (model context unknown, no manual limit set)"
     total_all = get_total_tokens_all_personas(user_id)
-    return f"{message}\n\n━━ **All Personas** ━━\n**Total:** {total_all:,}"
+    return f"{message}\n\n━━ **All Personas** ━━\n**Total:** {format_tokens(total_all)}"

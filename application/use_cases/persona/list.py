@@ -40,7 +40,9 @@ def build_persona_list_text(user_id: int, *, command_prefix: str) -> str:
             prompt_preview += "..."
 
         lines.append(f"{marker}**{name}**")
-        lines.append(f"   💬 {msg_count} · 🗂️ {session_ct} · 🪙 {usage['total_tokens']:,} tokens{bar}")
+        from shared.utils.format import format_tokens
+
+        lines.append(f"   💬 {msg_count} · 🗂️ {session_ct} · 🪙 {format_tokens(usage['total_tokens'])}{bar}")
         lines.append(f"   _{prompt_preview}_")
         lines.append("")
 

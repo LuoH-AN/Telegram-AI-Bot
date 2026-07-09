@@ -1857,11 +1857,13 @@ def get_model_max_output(model_id: str) -> int | None:
 
 def format_context_window_note(model_id: str) -> str:
     """One-line context-window (and max-output, if known) hint, or '' if unknown."""
+    from shared.utils.format import format_count
+
     limit = get_model_context_limit(model_id)
     if not limit:
         return ""
-    parts = [f"🪟 {limit:,} context tokens"]
+    parts = [f"🪟 {format_count(limit)} context tokens"]
     max_out = get_model_max_output(model_id)
     if max_out:
-        parts.append(f"↗ {max_out:,} max output")
+        parts.append(f"↗ {format_count(max_out)} max output")
     return " · ".join(parts)

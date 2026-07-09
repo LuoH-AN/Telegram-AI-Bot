@@ -42,8 +42,8 @@ def test_max_output():
 
 def test_format_note_known_and_unknown():
     note = format_context_window_note("deepseek-v4-pro")
-    assert "1,048,576 context tokens" in note
-    assert "393,216 max output" in note
+    assert "1M context tokens" in note
+    assert "393.2K max output" in note
     assert format_context_window_note("unknown-model") == ""
 
 

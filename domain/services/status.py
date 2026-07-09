@@ -7,6 +7,8 @@ import os
 import sys
 import time
 
+from shared.utils.format import format_count
+
 try:
     import resource as _resource
 except ImportError:
@@ -100,7 +102,7 @@ def build_status_text(user_id: int) -> str:
         "💾 **Data**",
         f"• 👤 Users: {stats['users']}",
         f"• 💬 Sessions: {stats['sessions']}",
-        f"• ✉️ Messages: {stats['messages']:,}",
+        f"• ✉️ Messages: {format_count(stats['messages'])}",
         f"• ⏰ Cron tasks: {stats['cron_tasks']}",
         "",
     ]
@@ -109,5 +111,7 @@ def build_status_text(user_id: int) -> str:
     if plugins:
         lines += [f"🧩 **Plugins** ({len(plugins)})", ", ".join(f"`{name}`" for name in plugins), ""]
 
-    lines.append(f"📊 **Your tokens**: {get_total_tokens_all_personas(user_id):,}")
+    from shared.utils.format import format_tokens
+
+    lines.append(f"📊 **Your tokens**: {format_tokens(get_total_tokens_all_personas(user_id))}")
     return "\n".join(lines)
