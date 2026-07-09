@@ -25,11 +25,17 @@ def build_settings_text(user_id: int, *, command_prefix: str) -> str:
     global_prompt = settings.get("global_prompt", "") or ""
     global_prompt_display = global_prompt[:80] + "..." if len(global_prompt) > 80 else global_prompt if global_prompt else "(none)"
     presets = settings.get("api_presets", {})
+    from infrastructure.ai.model_context import format_context_window_note
+
+    model_display = settings["model"]
+    ctx_note = format_context_window_note(settings["model"])
+    if ctx_note:
+        model_display = f"{settings['model']}  ({ctx_note})"
     return build_settings_summary_message(
         command_prefix,
         base_url=settings["base_url"],
         masked_api_key=mask_key(settings["api_key"]),
-        model=settings["model"],
+        model=model_display,
         temperature=settings["temperature"],
         reasoning_effort=settings.get("reasoning_effort", "") or "(provider/model default)",
         show_thinking="on" if settings.get("show_thinking") else "off",

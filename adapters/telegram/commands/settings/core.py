@@ -39,7 +39,10 @@ async def handle_set_core(
         return True
     if key == "model":
         update_user_setting(user_id, "model", value)
-        await reply_rich_text(message, f"model set to: {value}")
+        from infrastructure.ai.model_context import format_context_window_note
+
+        note = format_context_window_note(value)
+        await reply_rich_text(message, f"model set to: {value}" + (f"\n{note}" if note else ""))
         return True
     if key == "prompt":
         await reply_rich_text(message, build_prompt_per_persona_message(command_prefix))

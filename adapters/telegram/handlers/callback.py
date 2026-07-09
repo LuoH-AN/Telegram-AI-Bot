@@ -63,4 +63,7 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         model = data.split(":", 1)[1]
         update_user_setting(user_id, "model", model)
         logger.info("%s set model = %s (callback)", get_log_context(update), model)
-        await edit_query_rich_text(query, f"Model set to: {model}")
+        from infrastructure.ai.model_context import format_context_window_note
+
+        note = format_context_window_note(model)
+        await edit_query_rich_text(query, f"Model set to: {model}" + (f"\n{note}" if note else ""))
