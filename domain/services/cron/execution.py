@@ -11,8 +11,9 @@ from infrastructure.config import VALID_REASONING_EFFORTS
 
 from .client import _create_task_client
 from .delivery import _send_message
-from .state import CST, running_tasks, running_tasks_lock
+from .state import running_tasks, running_tasks_lock
 from .task import execute_ai_and_send
+from .timezone import safe_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,8 @@ def _execute_cron_task(bot, task: dict) -> None:
             reasoning_effort=reasoning_effort,
         )
 
-        cache.update_cron_last_run(user_id, task_name, datetime.now(CST))
+        timezone = safe_timezone(settings.get("timezone"))
+        cache.update_cron_last_run(user_id, task_name, datetime.now(timezone).replace(tzinfo=None))
         logger.info(
             "[user=%d] cron task '%s' completed successfully (%ds)",
             user_id,

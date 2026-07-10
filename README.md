@@ -12,6 +12,8 @@
 - 记忆系统
 - Token 用量统计与限额
 - 定时任务
+- 按钮式新手引导、设置、会话、角色与定时任务面板
+- 中英文自动界面（可在主菜单切换）
 - AI 工具系统（注册式架构，当前内置：config_file、database、memory、search、send_file、terminal）
 
 ## 技术栈
@@ -88,26 +90,31 @@ python main.py
 - `remember`
 - `memories`
 - `forget`
-- `skill`（技能管理：list / install / remove / enable / disable / info）
+- `skill`（技能管理；install 仅管理员）
+- `cron`（定时任务管理与立即测试）
 - `model`
 - `reset`
-- `restart`
+- `restart`（管理员）
 - `status`
 - `stop`
-- `update`
+- `update`（管理员）
 
 ## 工具/技能系统说明
 
-工具基于注册式 `@tool` 架构（`infrastructure/tools/`）。内置工具位于 `infrastructure/tools/builtin/`，第三方技能可通过 `/skill install <github-url>` 安装。
+工具基于注册式 `@tool` 架构（`infrastructure/tools/`）。内置工具位于 `infrastructure/tools/builtin/`，管理员可通过 `/skill install <github-url>` 安装第三方技能。
 
 ## 关键环境变量
 
 - 基础：`DATABASE_URL`
 - Telegram：`TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_BASE`, `TELEGRAM_NATIVE_DRAFTS`, `TELEGRAM_RICH_MESSAGES`
 - 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`, `OPENAI_REASONING_EFFORT`
+- OpenAPI 工具：`OPENAPI_TOOLS_TOKEN`（必填）、`OPENAPI_TOOLS_CORS_ORIGINS`；Terminal 还需 `OPENAPI_TOOLS_USER_ID` 指向管理员 ID
+- 体验：`DEFAULT_TIMEZONE`（默认 `Asia/Shanghai`）
 - 其他：`SHOW_THINKING`
 
 详细示例请参考 `.env.example`。
+
+安全提示：API Key 只允许在 Telegram 私聊中设置；Bot 会尽量立即删除包含密钥的消息。群聊中使用 `/set api_key ...` 会被拒绝。
 
 ## 开发约定
 

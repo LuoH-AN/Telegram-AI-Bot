@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from infrastructure.config import is_admin
+
 from .installer import PLUGIN_DIR, install_from_github, install_from_local, uninstall
 from .manager import get_skill_manager
 
@@ -38,6 +40,8 @@ async def handle_skill_list(user_id: int) -> str:
 
 
 async def handle_skill_install(user_id: int, source: str) -> str:
+    if not is_admin(user_id):
+        return "❌ **Skill installation is restricted to bot administrators.**"
     source = source.strip()
     if not source:
         return "**Usage:** `/skill install <github-url-or-owner/repo>`"

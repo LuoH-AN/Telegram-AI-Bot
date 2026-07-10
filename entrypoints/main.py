@@ -52,7 +52,11 @@ def main() -> int:
 
     serve_in_thread(WEB_PORT)
     print(f">>> Web server running on http://0.0.0.0:{WEB_PORT}", flush=True)
-    print(f">>> OpenAPI tools available at http://0.0.0.0:{WEB_PORT}/tools (spec: /openapi.json)", flush=True)
+    print(
+        f">>> OpenAPI tool specs: http://0.0.0.0:{WEB_PORT}/tools/terminal/openapi.json "
+        f"and http://0.0.0.0:{WEB_PORT}/tools/search/openapi.json",
+        flush=True,
+    )
 
     # Periodically snapshot /data -> /backup so the next cold start can restore.
     start_backup_daemon()

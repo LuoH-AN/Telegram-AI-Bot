@@ -21,3 +21,18 @@ def test_load_env_force_reruns():
     env_mod._ENV_LOADED = False
     load_env(force=True)
     assert env_mod._ENV_LOADED is True
+
+
+def test_default_settings_include_timezone():
+    from infrastructure.config import get_default_settings
+
+    assert get_default_settings()["timezone"]
+
+
+def test_settings_sync_columns_include_timezone():
+    from infrastructure.cache.sync.settings import SETTINGS_COLUMNS, values
+    from infrastructure.config import get_default_settings
+
+    settings = get_default_settings()
+    assert "timezone" in SETTINGS_COLUMNS
+    assert len(values(1, settings)) == len(SETTINGS_COLUMNS)

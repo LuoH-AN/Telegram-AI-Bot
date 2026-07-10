@@ -27,6 +27,12 @@ async def _get_lock(key: str) -> asyncio.Lock:
         return lock
 
 
+async def conversation_queue_position(key: str) -> int:
+    """Return how many requests are currently ahead of a new request."""
+    async with _LOCKS_GUARD:
+        return _REFCOUNT.get(key, 0)
+
+
 async def _release_lock(key: str, lock: asyncio.Lock) -> None:
     async with _LOCKS_GUARD:
         _REFCOUNT[key] = _REFCOUNT.get(key, 1) - 1

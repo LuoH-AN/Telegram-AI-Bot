@@ -72,27 +72,35 @@ def sync_conversations(cur, cache, dirty: dict) -> None:
 
 def _rekey(cache, dirty: dict, session: dict, old_id: int, new_id: int) -> None:
     with cache._lock:
-        if old_id in cache._conversations_cache:
-            cache._conversations_cache[new_id] = cache._conversations_cache.pop(old_id)
-        if old_id in cache._persisted_msg_count:
-            cache._persisted_msg_count[new_id] = cache._persisted_msg_count.pop(old_id)
-        if old_id in cache._conv_offset:
-            cache._conv_offset[new_id] = cache._conv_offset.pop(old_id)
-        if old_id in dirty["conversations"]:
-            dirty["conversations"].discard(old_id)
-            dirty["conversations"].add(new_id)
-        if old_id in dirty["cleared_conversations"]:
-            dirty["cleared_conversations"].discard(old_id)
-            dirty["cleared_conversations"].add(new_id)
-        if old_id in dirty["deleted_sessions"]:
-            dirty["deleted_sessions"].discard(old_id)
-            dirty["deleted_sessions"].add(new_id)
-        if old_id in dirty["dirty_session_titles"]:
-            dirty["dirty_session_titles"][new_id] = dirty["dirty_session_titles"].pop(old_id)
+        if old_id != new_id:
+            cache._session_id_aliases[old_id] = new_id
+            if old_id in cache._conversations_cache:
+                cache._conversations_cache[new_id] = cache._conversations_cache.pop(old_id)
+            if old_id in cache._persisted_msg_count:
+                cache._persisted_msg_count[new_id] = cache._persisted_msg_count.pop(old_id)
+            if old_id in cache._conv_offset:
+                cache._conv_offset[new_id] = cache._conv_offset.pop(old_id)
+
+            for tracker in (dirty["conversations"], cache._dirty_conversations):
+                if old_id in tracker:
+                    tracker.discard(old_id)
+                    tracker.add(new_id)
+            for tracker in (dirty["cleared_conversations"], cache._cleared_conversations):
+                if old_id in tracker:
+                    tracker.discard(old_id)
+                    tracker.add(new_id)
+            for tracker in (dirty["deleted_sessions"], cache._deleted_sessions):
+                if old_id in tracker:
+                    tracker.discard(old_id)
+                    tracker.add(new_id)
+            for tracker in (dirty["dirty_session_titles"], cache._dirty_session_titles):
+                if old_id in tracker:
+                    tracker[new_id] = tracker.pop(old_id)
 
         persona = cache.get_persona(session["user_id"], session["persona_name"])
         if persona and persona.get("current_session_id") == old_id:
             persona["current_session_id"] = new_id
+            cache._dirty_personas.add((session["user_id"], session["persona_name"]))
 
         key = (session["user_id"], session["persona_name"])
         for item in cache._sessions_cache.get(key, []):

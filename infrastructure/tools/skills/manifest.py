@@ -26,6 +26,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 SKILL_FILENAME = "SKILL.md"
+SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 _FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n?(.*)$", re.DOTALL)
 
@@ -102,6 +103,9 @@ def load_manifest(path: Path, *, is_builtin: bool = False) -> SkillManifest | No
     name = str(meta.get("name") or "").strip()
     if not name:
         logger.warning("SKILL.md at %s missing name", skill_path)
+        return None
+    if not SKILL_NAME_RE.fullmatch(name):
+        logger.warning("SKILL.md at %s has unsafe name: %r", skill_path, name)
         return None
 
     return SkillManifest(

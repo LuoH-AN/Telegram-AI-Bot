@@ -25,6 +25,14 @@ def _cron_matches(expr: str, dt: datetime) -> bool:
     return True
 
 
+def is_valid_cron(expr: str) -> bool:
+    parts = (expr or "").split()
+    if len(parts) != 5:
+        return False
+    ranges = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 6)]
+    return all(any(_field_matches(field, value, lo, hi) for value in range(lo, hi + 1)) for field, (lo, hi) in zip(parts, ranges))
+
+
 def _field_matches(field: str, value: int, lo: int, hi: int) -> bool:
     """Check if a single cron field matches the given value.
 

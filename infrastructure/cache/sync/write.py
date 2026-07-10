@@ -21,8 +21,8 @@ def sync_to_database(cache) -> None:
             with conn.cursor() as cur:
                 settings.sync(cur, cache, dirty)
                 persona.sync_deleted(cur, dirty)
-                persona.sync(cur, cache, dirty)
                 session.sync_new(cur, cache, dirty)
+                persona.sync(cur, cache, dirty)
                 session.sync_titles(cur, dirty)
                 session.sync_deleted(cur, dirty)
                 session.sync_cleared(cur, dirty)
@@ -41,3 +41,4 @@ def sync_to_database(cache) -> None:
     except Exception:
         cache.restore_dirty(dirty)
         logger.exception("Failed to sync to infrastructure.database")
+        raise

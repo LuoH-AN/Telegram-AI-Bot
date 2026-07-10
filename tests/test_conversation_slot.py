@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from domain.services.queue import conversation_slot, _LOCKS, _REFCOUNT
+from domain.services.queue import conversation_queue_position, conversation_slot, _LOCKS, _REFCOUNT
 
 
 def _run(coro):
@@ -96,3 +96,23 @@ def test_lock_not_evicted_while_queued():
 
     # the lock exists during contention (second still needs it)
     assert _run(run()) is True
+
+
+def test_queue_position_counts_requests_ahead():
+    async def run():
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def holder():
+            async with conversation_slot("position"):
+                entered.set()
+                await release.wait()
+
+        task = asyncio.create_task(holder())
+        await entered.wait()
+        position = await conversation_queue_position("position")
+        release.set()
+        await task
+        return position
+
+    assert _run(run()) == 1

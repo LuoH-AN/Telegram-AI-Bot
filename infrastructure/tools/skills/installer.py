@@ -12,7 +12,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from .manifest import SKILL_FILENAME, load_manifest
+from .manifest import SKILL_FILENAME, SKILL_NAME_RE, load_manifest
 
 logger = logging.getLogger(__name__)
 PLUGIN_DIR = Path(os.getenv("PLUGIN_DIR", "/data/plugins"))
@@ -23,6 +23,16 @@ def _ensure_dir() -> Path:
     PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
     INSTALLED_MARKER.mkdir(parents=True, exist_ok=True)
     return PLUGIN_DIR
+
+
+def _safe_child(root: Path, name: str) -> Path:
+    if not SKILL_NAME_RE.fullmatch(name or ""):
+        raise ValueError(f"Unsafe skill name: {name!r}")
+    resolved_root = root.resolve()
+    target = (resolved_root / name).resolve()
+    if target.parent != resolved_root:
+        raise ValueError(f"Skill path escapes plugin directory: {name!r}")
+    return target
 
 
 def _parse_url(url: str) -> tuple[str, str]:
@@ -55,19 +65,24 @@ def _download(owner_repo: str, branch: str, subdir: str) -> Path:
 
 
 def _finalize(plugin_dir: Path, source: str) -> dict:
+    plugin_dir = plugin_dir.resolve()
+    plugin_root = PLUGIN_DIR.resolve()
+    if plugin_dir.parent != plugin_root:
+        return {"ok": False, "message": "Plugin staging path escapes plugin directory"}
     manifest = load_manifest(plugin_dir, is_builtin=False)
     if not manifest:
         shutil.rmtree(plugin_dir, ignore_errors=True)
         return {"ok": False, "message": f"No {SKILL_FILENAME}"}
     name = manifest.name
     if plugin_dir.name != name:
-        new_dir = PLUGIN_DIR / name
+        new_dir = _safe_child(PLUGIN_DIR, name)
         if new_dir.exists():
             shutil.rmtree(new_dir)
         shutil.move(str(plugin_dir), str(new_dir))
         plugin_dir = new_dir
     info = {"name": name, "source": source, "version": manifest.version}
-    (INSTALLED_MARKER / f"{name}.json").write_text(json.dumps(info, ensure_ascii=False))
+    marker = _safe_child(INSTALLED_MARKER, name).with_suffix(".json")
+    marker.write_text(json.dumps(info, ensure_ascii=False))
     logger.info("Installed '%s'", name)
     return {"ok": True, "name": name, "path": str(plugin_dir)}
 
@@ -99,11 +114,15 @@ def install_from_local(path: str | Path) -> dict:
 
 
 def uninstall(name: str) -> dict:
-    plugin_dir = PLUGIN_DIR / name
+    try:
+        plugin_dir = _safe_child(PLUGIN_DIR, name)
+        marker = _safe_child(INSTALLED_MARKER, name).with_suffix(".json")
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
     if not plugin_dir.exists():
         return {"ok": False, "message": f"'{name}' not found"}
     shutil.rmtree(plugin_dir)
-    (INSTALLED_MARKER / f"{name}.json").unlink(missing_ok=True)
+    marker.unlink(missing_ok=True)
     logger.info("Uninstalled '%s'", name)
     return {"ok": True, "name": name}
 

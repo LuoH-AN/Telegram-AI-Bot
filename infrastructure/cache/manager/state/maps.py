@@ -5,6 +5,10 @@ def init_cache_maps(obj) -> None:
     obj._settings_cache = {}
     obj._personas_cache = {}
     obj._sessions_cache = {}
+    # Temporary in-memory session ids may be replaced with PostgreSQL SERIAL ids.
+    # Keep aliases so long-running requests holding the old id still write to the
+    # canonical session after a background sync.
+    obj._session_id_aliases = {}
     obj._conversations_cache = {}
     # Per-session count of messages confirmed persisted to the DB, and how many
     # oldest messages were dropped from the in-memory copy (head offset). Used to

@@ -48,5 +48,5 @@ def parse_settings_row(row: Mapping) -> dict:
         "title_model": row.get("title_model") or "",
         "cron_model": row.get("cron_model") or "",
         "global_prompt": row.get("global_prompt") or "",
+        "timezone": row.get("timezone") or "Asia/Shanghai",
     }
-

@@ -8,6 +8,8 @@ callers must `await` it (no asyncio.to_thread wrapper).
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import Iterable
 
 from .core.availability import check_available
 from .core.context import ToolContext, ToolResult
@@ -88,30 +90,60 @@ def _user_enabled(user_id: int | None, skill: str | None) -> bool:
         return False
 
 
-def _danger_allowed(entry, user_id: int | None) -> bool:
-    return not getattr(entry, "danger", False) or is_admin(user_id)
+def _admin_allowed(entry, user_id: int | None) -> bool:
+    if getattr(entry, "toolset", "") == "admin" or getattr(entry, "danger", False):
+        return is_admin(user_id)
+    return True
 
 
-def _visible(user_id: int | None) -> list[ToolEntry]:
+def _enabled_names(enabled_tools="all") -> set[str] | None:
+    value = enabled_tools
+    if value is None or value == "all":
+        value = os.getenv("ENABLED_TOOLS", "").strip()
+        if not value:
+            return None
+    if isinstance(value, str):
+        names = {item.strip().lower() for item in value.replace(";", ",").split(",") if item.strip()}
+    elif isinstance(value, Iterable):
+        names = {str(item).strip().lower() for item in value if str(item).strip()}
+    else:
+        names = {str(value).strip().lower()}
+    return None if "all" in names else names
+
+
+def _selected(entry: ToolEntry, enabled: set[str] | None) -> bool:
+    if enabled is None:
+        return True
+    candidates = {entry.name.lower(), entry.toolset.lower()}
+    if entry.skill:
+        candidates.add(entry.skill.lower())
+    return bool(candidates & enabled)
+
+
+def _visible(user_id: int | None, enabled_tools="all") -> list[ToolEntry]:
+    enabled = _enabled_names(enabled_tools)
     return [
         entry for entry in registry.all()
-        if check_available(entry) and _user_enabled(user_id, entry.skill) and _danger_allowed(entry, user_id)
+        if check_available(entry)
+        and _user_enabled(user_id, entry.skill)
+        and _admin_allowed(entry, user_id)
+        and _selected(entry, enabled)
     ]
 
 
 def get_all_tools(enabled_tools="all", *, user_id: int | None = None) -> list[dict]:
     _ensure_discovered()
-    return [entry.schema() for entry in _visible(user_id)]
+    return [entry.schema() for entry in _visible(user_id, enabled_tools)]
 
 
 async def process_tool_calls(user_id, tool_calls, enabled_tools="all", event_callback=None):
     _ensure_discovered()
     from .core.execute import execute_tool_calls
-    visible = {entry.name: entry for entry in _visible(user_id)}
+    visible = {entry.name: entry for entry in _visible(user_id, enabled_tools)}
     return await execute_tool_calls(user_id, tool_calls, event_callback=event_callback, build_context=_default_context, visible=visible)
 
 
-def _skill_instructions(user_id: int | None, seen: set[str]) -> list[str]:
+def _skill_instructions(user_id: int | None, seen: set[str], enabled: set[str] | None) -> list[str]:
     """Prompt-only skills visible to the user contribute their body to the system prompt."""
     out: list[str] = []
     try:
@@ -123,6 +155,8 @@ def _skill_instructions(user_id: int | None, seen: set[str]) -> list[str]:
             from infrastructure.tools.skills.user_state import is_visible_for_user
             manifests = [m for m in manager.list_manifests(user_id) if is_visible_for_user(user_id, m)]
         for manifest in manifests:
+            if enabled is not None and manifest.name.lower() not in enabled and "skills" not in enabled:
+                continue
             if manifest.name in seen:
                 continue
             instruction = manager.get_instruction(manifest.name)
@@ -134,7 +168,7 @@ def _skill_instructions(user_id: int | None, seen: set[str]) -> list[str]:
     return out
 
 
-async def invoke_tool(user_id: int, name: str, arguments: dict):
+async def invoke_tool(user_id: int, name: str, arguments: dict, enabled_tools="all"):
     """Run a single tool by name. Lighter than process_tool_calls for one-shot callers (HTTP API, cron)."""
     _ensure_discovered()
     from .core.availability import check_available
@@ -142,7 +176,13 @@ async def invoke_tool(user_id: int, name: str, arguments: dict):
     from .core.schema import validate
 
     entry = registry.get(name)
-    if entry is None or not check_available(entry) or not _danger_allowed(entry, user_id):
+    if (
+        entry is None
+        or not check_available(entry)
+        or not _user_enabled(user_id, entry.skill)
+        or not _admin_allowed(entry, user_id)
+        or not _selected(entry, _enabled_names(enabled_tools))
+    ):
         return ToolResult.error("unknown_tool", f"Tool '{name}' is not available.")
     if getattr(entry, "raw_args", False):
         args = arguments or {}
@@ -162,9 +202,10 @@ def get_tool_instructions(enabled_tools="all", *, user_id: int | None = None) ->
     _ensure_discovered()
     parts: list[str] = []
     seen: set[str] = set()
-    for entry in _visible(user_id):
+    enabled = _enabled_names(enabled_tools)
+    for entry in _visible(user_id, enabled_tools):
         if entry.instruction and (entry.skill or entry.name) not in seen:
             seen.add(entry.skill or entry.name)
             parts.append(entry.instruction)
-    parts.extend(_skill_instructions(user_id, seen))
+    parts.extend(_skill_instructions(user_id, seen, enabled))
     return "".join(parts)

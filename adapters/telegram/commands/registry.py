@@ -21,6 +21,7 @@ from typing import Awaitable, Callable
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from infrastructure.config import is_admin
 from domain.services.refresh import ensure_user_state
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class Command:
     help: str = ""
     category: str = "Other"
     refresh_state: bool = True  # run ensure_user_state before the handler
+    admin_only: bool = False
 
     @property
     def display_usage(self) -> str:
@@ -62,12 +64,13 @@ class Command:
 
 
 # Display order for /help grouping. Commands in unknown categories land last.
-CATEGORY_ORDER = ["Chat", "Memory", "Persona", "Settings", "Skills", "System"]
+CATEGORY_ORDER = ["Chat", "Memory", "Persona", "Settings", "Automation", "Skills", "System"]
 CATEGORY_TITLES = {
     "Chat": "💬 Chat",
     "Memory": "🧠 Memory",
     "Persona": "🎭 Personas",
     "Settings": "⚙️ Settings",
+    "Automation": "⏰ Automation",
     "Skills": "🔌 Skills",
     "System": "🔧 System",
 }
@@ -76,13 +79,29 @@ _REGISTRY: dict[str, Command] = {}
 _ORDER: list[str] = []
 
 
-def command(name: str, *, usage: str = "", help: str = "", category: str = "Other", refresh_state: bool = True):
+def command(
+    name: str,
+    *,
+    usage: str = "",
+    help: str = "",
+    category: str = "Other",
+    refresh_state: bool = True,
+    admin_only: bool = False,
+):
     """Register a command. Handler: ``async def(ctx) -> str``."""
 
     def decorate(handler: Handler) -> Handler:
         if name in _REGISTRY:
             _ORDER.remove(name)
-        _REGISTRY[name] = Command(name=name, handler=handler, usage=usage, help=help, category=category, refresh_state=refresh_state)
+        _REGISTRY[name] = Command(
+            name=name,
+            handler=handler,
+            usage=usage,
+            help=help,
+            category=category,
+            refresh_state=refresh_state,
+            admin_only=admin_only,
+        )
         _ORDER.append(name)
         return handler
 
@@ -93,10 +112,12 @@ def all_commands() -> list[Command]:
     return [_REGISTRY[name] for name in _ORDER]
 
 
-def grouped_commands() -> list[tuple[str, list[Command]]]:
+def grouped_commands(user_id: int | None = None) -> list[tuple[str, list[Command]]]:
     """Commands grouped by category, in CATEGORY_ORDER; unknown categories last."""
     buckets: dict[str, list[Command]] = {}
     for cmd in all_commands():
+        if cmd.admin_only and user_id is not None and not is_admin(user_id):
+            continue
         buckets.setdefault(cmd.category, []).append(cmd)
     ordered = [(cat, buckets[cat]) for cat in CATEGORY_ORDER if cat in buckets]
     for cat, cmds in buckets.items():
@@ -156,6 +177,14 @@ async def _invoke(cmd: Command, update: Update, context: ContextTypes.DEFAULT_TY
     args = list(context.args or [])
     log_ctx = get_log_context(update)
     logger.info("%s /%s %s", log_ctx, cmd.name, " ".join(args))
+    if cmd.admin_only and not is_admin(user_id):
+        from adapters.telegram.ux.locale import language, pick
+
+        await reply_rich_text(
+            update.effective_message,
+            pick(language(update, context), "此命令仅限机器人管理员使用。", "This command is restricted to bot administrators."),
+        )
+        return
     if cmd.refresh_state:
         await ensure_user_state(user_id)
     ctx = CommandContext(

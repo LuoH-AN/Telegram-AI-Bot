@@ -13,13 +13,13 @@ from .delivery import platform_label
 from .execution import _execute_cron_task
 from .matcher import _cron_matches
 from .state import (
-    CST,
     POLL_INTERVAL,
     running_tasks,
     running_tasks_lock,
     set_bot_ref,
     set_main_loop_ref,
 )
+from .timezone import safe_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,13 @@ def _scheduler_loop(bot) -> None:
     while True:
         time.sleep(POLL_INTERVAL)
         try:
-            now = datetime.now(CST)
             tasks = cache.get_all_cron_tasks()
             for task in tasks:
                 if not task.get("enabled", True):
                     continue
 
+                settings = cache.get_settings(task["user_id"])
+                now = datetime.now(safe_timezone(settings.get("timezone")))
                 expr = task.get("cron_expression", "")
                 if not _cron_matches(expr, now):
                     continue

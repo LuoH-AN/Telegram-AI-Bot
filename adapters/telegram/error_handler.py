@@ -25,7 +25,16 @@ def build_error_handler(logger: logging.Logger):
 
             record_error(user_id, str(error), "global error handler")
         except Exception:
-            return
+            logger.debug("Failed to persist global error", exc_info=True)
+        if isinstance(update, Update) and update.effective_message:
+            try:
+                from adapters.telegram.rich_text import reply_rich_text
+                from adapters.telegram.ux.errors import error_panel
+                from adapters.telegram.ux.locale import language
+
+                text, keyboard = error_panel(error, language(update, context), user_id=user_id)
+                await reply_rich_text(update.effective_message, text, reply_markup=keyboard)
+            except Exception:
+                logger.debug("Failed to send global error recovery UI", exc_info=True)
 
     return error_handler
-

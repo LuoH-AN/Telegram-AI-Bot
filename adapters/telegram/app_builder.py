@@ -15,6 +15,8 @@ from infrastructure.config import (
     TELEGRAM_SEND_RETRY_JITTER,
 )
 from adapters.telegram.commands import all_commands, make_handler
+from adapters.telegram.ux.callbacks import ux_callback
+from adapters.telegram.ux.pending import handle_pending_input
 from adapters.telegram.handlers import (
     chat,
     handle_document,
@@ -30,6 +32,8 @@ def _register_handlers(application: Application) -> None:
         application.add_handler(CommandHandler(cmd.name, make_handler(cmd)))
     application.add_handler(CallbackQueryHandler(model_callback, pattern=r"^model:|^models_"))
     application.add_handler(CallbackQueryHandler(help_callback, pattern=r"^help:"))
+    application.add_handler(CallbackQueryHandler(ux_callback, pattern=r"^ux:"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pending_input), group=-1)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))

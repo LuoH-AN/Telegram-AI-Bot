@@ -45,7 +45,7 @@ async def send_message_safe(message, text: str, reply: bool = True, **kwargs) ->
     return sent_messages
 
 
-async def edit_message_safe(message, text: str) -> bool:
+async def edit_message_safe(message, text: str, **kwargs) -> bool:
     """Edit a message with HTML formatting, fallback to plain text if failed."""
     # Truncate if too long for single message
     if len(text) > MAX_MESSAGE_LENGTH:
@@ -55,7 +55,7 @@ async def edit_message_safe(message, text: str) -> bool:
 
     for attempt in range(2):
         try:
-            await message.edit_text(html_text, parse_mode=ParseMode.HTML)
+            await message.edit_text(html_text, parse_mode=ParseMode.HTML, **kwargs)
             return True
         except RetryAfter as e:
             await asyncio.sleep(e.retry_after)
@@ -64,7 +64,7 @@ async def edit_message_safe(message, text: str) -> bool:
                 return True
             # Fallback to plain text
             try:
-                await message.edit_text(text)
+                await message.edit_text(text, **kwargs)
                 return True
             except RetryAfter as e2:
                 await asyncio.sleep(e2.retry_after)

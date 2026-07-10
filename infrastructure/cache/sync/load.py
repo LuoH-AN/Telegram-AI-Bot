@@ -24,3 +24,4 @@ def load_from_database(cache) -> None:
                 skill.load(cur, cache)
     except Exception:
         logger.exception("Failed to load from infrastructure.database")
+        raise

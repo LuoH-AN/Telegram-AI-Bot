@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import timedelta, timezone
 
-CST = timezone(timedelta(hours=8))
 POLL_INTERVAL = 30  # seconds
 
 running_tasks: set[tuple[int, str]] = set()

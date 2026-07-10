@@ -13,6 +13,13 @@ from ._shared import commit, dumps, get_cache
 def _run(user_id: int, action: str, persona: str, session_id: int | None, title: str) -> ToolResult:
     cache = get_cache()
     persona = (persona or "").strip() or None
+
+    def owned_session():
+        session = cache.get_session_by_id(session_id) if session_id else None
+        if not session or session.get("user_id") != user_id:
+            return None
+        return session
+
     if action == "list":
         pname = persona or cache.get_current_persona_name(user_id)
         sessions = cache.get_sessions(user_id, pname)
@@ -22,20 +29,20 @@ def _run(user_id: int, action: str, persona: str, session_id: int | None, title:
         return ToolResult.text("\n".join(lines))
     if action == "get":
         if session_id:
-            session = cache.get_session_by_id(session_id)
+            session = owned_session()
             return ToolResult.text(dumps(session)) if session else ToolResult.error("not_found", f"Session {session_id} not found")
         pname = persona or cache.get_current_persona_name(user_id)
         return ToolResult.text(dumps(cache.get_sessions(user_id, pname)))
     if action == "rename":
         if not session_id:
             return ToolResult.error("missing_id", "session_id required")
-        if not cache.get_session_by_id(session_id):
+        if not owned_session():
             return ToolResult.error("not_found", f"Session {session_id} not found")
         cache.update_session_title(session_id, title)
         commit()
         return ToolResult.text(f"Renamed session {session_id} to '{title or '(cleared)'}'")
     if action in ("delete", "switch"):
-        session = cache.get_session_by_id(session_id) if session_id else None
+        session = owned_session()
         if not session:
             return ToolResult.error("not_found", f"Session {session_id or '?'} not found")
         if action == "delete":

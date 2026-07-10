@@ -27,6 +27,12 @@ _SECRET_NAMES = {
 _SECRET_NAME_PREFIXES = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", ".env")
 
 
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _assert_safe_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _ext_from_kind(kind: str) -> str:
     return _DEFAULT_EXT.get(kind, ".bin")
 
@@ -70,7 +76,10 @@ def _assert_safe_url(url: str) -> None:
 def fetch_url(url: str, *, kind: str) -> tuple[bytes, str]:
     _assert_safe_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "Telegram-AI-Bot/send_file"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    opener = urllib.request.build_opener(_SafeRedirectHandler())
+    with opener.open(req, timeout=30) as resp:
+        final_url = resp.geturl()
+        _assert_safe_url(final_url)
         cl = resp.headers.get("Content-Length")
         if cl and int(cl) > MAX_BYTES:
             raise ValueError(f"file too large: {cl} bytes (limit {MAX_BYTES})")
@@ -78,10 +87,7 @@ def fetch_url(url: str, *, kind: str) -> tuple[bytes, str]:
         if len(data) > MAX_BYTES:
             raise ValueError(f"file too large: > {MAX_BYTES} bytes")
         ctype = resp.headers.get("Content-Type", "")
-        final_host = (urllib.parse.urlparse(resp.geturl()).hostname or "").lower()
-        if final_host and final_host != host and _is_private_ip(socket.gethostbyname(final_host)):
-            raise ValueError(f"redirect to blocked host: {final_host}")
-    name = _name_from_url(url, kind)
+    name = _name_from_url(final_url, kind)
     if "." not in name:
         ext = mimetypes.guess_extension(ctype.split(";")[0].strip()) or _ext_from_kind(kind)
         name += ext

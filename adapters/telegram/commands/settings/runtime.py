@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from telegram import Message
 
 from infrastructure.config import VALID_REASONING_EFFORTS
@@ -13,6 +15,16 @@ from adapters.telegram.rich_text import reply_rich_text
 async def handle_set_runtime(
     message: Message, *, user_id: int, settings: dict, key: str, value: str, command_prefix: str
 ) -> bool:
+    if key == "timezone":
+        timezone_name = value.strip()
+        try:
+            ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            await reply_rich_text(message, "Invalid timezone. Example: Asia/Shanghai, Europe/London, or UTC.")
+            return True
+        update_user_setting(user_id, "timezone", timezone_name)
+        await reply_rich_text(message, f"timezone set to: {timezone_name}")
+        return True
     if key == "reasoning_effort":
         val = value.strip().lower()
         if not val or val in {"off", "clear"}:

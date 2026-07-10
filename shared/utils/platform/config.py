@@ -27,6 +27,7 @@ SET_COMMAND_KEYS = (
     "global_prompt",
     "title_model",
     "cron_model",
+    "timezone",
     "provider",
 )
 
@@ -44,5 +45,6 @@ def _build_set_key_lines() -> str:
         "• `global_prompt` - global prompt (<text|clear>)\n"
         "• `title_model` - title generation model [provider:]model\n"
         "• `cron_model` - cron task model [provider:]model\n"
+        "• `timezone` - IANA timezone, e.g. Asia/Shanghai or UTC\n"
         "• `provider` - provider management (list/save/load/delete)"
     )

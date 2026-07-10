@@ -18,6 +18,8 @@ import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from adapters.http.openapi_tools.auth import cors_options
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,10 +31,7 @@ def build_public_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        **cors_options(),
     )
 
     @app.get("/", include_in_schema=False)

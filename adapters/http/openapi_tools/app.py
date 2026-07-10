@@ -13,19 +13,13 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .auth import cors_options
 from .search_routes import build_search_app
 from .terminal_routes import build_terminal_app
 
 
 def _title() -> str:
     return (os.getenv("OPENAPI_TOOLS_TITLE") or "Telegram-AI-Bot Tools").strip() or "Telegram-AI-Bot Tools"
-
-
-def _cors_origins() -> list[str]:
-    raw = (os.getenv("OPENAPI_TOOLS_CORS_ORIGINS") or "*").strip()
-    if raw == "*":
-        return ["*"]
-    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def build_app() -> FastAPI:
@@ -39,10 +33,7 @@ def build_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_cors_origins(),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        **cors_options(),
     )
 
     @app.get("/", include_in_schema=False)

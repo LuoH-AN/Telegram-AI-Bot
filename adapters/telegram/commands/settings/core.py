@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from telegram import Message
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram.constants import ChatType
 
 from domain.services import update_user_setting
 from domain.services.platform import fetch_models_for_user, mask_key
@@ -13,7 +14,53 @@ from shared.utils.platform import (
     build_api_key_verify_no_models_message,
     build_prompt_per_persona_message,
 )
-from adapters.telegram.rich_text import reply_rich_text
+from adapters.telegram.rich_text import edit_rich_text, reply_rich_text, telegram_html
+from adapters.telegram.ux.locale import pick
+from infrastructure.cache import sync_to_database
+
+
+async def set_api_key_secure(message: Message, *, user_id: int, value: str) -> list[str]:
+    lang = "zh" if (getattr(message.from_user, "language_code", "") or "").lower().startswith("zh") else "en"
+    if message.chat.type != ChatType.PRIVATE:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await message.chat.send_message(
+            telegram_html(pick(lang, "🔒 为保护密钥，请在私聊中设置 API Key。群聊中的原消息已尝试删除。", "🔒 For safety, set your API key in a private chat. The group message was removed when possible.")),
+            parse_mode="HTML",
+        )
+        return []
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    status = await message.chat.send_message(
+        telegram_html(pick(lang, "🔐 密钥已接收，正在验证…", "🔐 Key received. Verifying…")),
+        parse_mode="HTML",
+    )
+    update_user_setting(user_id, "api_key", value)
+    await asyncio.to_thread(sync_to_database)
+    masked = mask_key(value)
+    try:
+        models = await asyncio.get_running_loop().run_in_executor(None, lambda: fetch_models_for_user(user_id))
+        if models:
+            text = pick(lang, f"✅ API Key 已安全保存并验证，可用模型：{len(models)} 个。", f"✅ API key saved and verified. {len(models)} model(s) available.")
+        else:
+            text = build_api_key_verify_no_models_message(masked, lang=lang)
+    except Exception:
+        models = []
+        text = build_api_key_verify_failed_message(masked, lang=lang)
+    await edit_rich_text(
+        status,
+        text,
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(pick(lang, "🤖 选择模型", "🤖 Choose model"), callback_data="ux:settings:model"),
+            InlineKeyboardButton(pick(lang, "⚙️ 设置", "⚙️ Settings"), callback_data="ux:settings"),
+        ]]),
+    )
+    return models
 
 
 async def handle_set_core(
@@ -24,18 +71,7 @@ async def handle_set_core(
         await reply_rich_text(message, f"base_url set to: {value}")
         return True
     if key == "api_key":
-        update_user_setting(user_id, "api_key", value)
-        masked = mask_key(value)
-        try:
-            models = await asyncio.get_running_loop().run_in_executor(
-                None, lambda: fetch_models_for_user(user_id)
-            )
-            if models:
-                await reply_rich_text(message, f"api_key set to: {masked}\nVerified ({len(models)} models available)")
-            else:
-                await reply_rich_text(message, build_api_key_verify_no_models_message(masked))
-        except Exception:
-            await reply_rich_text(message, build_api_key_verify_failed_message(masked))
+        await set_api_key_secure(message, user_id=user_id, value=value)
         return True
     if key == "model":
         update_user_setting(user_id, "model", value)

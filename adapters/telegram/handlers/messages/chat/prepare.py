@@ -68,6 +68,7 @@ async def prepare_chat_request(
     save_msg=None,
     frozen_persona_name: str | None = None,
     frozen_session_id: int | None = None,
+    retry_existing: bool = False,
 ) -> dict | None:
     internal_call = user_content is not None
     message = update.effective_message
@@ -108,4 +109,5 @@ async def prepare_chat_request(
         "conversation": list(get_conversation(session_id)),
         "user_content": user_content,
         "save_msg": save_msg,
+        "retry_existing": retry_existing,
     }

@@ -16,7 +16,7 @@ async def stop_command(ctx: CommandContext) -> str:
     return f"Stopped {len(cancelled)} active response(s)." if cancelled else "No active responses to stop."
 
 
-@command("update", help="pull latest bot code", category="System", refresh_state=False)
+@command("update", help="pull latest bot code", category="System", refresh_state=False, admin_only=True)
 async def update_command(ctx: CommandContext) -> str:
     await ctx.message.reply_text("Starting hot update: fetching latest code...")
     result = await asyncio.to_thread(run_hot_update)
@@ -33,7 +33,7 @@ async def update_command(ctx: CommandContext) -> str:
     )
 
 
-@command("restart", help="restart bot processes safely", category="System")
+@command("restart", help="restart bot processes safely", category="System", admin_only=True)
 async def restart_command(ctx: CommandContext) -> str:
     await ctx.message.reply_text("Syncing runtime state before restart...")
     result = await asyncio.to_thread(run_safe_restart)

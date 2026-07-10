@@ -2,7 +2,6 @@
 """Standalone entrypoints.launcher for the OpenWebUI-compatible OpenAPI tool server.
 
 Usage:
-    python scripts/run_openapi_tools.py
     OPENAPI_TOOLS_PORT=18090 OPENAPI_TOOLS_TOKEN=secret python scripts/run_openapi_tools.py
 
 OpenWebUI configuration:
@@ -44,10 +43,15 @@ def main() -> None:
         level=os.getenv("OPENAPI_TOOLS_LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if not (os.getenv("OPENAPI_TOOLS_TOKEN") or "").strip():
+        raise SystemExit("OPENAPI_TOOLS_TOKEN is required")
     app = build_app()
     host, port = _host(), _port()
-    logging.getLogger(__name__).info("adapters.http.openapi_tools listening on %s:%d (token=%s)",
-                                     host, port, "set" if os.getenv("OPENAPI_TOOLS_TOKEN") else "disabled")
+    logging.getLogger(__name__).info(
+        "adapters.http.openapi_tools listening on %s:%d (token=required)",
+        host,
+        port,
+    )
     uvicorn.run(app, host=host, port=port, log_level=os.getenv("OPENAPI_TOOLS_LOG_LEVEL", "info").lower())
 
 

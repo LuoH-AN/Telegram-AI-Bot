@@ -20,8 +20,14 @@ CREATE_USER_SETTINGS_TABLE = """
         title_model TEXT,
         cron_model TEXT,
         stream_mode TEXT,
-        global_prompt TEXT
+        global_prompt TEXT,
+        timezone TEXT DEFAULT 'Asia/Shanghai'
     )
+"""
+
+ALTER_USER_SETTINGS_ADD_TIMEZONE = """
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Asia/Shanghai'
 """
 
 CREATE_USER_PERSONAS_TABLE = """

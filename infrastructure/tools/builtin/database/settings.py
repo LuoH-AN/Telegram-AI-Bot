@@ -9,23 +9,36 @@ from infrastructure.tools.core import ToolContext, ToolResult, tool
 
 from ._shared import USER_DATA_INSTRUCTION, commit, dumps, get_cache
 
+_SENSITIVE_PARTS = ("api_key", "token", "secret", "password", "credential")
+
+
+def _redact(value: Any, key: str = "") -> Any:
+    lowered = key.lower()
+    if any(part in lowered for part in _SENSITIVE_PARTS):
+        return "<redacted>" if value not in (None, "") else value
+    if isinstance(value, dict):
+        return {item_key: _redact(item_value, str(item_key)) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
+
 
 def _run(user_id: int, action: str, key: str, value: Any) -> ToolResult:
     cache = get_cache()
     if action == "list":
         settings = cache.get_settings(user_id)
-        return ToolResult.text("\n".join(f"  {k} = {dumps(v, indent=False)}" for k, v in settings.items()))
+        return ToolResult.text("\n".join(f"  {k} = {dumps(_redact(v, k), indent=False)}" for k, v in settings.items()))
     if action == "get":
         settings = cache.get_settings(user_id)
         if key:
-            return ToolResult.text(f"{key} = {dumps(settings.get(key))}")
-        return ToolResult.text(dumps(settings))
+            return ToolResult.text(f"{key} = {dumps(_redact(settings.get(key), key))}")
+        return ToolResult.text(dumps(_redact(settings)))
     if action == "set":
         if not key:
             return ToolResult.error("missing_key", "key required for set")
         cache.update_settings(user_id, key, value)
         commit()
-        return ToolResult.text(f"Updated settings.{key} = {dumps(value, indent=False)}")
+        return ToolResult.text(f"Updated settings.{key} = {dumps(_redact(value, key), indent=False)}")
     return ToolResult.error("invalid_action", "action must be list, get, or set.")
 
 

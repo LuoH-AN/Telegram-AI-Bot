@@ -8,13 +8,20 @@ class SessionsCurrentMixin:
         persona = persona_name or self.get_current_persona_name(user_id)
         with self._lock:
             data = self._personas_cache.get(user_id, {}).get(persona)
-            return data.get("current_session_id") if data else None
+            session_id = data.get("current_session_id") if data else None
+            return self.resolve_session_id(session_id) if session_id is not None else None
 
     def set_current_session_id(self, user_id: int, persona_name: str, session_id: int | None) -> None:
+        if session_id is not None:
+            session_id = self.resolve_session_id(session_id)
         with self._lock:
             persona = self._personas_cache.get(user_id, {}).get(persona_name)
             if not persona:
                 return
+            if session_id is not None:
+                session = self.get_session_by_id(session_id)
+                if not session or session.get("user_id") != user_id or session.get("persona_name") != persona_name:
+                    return
             persona["current_session_id"] = session_id
             self._dirty_personas.add((user_id, persona_name))
 

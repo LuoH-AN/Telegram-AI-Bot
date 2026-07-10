@@ -14,7 +14,12 @@ from infrastructure.config import CONVERSATION_CACHE_CAP
 
 
 class ConversationsMixin:
+    def _canonical_session_id(self, session_id: int) -> int:
+        resolver = getattr(self, "resolve_session_id", None)
+        return resolver(session_id) if callable(resolver) else session_id
+
     def add_message_to_session(self, session_id: int, role: str, content: str, reasoning_content: str | None = None) -> None:
+        session_id = self._canonical_session_id(session_id)
         with self._lock:
             self._conversations_cache.setdefault(session_id, [])
             msg: dict = {"role": role, "content": content}
@@ -25,6 +30,7 @@ class ConversationsMixin:
             self._maybe_evict(session_id)
 
     def clear_conversation_by_session(self, session_id: int) -> None:
+        session_id = self._canonical_session_id(session_id)
         with self._lock:
             self._conversations_cache[session_id] = []
             self._conv_offset.pop(session_id, None)
@@ -33,12 +39,14 @@ class ConversationsMixin:
             self._dirty_conversations.discard(session_id)
 
     def set_conversation_by_session(self, session_id: int, messages: list) -> None:
+        session_id = self._canonical_session_id(session_id)
         with self._lock:
             self._conversations_cache[session_id] = [dict(m) for m in messages]
             self._conv_offset.pop(session_id, None)
             self._maybe_evict(session_id)
 
     def get_conversation_by_session(self, session_id: int) -> list:
+        session_id = self._canonical_session_id(session_id)
         with self._lock:
             return self._conversation_full(session_id)
 
@@ -46,6 +54,7 @@ class ConversationsMixin:
         """Return the complete message list for a session, reloading from DB if
         the in-memory head was evicted. Resets the offset after reload, and
         preserves any in-memory tail not yet persisted."""
+        session_id = self._canonical_session_id(session_id)
         offset = self._conv_offset.get(session_id, 0)
         if offset > 0:
             try:
@@ -68,6 +77,7 @@ class ConversationsMixin:
 
     def _maybe_evict(self, session_id: int) -> None:
         """Drop oldest persisted messages past the soft cap. Caller holds the lock."""
+        session_id = self._canonical_session_id(session_id)
         cap = CONVERSATION_CACHE_CAP
         if cap <= 0:
             return
@@ -84,6 +94,7 @@ class ConversationsMixin:
 
     def mark_conversation_persisted(self, session_id: int, count: int) -> None:
         """Record that `count` messages are confirmed in the DB (called after sync)."""
+        session_id = self._canonical_session_id(session_id)
         with self._lock:
             self._persisted_msg_count[session_id] = max(self._persisted_msg_count.get(session_id, 0), count)
             self._maybe_evict(session_id)

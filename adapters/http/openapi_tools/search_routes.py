@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from infrastructure.tools import invoke_tool
 
-from .auth import require_token
+from .auth import cors_options, require_token
 from .schemas import PluginResponse, SearchQueryRequest, SearchStatusRequest
 
 router = APIRouter(tags=["search"], dependencies=[Depends(require_token)])
@@ -44,7 +44,6 @@ def build_search_app() -> FastAPI:
         version="2.0.0",
         description="Tavily-backed web search. Import this URL into OpenWebUI as its own tool server.",
     )
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-                       allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, **cors_options())
     app.include_router(router)
     return app

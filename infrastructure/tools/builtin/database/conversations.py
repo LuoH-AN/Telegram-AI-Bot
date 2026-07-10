@@ -16,6 +16,9 @@ def _run(user_id: int, action: str, session_id: int | None, messages: Any) -> To
         session_id = cache.get_current_session_id(user_id)
     if not session_id:
         return ToolResult.error("no_session", "No session. Provide session_id.")
+    session = cache.get_session_by_id(session_id)
+    if not session or session.get("user_id") != user_id:
+        return ToolResult.error("not_found", f"Session {session_id} not found")
     conv = cache.get_conversation_by_session(session_id)
     if action == "list":
         lines = [f"Session {session_id} ({len(conv)} messages):"]

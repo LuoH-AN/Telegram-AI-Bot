@@ -38,11 +38,15 @@ async def deliver_and_persist(
     request_start: float,
 ) -> None:
     runtime.state.status_seed_cancelled = True
+    runtime.state.finished = True
     if runtime.status_seed_task and not runtime.status_seed_task.done():
         runtime.status_seed_task.cancel()
 
     await runtime.render_pump.drain()
     await runtime.render_pump.stop()
+    clear_tool_status = getattr(runtime, "clear_tool_status", None)
+    if clear_tool_status is not None:
+        await clear_tool_status()
     display_final = generated["display_final"]
     thinking_block = generated["thinking_block"]
     final_delivery_ok = False
