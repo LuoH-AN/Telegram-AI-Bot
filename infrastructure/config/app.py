@@ -2,6 +2,15 @@
 
 import os
 
+from dotenv import load_dotenv
+
+from .util import apply_env_text
+
+# This module is imported before infrastructure.config.env, so load the two
+# supported configuration sources before binding environment-backed constants.
+load_dotenv()
+apply_env_text()
+
 # Telegram message length limit
 MAX_MESSAGE_LENGTH = 4096
 
