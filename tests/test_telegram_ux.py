@@ -12,7 +12,7 @@ import pytest
 from adapters.telegram.commands.settings.model import _build_model_keyboard
 from adapters.telegram.ux.errors import error_panel
 from adapters.telegram.ux.locale import language, pick
-from adapters.telegram.ux.panels import help_panel, main_panel, stop_keyboard
+from adapters.telegram.ux.panels import generation_panel, help_panel, main_panel, stop_keyboard
 from domain.services.cron.matcher import is_valid_cron
 from domain.services.cron.timezone import describe_cron, next_run_at
 from shared.utils.ai.status import build_tool_progress_text
@@ -50,6 +50,33 @@ def test_configured_main_panel_links_primary_tasks(monkeypatch):
     _, keyboard = main_panel(1, "en")
     callbacks = _callbacks(keyboard)
     assert {"ux:chat:0", "ux:persona:0", "ux:settings", "ux:cron", "ux:help"} <= callbacks
+
+
+def test_generation_panel_exposes_busy_and_tool_progress_controls(monkeypatch):
+    import adapters.telegram.ux.panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_user_settings",
+        lambda _user_id: {
+            "reasoning_effort": "medium",
+            "stream_mode": "default",
+            "show_thinking": False,
+            "temperature": 0.7,
+            "busy_mode": "queue",
+            "tool_progress": "compact",
+        },
+    )
+    text, keyboard = generation_panel(1, "en")
+    callbacks = _callbacks(keyboard)
+    assert "queue" in text.lower()
+    assert "compact" in text.lower()
+    assert {"ux:set:busy:interrupt", "ux:set:busy:queue"} <= callbacks
+    assert {
+        "ux:set:progress:off",
+        "ux:set:progress:compact",
+        "ux:set:progress:full",
+    } <= callbacks
 
 
 def test_help_hides_admin_tools_for_regular_users(monkeypatch):
@@ -174,6 +201,72 @@ def test_tool_progress_is_localized_and_tracks_completion():
     assert "准备文件" in text
 
 
+def test_compact_tool_progress_limits_detail_but_keeps_active_and_errors():
+    states = {
+        "search": "done",
+        "save_memory": "done",
+        "list_memories": "done",
+        "send_file": "running",
+        "terminal": "error",
+        "config_file": "running",
+    }
+    text = build_tool_progress_text(states, lang="en", mode="compact")
+    assert "Preparing file" in text
+    assert "Running command failed" in text
+    assert "3 completed" in text
+    assert len(text.splitlines()) <= 4
+
+
+@pytest.mark.parametrize(
+    ("callback_data", "setting", "value"),
+    [
+        ("ux:set:busy:queue", "busy_mode", "queue"),
+        ("ux:set:progress:full", "tool_progress", "full"),
+    ],
+)
+def test_telegram_ux_callbacks_persist_valid_modes(monkeypatch, callback_data, setting, value):
+    import adapters.telegram.ux.callbacks as callbacks
+
+    saved = []
+    persisted = []
+
+    class Query:
+        data = callback_data
+
+        async def answer(self, *_args, **_kwargs):
+            return None
+
+    update = type(
+        "Update",
+        (),
+        {
+            "callback_query": Query(),
+            "effective_user": type("User", (), {"id": 1, "language_code": "en"})(),
+            "effective_chat": type("Chat", (), {"id": 1, "type": "private"})(),
+        },
+    )()
+    context = type("Context", (), {"user_data": {}})()
+
+    async def fake_ensure_user_state(_user_id):
+        return None
+
+    async def fake_persist():
+        persisted.append(True)
+
+    async def fake_edit(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(callbacks, "ensure_user_state", fake_ensure_user_state)
+    monkeypatch.setattr(callbacks, "update_user_setting", lambda *args: saved.append(args))
+    monkeypatch.setattr(callbacks, "_persist", fake_persist)
+    monkeypatch.setattr(callbacks, "_edit", fake_edit)
+    monkeypatch.setattr(callbacks, "generation_panel", lambda *_args: ("settings", None))
+
+    asyncio.run(callbacks.ux_callback(update, context))
+    assert saved == [(1, setting, value)]
+    assert persisted == [True]
+
+
 def test_cron_validation_preview_and_next_run():
     assert is_valid_cron("0 9 * * *")
     assert not is_valid_cron("not a cron")
@@ -232,6 +325,23 @@ def test_retry_message_builder_does_not_duplicate_persisted_user_turn(monkeypatc
 
     messages = run._build_messages(req)
     assert [message["role"] for message in messages].count("user") == 1
+
+
+def test_queue_mode_does_not_cancel_active_response(monkeypatch):
+    run = importlib.import_module("adapters.telegram.handlers.messages.chat.run")
+    calls = []
+
+    monkeypatch.setattr(
+        run,
+        "cancel_user_responses",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or ["active"],
+    )
+
+    assert run._cancel_previous_responses(10, 20, {"busy_mode": "queue"}, "ctx") == []
+    assert calls == []
+
+    assert run._cancel_previous_responses(10, 20, {"busy_mode": "interrupt"}, "ctx") == ["active"]
+    assert calls == [((10, 20), {"platform": "telegram"})]
 
 
 def test_cron_command_is_registered():

@@ -17,6 +17,7 @@ from adapters.telegram.sender import TelegramOutbound
 from domain.services import add_user_message, conversation_slot, format_memories_for_prompt, get_system_prompt
 from domain.services.log import record_error
 from domain.services.queue import cancel_user_responses, conversation_queue_position, register_response, unregister_response
+from infrastructure.config import normalize_telegram_busy_mode
 from shared.utils.files import get_datetime_prompt
 from shared.utils.platform import build_latex_guidance
 
@@ -26,6 +27,15 @@ from .render import setup_render_runtime
 from .save import deliver_and_persist
 
 logger = logging.getLogger(__name__)
+
+
+def _cancel_previous_responses(chat_id: int, user_id: int, settings: dict, ctx: str) -> list[str]:
+    if normalize_telegram_busy_mode(settings.get("busy_mode")) != "interrupt":
+        return []
+    cancelled = cancel_user_responses(chat_id, user_id, platform="telegram")
+    if cancelled:
+        logger.info("%s cancelled %d active Telegram response(s)", ctx, len(cancelled))
+    return cancelled
 
 
 def _build_messages(req: dict) -> list[dict]:
@@ -63,7 +73,13 @@ async def chat(
     )
     if req is None:
         return
-    runtime = await setup_render_runtime(update, context, bot_message, req["ctx"])
+    runtime = await setup_render_runtime(
+        update,
+        context,
+        bot_message,
+        req["ctx"],
+        tool_progress_mode=req["settings"].get("tool_progress"),
+    )
     runtime.state.user_message_persisted = retry_existing
     context.user_data["ux_last_retry"] = {
         "user_content": req["user_content"],
@@ -71,9 +87,12 @@ async def chat(
         "persona_name": req["persona_name"],
         "session_id": req["session_id"],
     }
-    cancelled = cancel_user_responses(update.effective_chat.id, req["user_id"], platform="telegram")
-    if cancelled:
-        logger.info("%s cancelled %d active Telegram response(s)", req["ctx"], len(cancelled))
+    _cancel_previous_responses(
+        update.effective_chat.id,
+        req["user_id"],
+        req["settings"],
+        req["ctx"],
+    )
     request_token = update.effective_message.message_id or int(time.time() * 1000)
     conversation_key = f"telegram:{update.effective_chat.id}:{req['user_id']}:{req['session_id']}"
     response_key = f"{conversation_key}:{request_token}"

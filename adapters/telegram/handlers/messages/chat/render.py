@@ -8,7 +8,12 @@ from typing import Awaitable, Callable
 from adapters.telegram.rich_text import send_rich_text
 from adapters.telegram.ux.locale import language, pick
 from adapters.telegram.ux.panels import stop_keyboard
-from infrastructure.config import MAX_MESSAGE_LENGTH, STREAM_FORCE_UPDATE_INTERVAL, TELEGRAM_NATIVE_DRAFTS
+from infrastructure.config import (
+    MAX_MESSAGE_LENGTH,
+    STREAM_FORCE_UPDATE_INTERVAL,
+    TELEGRAM_NATIVE_DRAFTS,
+    normalize_telegram_tool_progress,
+)
 from shared.utils.ai.status import build_tool_progress_text
 from shared.utils.stream import ChatEventPump, StreamOutboundAdapter, edit_message_safe, send_message_safe
 
@@ -43,13 +48,21 @@ class RenderRuntime:
     status_seed_task: asyncio.Task
 
 
-async def setup_render_runtime(update, context, bot_message, ctx: str) -> RenderRuntime:
+async def setup_render_runtime(
+    update,
+    context,
+    bot_message,
+    ctx: str,
+    *,
+    tool_progress_mode: str | None = None,
+) -> RenderRuntime:
     message = update.effective_message
     native_draft = TELEGRAM_NATIVE_DRAFTS and bot_message is None and can_use_native_draft(update)
     draft_id = build_draft_id(update) if native_draft else 0
     state = RenderState(bot_message, native_draft_enabled=native_draft, draft_id=draft_id)
     lang = language(update, context)
     user_id = update.effective_user.id
+    progress_mode = normalize_telegram_tool_progress(tool_progress_mode)
 
     async def _edit_placeholder(text: str) -> bool:
         if state.bot_message is None:
@@ -99,7 +112,7 @@ async def setup_render_runtime(update, context, bot_message, ctx: str) -> Render
 
     async def _render_tool_status(text: str) -> bool:
         if state.tool_message is None:
-            sent_messages = await send_message_safe(message, text)
+            sent_messages = await send_message_safe(message, text, disable_notification=True)
             if not sent_messages:
                 return False
             state.tool_message = sent_messages[-1]
@@ -141,7 +154,7 @@ async def setup_render_runtime(update, context, bot_message, ctx: str) -> Render
             tool_states[name] = "done" if event.get("ok") else "error"
         else:
             return
-        status_text = build_tool_progress_text(tool_states, lang=lang)
+        status_text = build_tool_progress_text(tool_states, lang=lang, mode=progress_mode)
         if status_text:
             render_pump.emit_threadsafe(loop, "tool_status", status_text)
 

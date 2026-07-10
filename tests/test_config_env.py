@@ -26,7 +26,10 @@ def test_load_env_force_reruns():
 def test_default_settings_include_timezone():
     from infrastructure.config import get_default_settings
 
-    assert get_default_settings()["timezone"]
+    settings = get_default_settings()
+    assert settings["timezone"]
+    assert settings["busy_mode"] == "interrupt"
+    assert settings["tool_progress"] == "compact"
 
 
 def test_settings_sync_columns_include_timezone():
@@ -35,4 +38,6 @@ def test_settings_sync_columns_include_timezone():
 
     settings = get_default_settings()
     assert "timezone" in SETTINGS_COLUMNS
+    assert "busy_mode" in SETTINGS_COLUMNS
+    assert "tool_progress" in SETTINGS_COLUMNS
     assert len(values(1, settings)) == len(SETTINGS_COLUMNS)

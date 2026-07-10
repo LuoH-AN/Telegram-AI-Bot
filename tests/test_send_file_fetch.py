@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from infrastructure.tools import http_client
 from infrastructure.tools.builtin.send_file import sources
 
 
@@ -31,8 +32,8 @@ class _Opener:
 
 def test_fetch_url_validates_initial_and_final_url(monkeypatch):
     checked: list[str] = []
-    monkeypatch.setattr(sources, "_assert_safe_url", checked.append)
-    monkeypatch.setattr(sources.urllib.request, "build_opener", lambda *_args: _Opener())
+    monkeypatch.setattr(http_client, "assert_safe_url", checked.append)
+    monkeypatch.setattr(http_client.urllib.request, "build_opener", lambda *_args: _Opener())
 
     data, name = sources.fetch_url("https://example.com/start", kind="document")
     assert data == b"ok"
@@ -44,7 +45,20 @@ def test_redirect_handler_rejects_unsafe_target_before_follow(monkeypatch):
     def reject(_url):
         raise ValueError("blocked redirect")
 
-    monkeypatch.setattr(sources, "_assert_safe_url", reject)
-    handler = sources._SafeRedirectHandler()
+    monkeypatch.setattr(http_client, "assert_safe_url", reject)
+    handler = http_client.SafeRedirectHandler()
     with pytest.raises(ValueError, match="blocked redirect"):
         handler.redirect_request(None, None, 302, "Found", {}, "http://127.0.0.1/private")
+
+
+def test_send_file_schema_only_accepts_existing_sources():
+    from infrastructure.tools import get_all_tools, get_tool_instructions
+
+    tool = next(item for item in get_all_tools("send_file") if item["function"]["name"] == "send_file")
+    parameters = tool["function"]["parameters"]["properties"]
+
+    assert parameters["source"]["enum"] == ["url", "path"]
+    assert "prompt" not in parameters
+    assert "size" not in parameters
+    assert not hasattr(sources, "generate_image")
+    assert "cannot generate" in get_tool_instructions("send_file").lower()

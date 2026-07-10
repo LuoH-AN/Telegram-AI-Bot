@@ -19,27 +19,24 @@ logger = logging.getLogger(__name__)
 SEND_FILE_INSTRUCTION = (
     "\nsend_file usage:\n"
     "- Use for sending images/files to the user. Text answers still go in the regular reply.\n"
-    "- source='url' downloads first; 'path' reads a local file; 'generate' creates an image from prompt.\n"
+    "- source='url' downloads an existing file; source='path' reads an existing local file.\n"
+    "- This tool sends existing media only and cannot generate images or other content.\n"
     "- Max 50MB. Caption is optional and should be short.\n"
 )
 
 _SENDERS = {"image": "send_image", "voice": "send_voice", "video": "send_video", "document": "send_document"}
 
 
-@tool(toolset="user", skill="send_file", instruction=SEND_FILE_INSTRUCTION, description="Send a media message (image, document, voice, video) directly into the current chat. Only works during an active reply. source: url/path/generate (generate = image only).")
+@tool(toolset="user", skill="send_file", instruction=SEND_FILE_INSTRUCTION, description="Send an existing media file (image, document, voice, video) from a URL or allowed local path directly into the current chat. This tool does not generate content.")
 async def send_file(
     ctx: ToolContext,
     kind: Literal["image", "document", "voice", "video"],
-    source: Literal["url", "path", "generate"],
+    source: Literal["url", "path"],
     url: Annotated[str, "URL when source=url."] = "",
     path: Annotated[str, "Local file path when source=path."] = "",
-    prompt: Annotated[str, "Image generation prompt when source=generate."] = "",
     filename: Annotated[str, "Display filename (optional)."] = "",
     caption: Annotated[str, "Optional caption."] = "",
-    size: Annotated[str, "Image size when source=generate, e.g. 1024x1024."] = "1024x1024",
 ) -> ToolResult:
-    if source == "generate" and kind != "image":
-        return ToolResult.error("invalid_combo", "source='generate' only supported for kind='image'")
     binding = ctx.outbound
     if binding is None:
         return ToolResult.error("no_active_chat", "send_file can only be used while replying to the user")
@@ -50,16 +47,11 @@ async def send_file(
             if not url:
                 return ToolResult.error("missing_url", "url required when source=url")
             data, default_name = await asyncio.to_thread(sources.fetch_url, url, kind=kind)
-        elif source == "path":
+        else:
             path = (path or "").strip()
             if not path:
                 return ToolResult.error("missing_path", "path required when source=path")
             data, default_name = await asyncio.to_thread(sources.read_path, path, kind=kind)
-        else:
-            prompt = (prompt or "").strip()
-            if not prompt:
-                return ToolResult.error("missing_prompt", "prompt required when source=generate")
-            data, default_name = await asyncio.to_thread(sources.generate_image, ctx.user_id, prompt, size=(size or "1024x1024"))
     except Exception as exc:
         logger.warning("send_file resolve failed: %s", exc)
         return ToolResult.error("resolve_failed", f"could not load source: {exc}")

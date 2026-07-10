@@ -27,6 +27,7 @@ AI_STREAM_OUTPUT_IDLE_TIMEOUT = 120  # seconds idle timeout once output has star
 
 # --- Tool dispatch -----------------------------------------------------------
 TOOL_TIMEOUT = 30                  # default per-round timeout for tool execution (s)
+MAX_TOOL_ROUNDS = max(1, int(os.getenv("MAX_TOOL_ROUNDS", "6")))
 TOOL_CONTINUE_OR_FINISH_PROMPT = (
     "First decide internally whether the task is fully complete. "
     "If it is already complete, immediately return the complete final answer to the user. "

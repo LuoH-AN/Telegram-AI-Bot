@@ -27,6 +27,7 @@ from domain.services import (
 from domain.services.cron.trigger import run_cron_task
 from domain.services.refresh import ensure_user_state
 from infrastructure.cache import cache, sync_to_database
+from infrastructure.config import normalize_telegram_busy_mode, normalize_telegram_tool_progress
 
 from .locale import language, pick
 from .panels import (
@@ -205,6 +206,20 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data.startswith("ux:set:stream:"):
         update_user_setting(user_id, "stream_mode", data.rsplit(":", 1)[1])
         await _persist()
+        await _edit(query, generation_panel(user_id, lang))
+        return
+    if data.startswith("ux:set:busy:"):
+        busy_mode = normalize_telegram_busy_mode(data.rsplit(":", 1)[1], default="")
+        if busy_mode:
+            update_user_setting(user_id, "busy_mode", busy_mode)
+            await _persist()
+        await _edit(query, generation_panel(user_id, lang))
+        return
+    if data.startswith("ux:set:progress:"):
+        tool_progress = normalize_telegram_tool_progress(data.rsplit(":", 1)[1], default="")
+        if tool_progress:
+            update_user_setting(user_id, "tool_progress", tool_progress)
+            await _persist()
         await _edit(query, generation_panel(user_id, lang))
         return
     if data == "ux:set:thinking:toggle":

@@ -20,13 +20,22 @@ _OPENWEBUI_USER_ID = 0
 
 
 @router.post("/query", response_model=PluginResponse, summary="Run a web search",
-             description="Execute a web search via Tavily. Returns JSON-encoded results.")
+             description="Execute a web search via Exa. Returns JSON-encoded results.")
 async def search_query(payload: SearchQueryRequest) -> PluginResponse:
     result = await invoke_tool(_OPENWEBUI_USER_ID, "search", {
         "action": "search",
         "query": payload.query,
         "top_k": int(payload.top_k),
         "timeout": int(payload.timeout),
+        "category": payload.category,
+        "time_range": payload.time_range,
+        "include_domains": payload.include_domains,
+        "exclude_domains": payload.exclude_domains,
+        "search_type": payload.search_type,
+        "exact_match": payload.exact_match,
+        "user_location": payload.user_location,
+        "include_content": payload.include_content,
+        "content_top_k": payload.content_top_k,
     })
     return PluginResponse(result=result.content)
 
@@ -42,7 +51,7 @@ def build_search_app() -> FastAPI:
     app = FastAPI(
         title="Search Tool",
         version="2.0.0",
-        description="Tavily-backed web search. Import this URL into OpenWebUI as its own tool server.",
+        description="Exa-backed web search. Import this URL into OpenWebUI as its own tool server.",
     )
     app.add_middleware(CORSMiddleware, **cors_options())
     app.include_router(router)

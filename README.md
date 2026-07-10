@@ -13,6 +13,8 @@
 - Token 用量统计与限额
 - 定时任务
 - 按钮式新手引导、设置、会话、角色与定时任务面板
+- Telegram 忙碌策略：新消息可中断当前回复或进入同会话队列
+- 工具活动提示：关闭、精简、完整三档，使用单条静默消息原位更新
 - 中英文自动界面（可在主菜单切换）
 - AI 工具系统（注册式架构，当前内置：config_file、database、memory、search、send_file、terminal）
 
@@ -99,9 +101,29 @@ python main.py
 - `stop`
 - `update`（管理员）
 
+## Telegram 交互设置
+
+在私聊中打开“设置 → 生成设置”，可以调整：
+
+- 忙碌时：`interrupt`（默认，新消息中断当前回复）或 `queue`（按当前会话依次处理）
+- 工具进度：`off`、`compact`（默认）或 `full`
+
+工具进度消息不会触发额外通知，并会在最终回复成功发送后删除。终端等高风险工具仍只向 `ADMIN_IDS` / `OWNER_ID` 中的管理员开放。
+
 ## 工具/技能系统说明
 
 工具基于注册式 `@tool` 架构（`infrastructure/tools/`）。内置工具位于 `infrastructure/tools/builtin/`，管理员可通过 `/skill install <github-url>` 安装第三方技能。
+
+搜索工具使用 Exa，并默认启用官方推荐的 `auto` 模式。结果会经过 URL 去重、相关性重排和域名多样化处理；优先使用 Exa 返回的相关正文片段，缺失时再安全抓取排名靠前的网页。模型被要求将网页内容视为不可信证据、交叉验证重要结论并在回答中附上来源链接。
+
+搜索最少需要：
+
+```env
+EXA_API_KEYS=exa-key-1,exa-key-2
+ENABLED_TOOLS=search,memory,send_file
+```
+
+可通过 `EXA_SEARCH_TYPE`、`EXA_CACHE_TTL`、`EXA_MODERATION` 和 `MAX_TOOL_ROUNDS` 调整搜索模式、缓存、安全过滤及工具调用上限。日常查询推荐 `auto`；`deep-lite`、`deep`、`deep-reasoning` 更慢且费用更高，只适合复杂研究。
 
 ## 关键环境变量
 
@@ -109,6 +131,7 @@ python main.py
 - Telegram：`TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_BASE`, `TELEGRAM_NATIVE_DRAFTS`, `TELEGRAM_RICH_MESSAGES`
 - 模型默认值：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`, `OPENAI_REASONING_EFFORT`
 - OpenAPI 工具：`OPENAPI_TOOLS_TOKEN`（必填）、`OPENAPI_TOOLS_CORS_ORIGINS`；Terminal 还需 `OPENAPI_TOOLS_USER_ID` 指向管理员 ID
+- 搜索：`EXA_API_KEYS`、`EXA_SEARCH_TYPE`、`EXA_CACHE_TTL`
 - 体验：`DEFAULT_TIMEZONE`（默认 `Asia/Shanghai`）
 - 其他：`SHOW_THINKING`
 

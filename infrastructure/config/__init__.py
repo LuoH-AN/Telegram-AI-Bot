@@ -14,6 +14,7 @@ from .app import (
     AI_STREAM_NO_OUTPUT_TIMEOUT,
     AI_STREAM_OUTPUT_IDLE_TIMEOUT,
     TOOL_TIMEOUT,
+    MAX_TOOL_ROUNDS,
     TOOL_CONTINUE_OR_FINISH_PROMPT,
     MAX_CRON_TASKS_PER_USER,
     CONVERSATION_CACHE_CAP,
@@ -59,4 +60,12 @@ from .env import (
     get_default_settings,
     get_default_persona,
     get_default_token_usage,
+)
+from .telegram_ux import (
+    DEFAULT_TELEGRAM_BUSY_MODE,
+    DEFAULT_TELEGRAM_TOOL_PROGRESS,
+    VALID_TELEGRAM_BUSY_MODES,
+    VALID_TELEGRAM_TOOL_PROGRESS,
+    normalize_telegram_busy_mode,
+    normalize_telegram_tool_progress,
 )

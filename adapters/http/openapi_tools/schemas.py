@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -21,9 +23,18 @@ class TerminalBgCheckRequest(BaseModel):
 
 
 class SearchQueryRequest(BaseModel):
-    query: str = Field(..., description="Search query text")
-    top_k: int = Field(default=8, ge=1, le=20, description="Max results")
+    query: str = Field(..., min_length=1, max_length=1000, description="Focused search query text")
+    top_k: int = Field(default=5, ge=1, le=20, description="Max results")
     timeout: int = Field(default=20, ge=3, le=120, description="HTTP timeout seconds")
+    category: Literal["", "company", "research paper", "news", "personal site", "financial report", "people"] = Field(default="", description="Optional Exa search category")
+    time_range: Literal["", "day", "week", "month", "year"] = Field(default="", description="Optional recency filter")
+    include_domains: str = Field(default="", description="Optional comma-separated domain allowlist")
+    exclude_domains: str = Field(default="", description="Optional comma-separated domain blocklist")
+    search_type: Literal["auto", "fast", "instant", "deep-lite", "deep", "deep-reasoning"] = Field(default="auto", description="Exa search mode")
+    exact_match: bool = Field(default=False, description="Require the complete query phrase in returned evidence")
+    user_location: str = Field(default="", max_length=2, description="Optional two-letter ISO country code")
+    include_content: bool = Field(default=True, description="Include extracted evidence from top pages")
+    content_top_k: int = Field(default=3, ge=0, le=5, description="Top pages eligible for fallback extraction")
 
 
 class SearchStatusRequest(BaseModel):

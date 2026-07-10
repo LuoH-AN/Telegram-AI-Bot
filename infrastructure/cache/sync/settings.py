@@ -7,15 +7,20 @@ import json
 from infrastructure.config import (
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SHOW_THINKING,
+    DEFAULT_TELEGRAM_BUSY_MODE,
+    DEFAULT_TELEGRAM_TOOL_PROGRESS,
     DEFAULT_TTS_ENDPOINT,
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_VOICE,
+    normalize_telegram_busy_mode,
+    normalize_telegram_tool_progress,
 )
 from infrastructure.database.loaders import parse_settings_row
 
 SETTINGS_COLUMNS = [
     "user_id", "api_key", "base_url", "model", "temperature", "reasoning_effort", "show_thinking",
-    "token_limit", "current_persona", "stream_mode", "tts_voice", "tts_style", "tts_endpoint",
+    "token_limit", "current_persona", "stream_mode", "busy_mode", "tool_progress",
+    "tts_voice", "tts_style", "tts_endpoint",
     "api_presets", "title_model", "cron_model", "global_prompt", "timezone",
 ]
 _PLACEHOLDERS = ", ".join(["%s"] * len(SETTINGS_COLUMNS))
@@ -41,6 +46,14 @@ def values(user_id: int, settings: dict) -> tuple:
         settings["token_limit"],
         settings["current_persona"],
         settings.get("stream_mode", ""),
+        normalize_telegram_busy_mode(
+            settings.get("busy_mode"),
+            default=DEFAULT_TELEGRAM_BUSY_MODE,
+        ),
+        normalize_telegram_tool_progress(
+            settings.get("tool_progress"),
+            default=DEFAULT_TELEGRAM_TOOL_PROGRESS,
+        ),
         settings.get("tts_voice", DEFAULT_TTS_VOICE),
         settings.get("tts_style", DEFAULT_TTS_STYLE),
         settings.get("tts_endpoint", DEFAULT_TTS_ENDPOINT),

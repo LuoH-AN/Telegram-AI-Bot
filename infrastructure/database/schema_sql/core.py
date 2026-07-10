@@ -20,6 +20,8 @@ CREATE_USER_SETTINGS_TABLE = """
         title_model TEXT,
         cron_model TEXT,
         stream_mode TEXT,
+        busy_mode TEXT DEFAULT 'interrupt',
+        tool_progress TEXT DEFAULT 'compact',
         global_prompt TEXT,
         timezone TEXT DEFAULT 'Asia/Shanghai'
     )
@@ -28,6 +30,12 @@ CREATE_USER_SETTINGS_TABLE = """
 ALTER_USER_SETTINGS_ADD_TIMEZONE = """
     ALTER TABLE user_settings
     ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Asia/Shanghai'
+"""
+
+ALTER_USER_SETTINGS_ADD_TELEGRAM_UX = """
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS busy_mode TEXT DEFAULT 'interrupt',
+    ADD COLUMN IF NOT EXISTS tool_progress TEXT DEFAULT 'compact'
 """
 
 CREATE_USER_PERSONAS_TABLE = """

@@ -6,6 +6,8 @@ import hashlib
 import os
 import re
 
+from .telegram_ux import DEFAULT_TELEGRAM_BUSY_MODE, DEFAULT_TELEGRAM_TOOL_PROGRESS
+
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -78,6 +80,8 @@ def build_default_settings(
         "reasoning_effort": default_reasoning_effort,
         "show_thinking": default_show_thinking,
         "stream_mode": "",
+        "busy_mode": DEFAULT_TELEGRAM_BUSY_MODE,
+        "tool_progress": DEFAULT_TELEGRAM_TOOL_PROGRESS,
         "token_limit": 0,
         "current_persona": "default",
         "tts_voice": default_tts_voice,

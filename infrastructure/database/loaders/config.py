@@ -7,9 +7,13 @@ from collections.abc import Mapping
 from infrastructure.config import (
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SHOW_THINKING,
+    DEFAULT_TELEGRAM_BUSY_MODE,
+    DEFAULT_TELEGRAM_TOOL_PROGRESS,
     DEFAULT_TTS_ENDPOINT,
     DEFAULT_TTS_STYLE,
     DEFAULT_TTS_VOICE,
+    normalize_telegram_busy_mode,
+    normalize_telegram_tool_progress,
 )
 
 from .json_utils import parse_json_object
@@ -39,6 +43,14 @@ def parse_settings_row(row: Mapping) -> dict:
         "reasoning_effort": row.get("reasoning_effort") or DEFAULT_REASONING_EFFORT,
         "show_thinking": _parse_show_thinking(row.get("show_thinking")),
         "stream_mode": row.get("stream_mode") or "",
+        "busy_mode": normalize_telegram_busy_mode(
+            row.get("busy_mode"),
+            default=DEFAULT_TELEGRAM_BUSY_MODE,
+        ),
+        "tool_progress": normalize_telegram_tool_progress(
+            row.get("tool_progress"),
+            default=DEFAULT_TELEGRAM_TOOL_PROGRESS,
+        ),
         "token_limit": row.get("token_limit") or 0,
         "current_persona": row.get("current_persona") or "default",
         "tts_voice": row.get("tts_voice") or DEFAULT_TTS_VOICE,

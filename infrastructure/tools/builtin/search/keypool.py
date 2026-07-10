@@ -1,4 +1,4 @@
-"""Tavily API key pool: round-robin with per-key cooldown."""
+"""Exa API key pool: round-robin with per-key cooldown."""
 
 from __future__ import annotations
 
@@ -6,8 +6,18 @@ import os
 import threading
 import time
 
-TAVILY_ENDPOINT = os.getenv("TAVILY_ENDPOINT", "https://api.tavily.com/search").strip()
-DEFAULT_SEARCH_DEPTH = (os.getenv("TAVILY_SEARCH_DEPTH", "basic").strip().lower() or "basic")
+
+SEARCH_TYPES = {"instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"}
+
+
+def exa_endpoint() -> str:
+    return os.getenv("EXA_ENDPOINT", "https://api.exa.ai/search").strip()
+
+
+def default_search_type() -> str:
+    value = os.getenv("EXA_SEARCH_TYPE", "auto").strip().lower() or "auto"
+    return value if value in SEARCH_TYPES else "auto"
+
 
 COOLDOWN_RATE_LIMIT = 60.0
 COOLDOWN_AUTH_FAIL = 3600.0
@@ -15,7 +25,7 @@ COOLDOWN_NETWORK = 10.0
 
 
 def load_api_keys() -> list[str]:
-    raw = os.getenv("TAVILY_API_KEYS", "") or os.getenv("TAVILY_API_KEY", "")
+    raw = os.getenv("EXA_API_KEYS", "") or os.getenv("EXA_API_KEY", "")
     keys: list[str] = []
     seen: set[str] = set()
     for part in raw.replace(";", ",").replace("\n", ",").split(","):
@@ -38,6 +48,15 @@ class KeyPool:
         self._cooldown: dict[str, float] = {}
         self._last_error: dict[str, str] = {}
 
+    def _reload_if_changed(self) -> None:
+        current = load_api_keys()
+        if current == self._keys:
+            return
+        self._keys = current
+        self._cursor = 0
+        self._cooldown = {key: value for key, value in self._cooldown.items() if key in current}
+        self._last_error = {key: value for key, value in self._last_error.items() if key in current}
+
     def reload(self) -> None:
         with self._lock:
             self._keys = load_api_keys()
@@ -47,6 +66,7 @@ class KeyPool:
 
     def acquire(self) -> str | None:
         with self._lock:
+            self._reload_if_changed()
             if not self._keys:
                 return None
             now = time.time()
@@ -72,6 +92,7 @@ class KeyPool:
 
     def snapshot(self) -> dict:
         with self._lock:
+            self._reload_if_changed()
             now = time.time()
             info = []
             for key in self._keys:

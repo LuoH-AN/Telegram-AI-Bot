@@ -19,6 +19,7 @@ from infrastructure.tools.builtin.send_file import sources
         "ftp://example.com/x",
         "file:///etc/passwd",
         "gopher://x",
+        "https://user:password@example.com/private",
     ],
 )
 def test_url_blocked(url):
