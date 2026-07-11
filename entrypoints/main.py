@@ -14,6 +14,7 @@ if str(ROOT_DIR) not in sys.path:
 from entrypoints.launcher import (
     UPDATE_RESTART_EXIT_CODE,
     apply_env_text,
+    exec_active_workspace,
     get_telegram_port,
     is_configured_token,
     restore_backup,
@@ -23,8 +24,6 @@ from entrypoints.launcher import (
     terminate_children,
     wait_for_first_exit,
 )
-from adapters.http.web_app import serve_in_thread
-from infrastructure.config import load_env
 
 DEFAULT_WEB_PORT = 7860
 WEB_PORT = int(os.getenv("WEB_PORT", str(DEFAULT_WEB_PORT)))
@@ -41,6 +40,8 @@ def _start_children() -> list:
 
 
 def main() -> int:
+    from infrastructure.config import load_env
+
     # Environment is also loaded at config import time; this re-applies .env /
     # ENV_TEXT after a possible hot-reload exec so subprocesses see fresh values.
     load_env(force=True)
@@ -53,6 +54,13 @@ def main() -> int:
         print(">>> Controlled restart: preserving live /data and workspace without backup restore", flush=True)
     else:
         restore_backup()
+
+    # The bot and all terminal-relative files run from /data. On the initial
+    # image invocation this re-execs; subsequent managed restarts are already
+    # executing the persistent copy and continue below.
+    exec_active_workspace(ROOT_DIR)
+
+    from adapters.http.web_app import serve_in_thread
 
     serve_in_thread(WEB_PORT)
     print(f">>> Web server running on http://0.0.0.0:{WEB_PORT}", flush=True)
@@ -89,11 +97,15 @@ def main() -> int:
             status = wait_for_first_exit(current_children)
             if status == UPDATE_RESTART_EXIT_CODE:
                 print(">>> Runtime restart requested. Re-executing launcher with latest code...", flush=True)
-                os.chdir(ROOT_DIR)
+                active_root = Path(os.getenv("_TGBOT_ACTIVE_WORKSPACE") or ROOT_DIR).resolve()
+                os.chdir(active_root)
                 # The current workspace already contains the just-applied update
                 # or safe-restart state. Never overlay it with an older snapshot.
                 os.environ["_TGBOT_SKIP_WORKSPACE_RESTORE_ONCE"] = "1"
-                os.execv(sys.executable, [sys.executable, "-m", "entrypoints.main"])
+                env = os.environ.copy()
+                current_pythonpath = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = os.pathsep.join(part for part in (str(active_root), current_pythonpath) if part)
+                os.execve(sys.executable, [sys.executable, "-m", "entrypoints.main"], env)
             return status
     except KeyboardInterrupt:
         terminate_children(current_children)

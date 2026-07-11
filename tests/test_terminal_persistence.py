@@ -10,6 +10,7 @@ def _isolated_terminal(monkeypatch, tmp_path):
     import infrastructure.tools.builtin.terminal.background as background
 
     monkeypatch.setenv("TERMINAL_STATE_DB", str(tmp_path / "sessions.sqlite3"))
+    monkeypatch.setenv("TERMINAL_FILESYSTEM_MODE", "host")
     log_dir = tmp_path / "logs"
     control_dir = tmp_path / "control"
     monkeypatch.setattr(background, "ensure_log_dir", lambda: _mkdir(log_dir))

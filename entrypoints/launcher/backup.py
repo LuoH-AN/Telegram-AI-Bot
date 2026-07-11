@@ -30,7 +30,7 @@ DATA_DIR = Path(os.getenv("BACKUP_DATA_DIR", "/data"))
 BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "/backup"))
 BACKUP_FILE = BACKUP_DIR / os.getenv("BACKUP_FILENAME", "data.zip")
 _workspace_raw = (os.getenv("BACKUP_TERMINAL_WORKSPACE") or "").strip()
-WORKSPACE_DIR: Path | None = Path(_workspace_raw).expanduser().resolve() if _workspace_raw else Path(__file__).resolve().parents[2]
+WORKSPACE_DIR: Path | None = Path(_workspace_raw).expanduser().resolve() if _workspace_raw else None
 INTERVAL = max(30.0, float(os.getenv("BACKUP_INTERVAL_SECONDS", "600")))
 REQUEST_FILE = DATA_DIR / ".telegram-ai-bot-backup-request"
 _SNAPSHOT_LOCK = threading.Lock()
@@ -177,8 +177,10 @@ def _archived_workspace_commit(archive: zipfile.ZipFile) -> str:
 
 def _should_restore_workspace(archive: zipfile.ZipFile, requested: bool | None) -> bool:
     if requested is not None:
-        return requested
-    if WORKSPACE_DIR is None or not WORKSPACE_DIR.exists():
+        return requested and WORKSPACE_DIR is not None
+    if WORKSPACE_DIR is None:
+        return False
+    if not WORKSPACE_DIR.exists():
         return True
     current = _git_commit(WORKSPACE_DIR)
     if not current:

@@ -132,6 +132,8 @@ python main.py
 
 工具基于注册式 `@tool` 架构（`infrastructure/tools/`）。内置工具位于 `infrastructure/tools/builtin/`，管理员可通过 `/skill install <github-url>` 安装第三方技能。
 
+终端采用严格的 `/data` 持久文件系统：应用工作区实际运行在 `/data/telegram_ai_bot/workspace`，每条命令通过 proot 在 `/data/telegram_ai_bot/terminal/filesystem/rootfs` 中执行。因此 `apt` 写入的 `/usr`、NVM/npm 写入的用户目录、项目内 `node_modules`、虚拟环境、缓存和任意绝对路径文件都位于 `/data` 的可写层。镜像缺少 proot 或 rootfs seed 时终端会拒绝执行，不会退回临时宿主文件系统。启用该结构需要使用最新 Dockerfile 重新构建镜像，仅执行 `/update` 无法给旧镜像补装 proot。
+
 搜索工具使用 Exa，并默认启用官方推荐的 `auto` 模式。结果会经过 URL 去重、相关性重排和域名多样化处理；优先使用 Exa 返回的相关正文片段，缺失时再安全抓取排名靠前的网页。模型被要求将网页内容视为不可信证据、交叉验证重要结论并在回答中附上来源链接。
 
 搜索最少需要：

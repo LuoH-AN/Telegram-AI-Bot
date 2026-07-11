@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends bash ca-certificates curl git
+    apt-get install -y --no-install-recommends bash ca-certificates curl git proot
 
 # Non-root user (HF Spaces requirement). UID 1000 is the conventional choice.
 RUN set -eux; \
@@ -82,6 +82,19 @@ RUN --mount=type=cache,target=/home/app/.cache/pip,sharing=locked \
 RUN set -eux; \
     python -m compileall -q "${APP_DIR}"; \
     python -c "import adapters.http.web_app, adapters.telegram.app, entrypoints.main, entrypoints.launcher.backup; print('smoke import OK')"
+
+USER root
+
+# Build the immutable seed used to initialize the fully writable /data rootfs.
+RUN set -eux; \
+    tar -C / \
+      --exclude='./proc/*' --exclude='./sys/*' --exclude='./dev/*' \
+      --exclude='./run/*' --exclude='./tmp/*' --exclude='./data/*' --exclude='./backup/*' \
+      -czf /tmp/telegram-terminal-rootfs.tar.gz .; \
+    mv /tmp/telegram-terminal-rootfs.tar.gz /opt/telegram-terminal-rootfs.tar.gz; \
+    chown app:app /opt/telegram-terminal-rootfs.tar.gz; \
+    proot --version; \
+    tar -tzf /opt/telegram-terminal-rootfs.tar.gz | grep -q '^./bin'
 
 EXPOSE 7860
 

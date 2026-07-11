@@ -12,7 +12,7 @@ WORKDIR ${APP_DIR}
 # Install runtime deps. Git is required for hot update support.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends git ca-certificates; \
+    apt-get install -y --no-install-recommends git ca-certificates proot; \
     rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
@@ -29,6 +29,18 @@ COPY infrastructure/ ./infrastructure/
 COPY shared/ ./shared/
 
 RUN test -f "${APP_DIR}/entrypoints/main.py" && python -m py_compile "${APP_DIR}/entrypoints/main.py"
+
+# Seed a complete userspace root. At runtime it is extracted below /data and
+# every terminal command runs through proot, so even /usr, /root and /opt writes
+# are persistent instead of mutating the disposable image layer.
+RUN set -eux; \
+    tar -C / \
+      --exclude='./proc/*' --exclude='./sys/*' --exclude='./dev/*' \
+      --exclude='./run/*' --exclude='./tmp/*' --exclude='./data/*' --exclude='./backup/*' \
+      -czf /tmp/telegram-terminal-rootfs.tar.gz .; \
+    mv /tmp/telegram-terminal-rootfs.tar.gz /opt/telegram-terminal-rootfs.tar.gz; \
+    proot --version; \
+    tar -tzf /opt/telegram-terminal-rootfs.tar.gz | grep -q '^./bin'
 
 # Public web / health probe port
 EXPOSE 7860
