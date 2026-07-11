@@ -18,6 +18,7 @@ import logging
 import os
 import shutil
 import stat
+import subprocess
 import threading
 import time
 import zipfile
@@ -33,6 +34,8 @@ WORKSPACE_DIR: Path | None = Path(_workspace_raw).expanduser().resolve() if _wor
 INTERVAL = max(30.0, float(os.getenv("BACKUP_INTERVAL_SECONDS", "600")))
 REQUEST_FILE = DATA_DIR / ".telegram-ai-bot-backup-request"
 _SNAPSHOT_LOCK = threading.Lock()
+WORKSPACE_PREFIX = "__telegram_backup_roots__/workspace/"
+WORKSPACE_META = "__telegram_backup_roots__/workspace.commit"
 
 
 def _enabled() -> bool:
@@ -55,6 +58,19 @@ def _zip_info(path: Path, arcname: str) -> zipfile.ZipInfo:
     info.create_system = 3
     info.external_attr = (path.lstat().st_mode & 0xFFFF) << 16
     return info
+
+
+def _git_commit(path: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return (result.stdout or "").strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
 
 
 def _archive_tree(archive: zipfile.ZipFile, root: Path, current: Path, *, prefix: str = "") -> None:
@@ -97,8 +113,11 @@ def _snapshot() -> bool:
                             archive,
                             workspace,
                             workspace,
-                            prefix="__telegram_backup_roots__/workspace/",
+                            prefix=WORKSPACE_PREFIX,
                         )
+                        commit = _git_commit(workspace)
+                        if commit:
+                            archive.writestr(WORKSPACE_META, commit + "\n")
             os.replace(tmp_file, BACKUP_FILE)
             logger.info("backup: complete snapshot saved (%d bytes) -> %s", BACKUP_FILE.stat().st_size, BACKUP_FILE)
             return True
@@ -109,12 +128,11 @@ def _snapshot() -> bool:
 
 
 def _safe_target(name: str) -> Path:
-    workspace_prefix = "__telegram_backup_roots__/workspace/"
-    if name.startswith(workspace_prefix):
+    if name.startswith(WORKSPACE_PREFIX):
         if WORKSPACE_DIR is None:
             raise ValueError("backup contains a workspace but no restore workspace is configured")
         root = WORKSPACE_DIR.resolve()
-        relative = Path(name[len(workspace_prefix):])
+        relative = Path(name[len(WORKSPACE_PREFIX):])
     else:
         root = DATA_DIR.resolve()
         relative = Path(name)
@@ -134,11 +152,62 @@ def _remove_conflict(path: Path, *, want_directory: bool = False) -> None:
             path.unlink(missing_ok=True)
 
 
-def _restore_zip(archive: zipfile.ZipFile) -> int:
+def _archived_workspace_commit(archive: zipfile.ZipFile) -> str:
+    names = set(archive.namelist())
+    if WORKSPACE_META in names:
+        return archive.read(WORKSPACE_META).decode("utf-8", errors="ignore").strip()
+    head_name = WORKSPACE_PREFIX + ".git/HEAD"
+    if head_name not in names:
+        return ""
+    head = archive.read(head_name).decode("utf-8", errors="ignore").strip()
+    if not head.startswith("ref:"):
+        return head
+    ref = head.split(":", 1)[1].strip()
+    loose_ref = WORKSPACE_PREFIX + ".git/" + ref
+    if loose_ref in names:
+        return archive.read(loose_ref).decode("utf-8", errors="ignore").strip()
+    packed = WORKSPACE_PREFIX + ".git/packed-refs"
+    if packed in names:
+        for line in archive.read(packed).decode("utf-8", errors="ignore").splitlines():
+            parts = line.strip().split()
+            if len(parts) == 2 and parts[1] == ref:
+                return parts[0]
+    return ""
+
+
+def _should_restore_workspace(archive: zipfile.ZipFile, requested: bool | None) -> bool:
+    if requested is not None:
+        return requested
+    if WORKSPACE_DIR is None or not WORKSPACE_DIR.exists():
+        return True
+    current = _git_commit(WORKSPACE_DIR)
+    if not current:
+        return True
+    archived = _archived_workspace_commit(archive)
+    if archived == current:
+        return True
+    logger.warning(
+        "backup: workspace restore skipped to prevent code rollback (current=%s archived=%s)",
+        current[:12],
+        archived[:12] if archived else "unknown",
+    )
+    return False
+
+
+def _restore_zip(archive: zipfile.ZipFile, *, restore_workspace: bool | None = None) -> int:
     members = archive.infolist()
+    include_workspace = _should_restore_workspace(archive, restore_workspace)
+
+    def included(info: zipfile.ZipInfo) -> bool:
+        if info.filename == WORKSPACE_META:
+            return False
+        return include_workspace or not info.filename.startswith(WORKSPACE_PREFIX)
+
     # Directories first, then regular files, then links. This prevents a link
     # from redirecting extraction of a later member outside DATA_DIR.
     for info in members:
+        if not included(info):
+            continue
         if "/.terminal-special/" in f"/{info.filename}" or info.filename.startswith(".terminal-special/"):
             continue
         mode = (info.external_attr >> 16) & 0xFFFF
@@ -149,6 +218,8 @@ def _restore_zip(archive: zipfile.ZipFile) -> int:
             if mode:
                 os.chmod(target, stat.S_IMODE(mode))
     for info in members:
+        if not included(info):
+            continue
         if "/.terminal-special/" in f"/{info.filename}" or info.filename.startswith(".terminal-special/"):
             continue
         mode = (info.external_attr >> 16) & 0xFFFF
@@ -162,6 +233,8 @@ def _restore_zip(archive: zipfile.ZipFile) -> int:
         if mode:
             os.chmod(target, stat.S_IMODE(mode))
     for info in members:
+        if not included(info):
+            continue
         mode = (info.external_attr >> 16) & 0xFFFF
         if not stat.S_ISLNK(mode):
             continue
@@ -172,7 +245,7 @@ def _restore_zip(archive: zipfile.ZipFile) -> int:
     return len(members)
 
 
-def restore() -> bool:
+def restore(*, restore_workspace: bool | None = None) -> bool:
     """Unzip /backup/data.zip into /data at startup. Returns True if a restore happened."""
     if not _enabled() or not BACKUP_FILE.is_file():
         return False
@@ -180,7 +253,7 @@ def restore() -> bool:
     logger.info("backup: restoring %s -> %s", BACKUP_FILE, DATA_DIR)
     try:
         with zipfile.ZipFile(BACKUP_FILE) as archive:
-            restored = _restore_zip(archive)
+            restored = _restore_zip(archive, restore_workspace=restore_workspace)
         logger.info("backup: restored %d entries", restored)
         return True
     except Exception:

@@ -16,6 +16,8 @@ INSTALL_PATTERNS = (
     re.compile(r"(^|&&|\|\|)\s*pnpm\s+(add|install)(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*yarn\s+(global\s+add|add|install)(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*bun\s+(add|install)(\s|$)", re.IGNORECASE),
+    re.compile(r"(^|&&|\|\|)\s*(nvm|fnm|volta)\s+install(\s|$)", re.IGNORECASE),
+    re.compile(r"(^|&&|\|\|)\s*corepack\s+(enable|install|prepare)(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*cargo\s+install(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*go\s+install(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*(gem|conda|mamba|micromamba)\s+install(\s|$)", re.IGNORECASE),
@@ -26,6 +28,7 @@ INSTALL_PATTERNS = (
     re.compile(r"(^|&&|\|\|)\s*pacman\s+.*-S(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*playwright\s+install(-deps)?(\s|$)", re.IGNORECASE),
     re.compile(r"https?://\S+/install\.sh\b.*\|\s*(ba)?sh", re.IGNORECASE),
+    re.compile(r"https?://deb\.nodesource\.com/setup_\S+.*\|\s*(ba)?sh", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*npx\s+skills\s+add\s+\S+(\s|$)", re.IGNORECASE),
     re.compile(r"(^|&&|\|\|)\s*[A-Za-z0-9_.-]+\s+skills\s+add(\s|$)", re.IGNORECASE),
 )

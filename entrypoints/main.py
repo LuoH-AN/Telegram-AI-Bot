@@ -48,7 +48,11 @@ def main() -> int:
     # Restore /data from the latest /backup snapshot before anything reads it
     # (CLI bootstrap, plugins). Ephemeral-container persistence: /backup is the
     # only durable location; /data is rebuilt from it on each cold start.
-    restore_backup()
+    skip_workspace_restore = os.environ.pop("_TGBOT_SKIP_WORKSPACE_RESTORE_ONCE", "") == "1"
+    if skip_workspace_restore:
+        print(">>> Controlled restart: preserving live /data and workspace without backup restore", flush=True)
+    else:
+        restore_backup()
 
     serve_in_thread(WEB_PORT)
     print(f">>> Web server running on http://0.0.0.0:{WEB_PORT}", flush=True)
@@ -86,6 +90,9 @@ def main() -> int:
             if status == UPDATE_RESTART_EXIT_CODE:
                 print(">>> Runtime restart requested. Re-executing launcher with latest code...", flush=True)
                 os.chdir(ROOT_DIR)
+                # The current workspace already contains the just-applied update
+                # or safe-restart state. Never overlay it with an older snapshot.
+                os.environ["_TGBOT_SKIP_WORKSPACE_RESTORE_ONCE"] = "1"
                 os.execv(sys.executable, [sys.executable, "-m", "entrypoints.main"])
             return status
     except KeyboardInterrupt:

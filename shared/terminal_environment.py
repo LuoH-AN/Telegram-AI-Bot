@@ -37,6 +37,11 @@ def build_persistent_terminal_env(base: Mapping[str, str] | None = None) -> dict
         "PIP_CACHE_DIR": dependencies / "pip-cache",
         "NPM_CONFIG_PREFIX": dependencies / "npm",
         "NPM_CONFIG_CACHE": dependencies / "npm-cache",
+        "NVM_DIR": dependencies / "nvm",
+        "FNM_DIR": dependencies / "fnm",
+        "VOLTA_HOME": dependencies / "volta",
+        "COREPACK_HOME": dependencies / "corepack",
+        "NODE_REPL_HISTORY": home / ".node_repl_history",
         "PNPM_HOME": dependencies / "pnpm",
         "BUN_INSTALL": dependencies / "bun",
         "CARGO_HOME": dependencies / "cargo",
@@ -58,6 +63,8 @@ def build_persistent_terminal_env(base: Mapping[str, str] | None = None) -> dict
     persistent_bins = [
         python_prefix / "bin",
         dependencies / "npm" / "bin",
+        dependencies / "volta" / "bin",
+        dependencies / "fnm",
         dependencies / "pnpm",
         dependencies / "bun" / "bin",
         dependencies / "cargo" / "bin",
@@ -65,6 +72,13 @@ def build_persistent_terminal_env(base: Mapping[str, str] | None = None) -> dict
         dependencies / "uv" / "bin",
         home / ".local" / "bin",
     ]
+    nvm_versions = dependencies / "nvm" / "versions" / "node"
+    if nvm_versions.is_dir():
+        persistent_bins[0:0] = [
+            version / "bin"
+            for version in sorted(nvm_versions.iterdir(), reverse=True)
+            if (version / "bin").is_dir()
+        ]
     current_path = env.get("PATH", "")
     env["PATH"] = os.pathsep.join([*(str(path) for path in persistent_bins), current_path])
     current_pythonpath = env.get("PYTHONPATH", "")
