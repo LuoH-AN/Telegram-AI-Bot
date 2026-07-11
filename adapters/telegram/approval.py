@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from infrastructure.config import is_admin
-from infrastructure.tools.approval import add_permanent_approval, approval_broker
+from infrastructure.tools.approval import add_permanent_approval, approval_broker, rule_label
 
 from .ux.locale import language, pick
 
@@ -46,11 +46,16 @@ async def terminal_approval_callback(update: Update, context: ContextTypes.DEFAU
         return
     pending.processing = True
 
+    if choice in {"session", "always"} and pending.prefix_rule is None:
+        pending.processing = False
+        await query.answer(pick(lang, "这条命令包含高风险或复合 Shell 语法，只能单次允许。", "This command uses high-risk or compound shell syntax and can only be allowed once."), show_alert=True)
+        return
+
     if choice == "session":
         approval_broker.allow_session(pending)
     if choice == "always":
         try:
-            await asyncio.to_thread(add_permanent_approval, user.id, pending.fingerprint)
+            await asyncio.to_thread(add_permanent_approval, user.id, pending.prefix_rule)
         except Exception:
             pending.processing = False
             logger.exception("failed to persist terminal approval for user=%s", user.id)
@@ -73,8 +78,8 @@ async def terminal_approval_callback(update: Update, context: ContextTypes.DEFAU
 
     labels = {
         "once": pick(lang, "✅ 已允许本次执行。", "✅ Approved for this execution."),
-        "session": pick(lang, "🔁 当前会话已允许该命令。", "🔁 This command is allowed for the current session."),
-        "always": pick(lang, "🔒 已永久允许该命令。", "🔒 This command is now always allowed."),
+        "session": pick(lang, f"🔁 当前会话已允许命令前缀：`{rule_label(pending.prefix_rule)}`", f"🔁 Allowed for this session: `{rule_label(pending.prefix_rule)}`"),
+        "always": pick(lang, f"🔒 已永久允许命令前缀：`{rule_label(pending.prefix_rule)}`", f"🔒 Always allowed: `{rule_label(pending.prefix_rule)}`"),
         "deny": pick(lang, "❌ 已拒绝，命令不会执行。", "❌ Denied; the command will not run."),
     }
     label = labels[choice]

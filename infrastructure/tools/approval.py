@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
+import shlex
 import threading
 from dataclasses import dataclass
 from typing import Literal
@@ -23,6 +24,7 @@ class PendingApproval:
     lang: str
     session_key: str
     fingerprint: str
+    prefix_rule: dict | None
     future: asyncio.Future[ApprovalChoice]
     processing: bool = False
 
@@ -38,7 +40,7 @@ class ApprovalBroker:
 
     def __init__(self) -> None:
         self._pending: dict[str, PendingApproval] = {}
-        self._session_approved: dict[str, set[str]] = {}
+        self._session_approved: dict[str, list[dict]] = {}
 
     def create(
         self,
@@ -64,6 +66,7 @@ class ApprovalBroker:
             lang=lang,
             session_key=session_key or f"{chat_id}:{user_id}",
             fingerprint=approval_fingerprint(command, cwd),
+            prefix_rule=suggest_prefix_rule(command, cwd),
             future=loop.create_future(),
         )
         self._pending[approval_id] = pending
@@ -76,10 +79,13 @@ class ApprovalBroker:
         return self._pending.pop(approval_id, None)
 
     def allow_session(self, pending: PendingApproval) -> None:
-        self._session_approved.setdefault(pending.session_key, set()).add(pending.fingerprint)
+        if pending.prefix_rule is not None:
+            rules = self._session_approved.setdefault(pending.session_key, [])
+            if pending.prefix_rule not in rules:
+                rules.append(pending.prefix_rule)
 
-    def is_session_allowed(self, session_key: str, fingerprint: str) -> bool:
-        return fingerprint in self._session_approved.get(session_key, set())
+    def is_session_allowed(self, session_key: str, command: str, cwd: str) -> bool:
+        return any(rule_matches(rule, command, cwd) for rule in self._session_approved.get(session_key, []))
 
     def resolve(self, approval_id: str, *, user_id: int, chat_id: int, approve: bool) -> ResolveResult:
         pending = self._pending.get(approval_id)
@@ -113,23 +119,83 @@ def approval_fingerprint(command: str, cwd: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def is_permanently_allowed(user_id: int, fingerprint: str) -> bool:
+_UNSAFE_SHELL_SYNTAX = frozenset("|;&<>`$()\n\r")
+_NO_BROAD_RULE_COMMANDS = {"curl", "wget", "rm", "chmod", "chown", "mv", "cp", "dd"}
+_CWD_AGNOSTIC_COMMANDS = {"apt", "apt-get", "dnf", "yum", "pacman", "systemctl", "service"}
+
+
+def _command_tokens(command: str) -> list[str]:
+    if any(char in command for char in _UNSAFE_SHELL_SYNTAX):
+        return []
+    try:
+        return shlex.split(command, posix=True)
+    except ValueError:
+        return []
+
+
+def suggest_prefix_rule(command: str, cwd: str) -> dict | None:
+    """Return a conservative, user-readable rule for repeated approval."""
+    tokens = _command_tokens(command)
+    if not tokens:
+        return None
+    offset = 1 if tokens[0] == "sudo" else 0
+    if offset >= len(tokens):
+        return None
+    executable = tokens[offset].rsplit("/", 1)[-1]
+    if executable in _NO_BROAD_RULE_COMMANDS:
+        return None
+    if executable == "git":
+        if len(tokens) <= offset + 1 or tokens[offset + 1] != "push" or any(value in {"-f", "--force", "--force-with-lease"} for value in tokens):
+            return None
+        length = offset + 2
+    else:
+        if len(tokens) <= offset + 1:
+            return None
+        length = min(len(tokens), offset + 2)
+    prefix = tokens[:length]
+    rule_cwd = "" if executable in _CWD_AGNOSTIC_COMMANDS else cwd
+    return {"version": 1, "prefix": prefix, "cwd": rule_cwd}
+
+
+def rule_label(rule: dict | None) -> str:
+    if not rule:
+        return ""
+    return " ".join(shlex.quote(str(token)) for token in rule.get("prefix", []))
+
+
+def rule_matches(rule: object, command: str, cwd: str) -> bool:
+    if not isinstance(rule, dict) or rule.get("version") != 1:
+        return False
+    prefix = rule.get("prefix")
+    if not isinstance(prefix, list) or not prefix or not all(isinstance(token, str) for token in prefix):
+        return False
+    rule_cwd = rule.get("cwd", "")
+    if rule_cwd and rule_cwd != cwd:
+        return False
+    tokens = _command_tokens(command)
+    return len(tokens) >= len(prefix) and tokens[:len(prefix)] == prefix
+
+
+def is_permanently_allowed(user_id: int, command: str, cwd: str) -> bool:
     from infrastructure.cache import cache
 
     values = cache.get_settings(user_id).get("terminal_approvals", [])
-    return fingerprint in values if isinstance(values, list) else False
+    if not isinstance(values, list):
+        return False
+    fingerprint = approval_fingerprint(command, cwd)
+    return fingerprint in values or any(rule_matches(rule, command, cwd) for rule in values)
 
 
-def add_permanent_approval(user_id: int, fingerprint: str) -> None:
-    """持久保存精确命令指纹，不保存原始命令或其中的秘密。"""
+def add_permanent_approval(user_id: int, rule: dict) -> None:
+    """Persist a structured command-prefix rule without storing command arguments."""
     from infrastructure.cache import cache, sync_to_database
 
     with _PERMANENT_LOCK:
         current = cache.get_settings(user_id).get("terminal_approvals", [])
-        previous = [str(item) for item in current] if isinstance(current, list) else []
-        if fingerprint in previous:
+        previous = list(current) if isinstance(current, list) else []
+        if rule in previous:
             return
-        approvals = (previous + [fingerprint])[-500:]
+        approvals = (previous + [rule])[-500:]
         cache.update_settings(user_id, "terminal_approvals", approvals)
         try:
             sync_to_database()

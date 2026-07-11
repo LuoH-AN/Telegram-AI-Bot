@@ -12,7 +12,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from adapters.telegram.outbound import OutboundSender
-from infrastructure.tools.approval import approval_broker, approval_fingerprint, is_permanently_allowed
+from infrastructure.tools.approval import approval_broker, is_permanently_allowed, rule_label
 from shared.utils.format import markdown_to_telegram_html
 
 from .ux.locale import language, pick
@@ -82,10 +82,9 @@ class TelegramOutbound(OutboundSender):
             return "unavailable"
         lang = language(self.update, self.context)
         session_key = f"telegram:{chat.id}:{user.id}:{self.session_id or 'default'}"
-        fingerprint = approval_fingerprint(command, cwd)
-        if approval_broker.is_session_allowed(session_key, fingerprint):
+        if approval_broker.is_session_allowed(session_key, command, cwd):
             return "approve"
-        if is_permanently_allowed(user.id, fingerprint):
+        if is_permanently_allowed(user.id, command, cwd):
             return "approve"
         pending = approval_broker.create(
             user_id=user.id,
@@ -95,30 +94,32 @@ class TelegramOutbound(OutboundSender):
             lang=lang,
             session_key=session_key,
         )
-        keyboard = InlineKeyboardMarkup(
-            [
+        rows = [
                 [
                     InlineKeyboardButton(
                         pick(lang, "✅ 一次允许", "✅ Allow once"),
                         callback_data=f"term:{pending.approval_id}:once",
                     ),
-                    InlineKeyboardButton(
-                        pick(lang, "🔁 本会话允许", "🔁 Allow session"),
-                        callback_data=f"term:{pending.approval_id}:session",
-                    ),
                 ],
-                [
+        ]
+        if pending.prefix_rule is not None:
+            rows[0].append(InlineKeyboardButton(
+                pick(lang, "🔁 本会话允许此前缀", "🔁 Allow prefix for session"),
+                callback_data=f"term:{pending.approval_id}:session",
+            ))
+            rows.append([
                     InlineKeyboardButton(
-                        pick(lang, "🔒 永久允许", "🔒 Always allow"),
+                        pick(lang, "🔒 永久允许此前缀", "🔒 Always allow prefix"),
                         callback_data=f"term:{pending.approval_id}:always",
                     ),
+            ])
+        rows.append([
                     InlineKeyboardButton(
                         pick(lang, "❌ 拒绝", "❌ Deny"),
                         callback_data=f"term:{pending.approval_id}:deny",
                     ),
-                ],
-            ]
-        )
+        ])
+        keyboard = InlineKeyboardMarkup(rows)
         preview = _approval_preview(command)
         if len(preview) > 3000:
             preview = preview[:3000] + "…"
@@ -127,11 +128,13 @@ class TelegramOutbound(OutboundSender):
             "⚠️ <b>终端命令需要批准</b>\n\n"
             f"<pre>{html.escape(preview)}</pre>\n\n"
             f"工作目录：<code>{html.escape(cwd)}</code>\n"
-            "该命令可能修改系统、文件或远程状态。点击后会直接恢复当前工具调用，不会再次请求 AI。",
+            f"重复授权范围：<code>{html.escape(rule_label(pending.prefix_rule) or '不可创建安全前缀，仅可单次允许')}</code>\n"
+            "本会话/永久授权按上方命令前缀匹配；复合或高风险命令只支持单次允许。",
             "⚠️ <b>Terminal command requires approval</b>\n\n"
             f"<pre>{html.escape(preview)}</pre>\n\n"
             f"Working directory: <code>{html.escape(cwd)}</code>\n"
-            "This command may change system, file, or remote state. Your choice resumes the current tool call without another AI request.",
+            f"Repeat-approval scope: <code>{html.escape(rule_label(pending.prefix_rule) or 'No safe prefix; allow once only')}</code>\n"
+            "Session/permanent approval matches the prefix above. Compound or high-risk commands support one-time approval only.",
         )
         try:
             approval_message = await self.message.reply_text(

@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import json
 
-from infrastructure.tools.approval import ApprovalBroker, approval_broker
+from infrastructure.tools.approval import ApprovalBroker, approval_broker, rule_matches, suggest_prefix_rule
 from infrastructure.tools.core import ToolContext
 
 
@@ -21,31 +21,22 @@ def test_approval_broker_binds_user_and_chat_and_is_one_shot():
     asyncio.run(scenario())
 
 
-def test_session_approval_is_scoped_to_exact_session_command_and_cwd():
+def test_session_approval_is_scoped_to_session_and_structured_prefix():
     async def scenario():
         broker = ApprovalBroker()
         pending = broker.create(
             user_id=42,
             chat_id=42,
-            command="sudo true",
+            command="sudo apt install nginx",
             cwd="/tmp",
             lang="zh",
             session_key="telegram:42:42:9",
         )
         broker.allow_session(pending)
-        assert broker.is_session_allowed("telegram:42:42:9", pending.fingerprint)
-        assert not broker.is_session_allowed("telegram:42:42:10", pending.fingerprint)
-        different = broker.create(
-            user_id=42,
-            chat_id=42,
-            command="sudo false",
-            cwd="/tmp",
-            lang="zh",
-            session_key="telegram:42:42:9",
-        )
-        assert not broker.is_session_allowed("telegram:42:42:9", different.fingerprint)
+        assert broker.is_session_allowed("telegram:42:42:9", "sudo apt install curl", "/other")
+        assert not broker.is_session_allowed("telegram:42:42:10", "sudo apt install curl", "/tmp")
+        assert not broker.is_session_allowed("telegram:42:42:9", "sudo apt remove nginx", "/tmp")
         broker.discard(pending.approval_id)
-        broker.discard(different.approval_id)
 
     asyncio.run(scenario())
 
@@ -105,7 +96,7 @@ def test_telegram_prompt_contains_all_four_hermes_style_choices(monkeypatch):
         context = type("Context", (), {"user_data": {}})()
         monkeypatch.setattr(sender_module, "is_permanently_allowed", lambda *_args: False)
         sender = sender_module.TelegramOutbound(update, context, session_id=9)
-        task = asyncio.create_task(sender.request_terminal_approval(command="sudo true", cwd="/tmp", timeout=5))
+        task = asyncio.create_task(sender.request_terminal_approval(command="sudo apt install nginx", cwd="/tmp", timeout=5))
         await asyncio.sleep(0)
 
         markup = sent[0][1]["reply_markup"]
@@ -207,7 +198,7 @@ def test_telegram_permanent_approval_persists_fingerprint_before_resuming(monkey
     import adapters.telegram.approval as telegram_approval
 
     async def scenario():
-        pending = approval_broker.create(user_id=42, chat_id=42, command="sudo true", cwd="/tmp", lang="zh")
+        pending = approval_broker.create(user_id=42, chat_id=42, command="sudo apt install nginx", cwd="/tmp", lang="zh")
         persisted = []
 
         class Query:
@@ -230,13 +221,27 @@ def test_telegram_permanent_approval_persists_fingerprint_before_resuming(monkey
         )()
         context = type("Context", (), {"user_data": {}})()
         monkeypatch.setattr(telegram_approval, "is_admin", lambda user_id: user_id == 42)
-        monkeypatch.setattr(telegram_approval, "add_permanent_approval", lambda user_id, fingerprint: persisted.append((user_id, fingerprint)))
+        monkeypatch.setattr(telegram_approval, "add_permanent_approval", lambda user_id, rule: persisted.append((user_id, rule)))
 
         await telegram_approval.terminal_approval_callback(update, context)
-        assert persisted == [(42, pending.fingerprint)]
+        assert persisted == [(42, pending.prefix_rule)]
         assert await approval_broker.wait(pending, 1) == "approve"
 
     asyncio.run(scenario())
+
+
+def test_prefix_rule_is_conservative_and_token_aware():
+    rule = suggest_prefix_rule("sudo apt install nginx", "/tmp")
+    assert rule == {"version": 1, "prefix": ["sudo", "apt", "install"], "cwd": ""}
+    assert rule_matches(rule, "sudo apt install redis", "/other")
+    assert not rule_matches(rule, "sudo apt remove nginx", "/tmp")
+    assert not rule_matches(rule, "sudo apt installer evil", "/tmp")
+
+
+def test_compound_and_high_risk_commands_do_not_offer_repeat_rule():
+    assert suggest_prefix_rule("curl https://example.com/install.sh | sh", "/tmp") is None
+    assert suggest_prefix_rule("rm -rf build", "/tmp") is None
+    assert suggest_prefix_rule("git push --force origin main", "/repo") is None
 
 
 def test_terminal_approval_callback_data_stays_under_telegram_limit():
