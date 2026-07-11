@@ -32,6 +32,7 @@ from .locale import language, pick
 from .panels import (
     advanced_settings_panel,
     connection_panel,
+    cron_schedule_panel,
     generation_panel,
     memory_panel,
     personas_panel,
@@ -158,17 +159,6 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await _send_panel(message, advanced_settings_panel(user_id, lang))
         raise ApplicationHandlerStop
 
-    if kind in {"title_model", "cron_model"}:
-        model = value.strip()
-        if not model:
-            await _send(message, pick(lang, "模型名称不能为空。", "The model name cannot be empty."), _cancel_keyboard(lang, "ux:settings:advanced"))
-            raise ApplicationHandlerStop
-        update_user_setting(user_id, kind, model)
-        await _persist()
-        context.user_data.pop("ux_pending", None)
-        await _send_panel(message, advanced_settings_panel(user_id, lang))
-        raise ApplicationHandlerStop
-
     if kind == "token_limit":
         try:
             limit = int(value)
@@ -249,8 +239,8 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
             await _send(message, pick(lang, "任务名需为 1–40 个字符且不能重复。", "Task names must be 1–40 characters and unique."), _cancel_keyboard(lang, "ux:cron:cancel"))
             raise ApplicationHandlerStop
         draft["name"] = name
-        context.user_data["ux_pending"] = {"kind": "cron_expression"}
-        await _send(message, pick(lang, "请输入 5 段 Cron 表达式。\n例如每天 09:00：`0 9 * * *`\n每 30 分钟：`*/30 * * * *`", "Send a five-field cron expression.\nDaily at 09:00: `0 9 * * *`\nEvery 30 minutes: `*/30 * * * *`"), _cancel_keyboard(lang, "ux:cron:cancel"))
+        context.user_data.pop("ux_pending", None)
+        await _send_panel(message, cron_schedule_panel(user_id, lang))
         raise ApplicationHandlerStop
 
     if kind == "cron_expression":

@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from adapters.telegram.commands.settings.model import _build_model_keyboard
+from adapters.telegram.ux.choice_panels import (
+    cron_schedule_panel,
+    specialized_model_source_panel,
+    token_limit_panel,
+)
 from adapters.telegram.ux.errors import error_panel
 from adapters.telegram.ux.feature_panels import feature_panel, memory_panel
 from adapters.telegram.ux.locale import language, pick
@@ -246,7 +251,62 @@ def test_advanced_panel_has_buttons_for_previously_command_only_settings(monkeyp
         "ux:advanced:cron_model",
         "ux:advanced:models_current",
         "ux:advanced:token_limit",
-        "ux:advanced:token_limit_clear",
+    } <= callbacks
+
+
+def test_specialized_model_selector_uses_service_buttons_instead_of_manual_format(monkeypatch):
+    import adapters.telegram.ux.choice_panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_user_settings",
+        lambda _user_id: {
+            "model": "chat-model",
+            "title_model": "",
+            "api_presets": {
+                "Work": {"model": "saved-model"},
+                "Local": {"model": "local-model"},
+            },
+        },
+    )
+    text, keyboard = specialized_model_source_panel(1, "title", "zh")
+    callbacks = _callbacks(keyboard)
+    assert "无需手动填写" in text
+    assert "ux:smodel:title:current" in callbacks
+    assert "ux:smodel:title:source:current" in callbacks
+    assert len([item for item in callbacks if item.startswith("ux:smodel:title:source:")]) == 3
+
+
+def test_token_limit_selector_has_common_presets_and_custom_fallback(monkeypatch):
+    import adapters.telegram.ux.choice_panels as panels
+
+    monkeypatch.setattr(panels, "get_current_persona_name", lambda _user_id: "default")
+    monkeypatch.setattr(panels, "get_token_limit", lambda *_args: 32_000)
+    text, keyboard = token_limit_panel(1, "en")
+    callbacks = _callbacks(keyboard)
+    assert "Choose a preset" in text
+    assert {
+        "ux:set:token_limit:0",
+        "ux:set:token_limit:8000",
+        "ux:set:token_limit:32000",
+        "ux:set:token_limit:1000000",
+        "ux:advanced:token_limit_custom",
+    } <= callbacks
+
+
+def test_cron_schedule_selector_offers_common_plans_and_custom_fallback(monkeypatch):
+    import adapters.telegram.ux.choice_panels as panels
+
+    monkeypatch.setattr(panels, "get_user_settings", lambda _user_id: {"timezone": "Asia/Shanghai"})
+    text, keyboard = cron_schedule_panel(1, "zh")
+    callbacks = _callbacks(keyboard)
+    assert "选择执行计划" in text
+    assert "Asia/Shanghai" in text
+    assert {
+        "ux:cron:schedule:every_30m",
+        "ux:cron:schedule:daily_0900",
+        "ux:cron:schedule:weekdays_0900",
+        "ux:cron:schedule:custom",
     } <= callbacks
 
 
@@ -552,6 +612,82 @@ def test_advanced_token_limit_clear_uses_current_persona(monkeypatch):
     assert calls == [(7, 0, "coder")]
 
 
+def test_specialized_model_picker_builds_provider_model_value(monkeypatch):
+    import adapters.telegram.ux.callbacks as callbacks
+
+    saved = []
+
+    class Query:
+        data = "ux:smodel:pick:1"
+
+        async def answer(self, *_args, **_kwargs):
+            return None
+
+    update = type(
+        "Update",
+        (),
+        {
+            "callback_query": Query(),
+            "effective_user": type("User", (), {"id": 1, "language_code": "zh"})(),
+            "effective_chat": type("Chat", (), {"id": 1, "type": "private"})(),
+        },
+    )()
+    context = type("Context", (), {"user_data": {"special_model_picker": {
+        "target": "cron",
+        "provider_name": "Work",
+        "models": ["model-a", "model-b"],
+    }}})()
+
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(callbacks, "ensure_user_state", fake_noop)
+    monkeypatch.setattr(callbacks, "update_user_setting", lambda *args: saved.append(args))
+    monkeypatch.setattr(callbacks, "_persist", fake_noop)
+    monkeypatch.setattr(callbacks, "_edit", fake_noop)
+    monkeypatch.setattr(callbacks, "advanced_settings_panel", lambda *_args: ("advanced", None))
+
+    asyncio.run(callbacks.ux_callback(update, context))
+    assert saved == [(1, "cron_model", "Work:model-b")]
+    assert "special_model_picker" not in context.user_data
+
+
+def test_token_limit_preset_callback_needs_no_text_input(monkeypatch):
+    import adapters.telegram.ux.callbacks as callbacks
+
+    calls = []
+
+    class Query:
+        data = "ux:set:token_limit:64000"
+
+        async def answer(self, *_args, **_kwargs):
+            return None
+
+    update = type(
+        "Update",
+        (),
+        {
+            "callback_query": Query(),
+            "effective_user": type("User", (), {"id": 3, "language_code": "en"})(),
+            "effective_chat": type("Chat", (), {"id": 3, "type": "private"})(),
+        },
+    )()
+    context = type("Context", (), {"user_data": {}})()
+
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(callbacks, "ensure_user_state", fake_noop)
+    monkeypatch.setattr(callbacks, "get_current_persona_name", lambda _user_id: "default")
+    monkeypatch.setattr(callbacks, "set_token_limit", lambda *args: calls.append(args))
+    monkeypatch.setattr(callbacks, "_persist", fake_noop)
+    monkeypatch.setattr(callbacks, "_edit", fake_noop)
+    monkeypatch.setattr(callbacks, "token_limit_panel", lambda *_args: ("limits", None))
+
+    asyncio.run(callbacks.ux_callback(update, context))
+    assert calls == [(3, 64_000, "default")]
+
+
 def test_non_admin_cannot_trigger_admin_button_callbacks(monkeypatch):
     import adapters.telegram.ux.callbacks as callbacks
 
@@ -630,7 +766,8 @@ def test_cron_pending_flow_keeps_state_and_uses_full_cancel(monkeypatch):
         asyncio.run(pending.handle_pending_input(update, context))
 
     assert context.user_data["cron_draft"]["name"] == "Morning digest"
-    assert context.user_data["ux_pending"] == {"kind": "cron_expression"}
+    assert "ux_pending" not in context.user_data
+    assert "ux:cron:schedule:daily_0900" in _callbacks(sent[-1][1])
     assert "ux:cron:cancel" in _callbacks(sent[-1][1])
 
 

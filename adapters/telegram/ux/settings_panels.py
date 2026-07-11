@@ -292,26 +292,23 @@ def advanced_settings_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboar
         f"🏷 会话标题模型：`{title_model}`{'（跟随当前模型）' if not settings.get('title_model') else ''}\n"
         f"⏰ 定时任务模型：`{cron_model}`{'（跟随当前模型）' if not settings.get('cron_model') else ''}\n"
         f"📏 角色 `{persona}` 的 Token 限额：{'不限' if token_limit <= 0 else f'{token_limit:,}'}\n\n"
-        "标题模型和定时任务模型可填写 `模型名`，也可填写 `保存项名称:模型名`。",
+        "模型和限额均可通过按钮选择，无需记忆配置格式。",
         "🧩 **Advanced settings**\n\n"
         f"📝 Global prompt: {prompt_state}\n"
         f"🏷 Chat-title model: `{title_model}`{' (follows current model)' if not settings.get('title_model') else ''}\n"
         f"⏰ Scheduled-task model: `{cron_model}`{' (follows current model)' if not settings.get('cron_model') else ''}\n"
         f"📏 Token limit for persona `{persona}`: {'Unlimited' if token_limit <= 0 else f'{token_limit:,}'}\n\n"
-        "Title and scheduled-task models accept either `model` or `saved-service:model`.",
+        "Models and limits can be selected with buttons; no configuration syntax is required.",
     )
     rows = [
         [
             InlineKeyboardButton(pick(lang, "📝 设置全局提示词", "📝 Set global prompt"), callback_data="ux:advanced:global_prompt"),
             InlineKeyboardButton(pick(lang, "🧹 清除全局提示词", "🧹 Clear global prompt"), callback_data="ux:advanced:global_prompt_clear"),
         ],
-        [InlineKeyboardButton(pick(lang, "🏷 设置会话标题模型", "🏷 Set chat-title model"), callback_data="ux:advanced:title_model")],
-        [InlineKeyboardButton(pick(lang, "⏰ 设置定时任务模型", "⏰ Set scheduled-task model"), callback_data="ux:advanced:cron_model")],
+        [InlineKeyboardButton(pick(lang, "🏷 选择会话标题模型", "🏷 Choose chat-title model"), callback_data="ux:advanced:title_model")],
+        [InlineKeyboardButton(pick(lang, "⏰ 选择定时任务模型", "⏰ Choose scheduled-task model"), callback_data="ux:advanced:cron_model")],
         [InlineKeyboardButton(pick(lang, "♻️ 两者都跟随当前模型", "♻️ Both follow current model"), callback_data="ux:advanced:models_current")],
-        [
-            InlineKeyboardButton(pick(lang, "📏 设置 Token 限额", "📏 Set token limit"), callback_data="ux:advanced:token_limit"),
-            InlineKeyboardButton(pick(lang, "♾ 取消 Token 限额", "♾ Remove token limit"), callback_data="ux:advanced:token_limit_clear"),
-        ],
+        [InlineKeyboardButton(pick(lang, "📏 选择 Token 限额", "📏 Choose token limit"), callback_data="ux:advanced:token_limit")],
         [InlineKeyboardButton(pick(lang, "⬅️ 返回设置中心", "⬅️ Back to settings"), callback_data="ux:settings")],
     ]
     return text, _markup(rows)

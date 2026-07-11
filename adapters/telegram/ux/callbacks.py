@@ -38,6 +38,7 @@ from domain.services import (
 from domain.services.cron.trigger import run_cron_task
 from domain.services.refresh import ensure_user_state
 from infrastructure.cache import cache, sync_to_database
+from infrastructure.ai import create_openai_client
 from infrastructure.config import is_admin, normalize_telegram_busy_mode, normalize_telegram_tool_progress
 from infrastructure.tools.skills.manager import get_skill_manager
 
@@ -45,10 +46,12 @@ from .locale import language, pick
 from .panels import (
     advanced_settings_panel,
     admin_panel,
+    CRON_PRESETS,
     confirmation,
     connection_panel,
     cron_detail,
     cron_panel,
+    cron_schedule_panel,
     generation_panel,
     feature_panel,
     help_panel,
@@ -62,7 +65,10 @@ from .panels import (
     skills_panel,
     sessions_panel,
     settings_panel,
+    specialized_model_keyboard,
+    specialized_model_source_panel,
     timezone_panel,
+    token_limit_panel,
 )
 from .tokens import stable_token
 
@@ -355,16 +361,8 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _edit(query, advanced_settings_panel(user_id, lang))
         return
     if data in {"ux:advanced:title_model", "ux:advanced:cron_model"}:
-        key = "title_model" if data.endswith("title_model") else "cron_model"
-        label = pick(lang, "会话标题模型", "chat-title model") if key == "title_model" else pick(lang, "定时任务模型", "scheduled-task model")
-        await _ask(
-            query,
-            context,
-            kind=key,
-            lang=lang,
-            back="ux:settings:advanced",
-            text=pick(lang, f"请输入{label}。可填写 `模型名` 或 `保存项名称:模型名`。", f"Enter the {label}. Use either `model` or `saved-service:model`."),
-        )
+        target = "title" if data.endswith("title_model") else "cron"
+        await _edit(query, specialized_model_source_panel(user_id, target, lang))
         return
     if data == "ux:advanced:models_current":
         update_user_setting(user_id, "title_model", "")
@@ -373,6 +371,9 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _edit(query, advanced_settings_panel(user_id, lang))
         return
     if data == "ux:advanced:token_limit":
+        await _edit(query, token_limit_panel(user_id, lang))
+        return
+    if data == "ux:advanced:token_limit_custom":
         await _ask(
             query,
             context,
@@ -382,11 +383,135 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             text=pick(lang, "请输入当前角色的 Token 限额（非负整数）。输入 `0` 表示不限。", "Enter the token limit for the current persona (a non-negative integer). Use `0` for unlimited."),
         )
         return
+    if data.startswith("ux:set:token_limit:"):
+        limit = int(data.rsplit(":", 1)[1])
+        set_token_limit(user_id, limit, get_current_persona_name(user_id))
+        await _persist()
+        await _edit(query, token_limit_panel(user_id, lang))
+        return
     if data == "ux:advanced:token_limit_clear":
         set_token_limit(user_id, 0, get_current_persona_name(user_id))
         await _persist()
         await _edit(query, advanced_settings_panel(user_id, lang))
         return
+
+    if data.startswith("ux:smodel:"):
+        parts = data.split(":")
+        if len(parts) >= 4 and parts[2] in {"title", "cron"} and parts[3] == "current":
+            key = "title_model" if parts[2] == "title" else "cron_model"
+            update_user_setting(user_id, key, "")
+            await _persist()
+            await _edit(query, advanced_settings_panel(user_id, lang))
+            return
+        if len(parts) >= 5 and parts[2] in {"title", "cron"} and parts[3] == "source":
+            target = parts[2]
+            source = parts[4]
+            settings = cache.get_settings(user_id)
+            provider_name = None
+            if source == "current":
+                api_key = settings.get("api_key", "")
+                base_url = settings.get("base_url", "")
+                fallback_model = settings.get("model", "")
+                source_label = pick(lang, "当前模型服务", "current model service")
+            else:
+                match = _provider(user_id, source)
+                if not match:
+                    await _edit(query, specialized_model_source_panel(user_id, target, lang))
+                    return
+                provider_name, preset = match
+                api_key = preset.get("api_key", "")
+                base_url = preset.get("base_url", "")
+                fallback_model = preset.get("model", "")
+                source_label = provider_name
+            await edit_query_rich_text(query, pick(lang, f"正在从 `{source_label}` 获取模型列表…", f"Fetching models from `{source_label}`…"))
+            if source == "current":
+                models = await asyncio.to_thread(fetch_models, user_id)
+            else:
+                def _list_models():
+                    return create_openai_client(api_key=api_key, base_url=base_url, log_context=f"[user={user_id} picker]").list_models()
+
+                try:
+                    models = await asyncio.to_thread(_list_models)
+                except Exception:
+                    models = []
+            models = list(dict.fromkeys(model for model in models if model))
+            context.user_data["special_model_picker"] = {
+                "target": target,
+                "provider_name": provider_name,
+                "models": models,
+                "fallback_model": fallback_model,
+                "source_label": source_label,
+            }
+            if not models:
+                rows = []
+                if fallback_model:
+                    rows.append([InlineKeyboardButton(
+                        pick(lang, f"✅ 使用已保存模型：{fallback_model[:28]}", f"✅ Use saved model: {fallback_model[:28]}"),
+                        callback_data="ux:smodel:fallback",
+                    )])
+                rows.append([InlineKeyboardButton(
+                    pick(lang, "⬅️ 重新选择模型服务", "⬅️ Choose another service"),
+                    callback_data=f"ux:advanced:{'title_model' if target == 'title' else 'cron_model'}",
+                )])
+                await edit_query_rich_text(
+                    query,
+                    pick(lang, "无法获取模型列表。你仍可使用该保存项中记录的模型。", "Could not fetch the model list. You can still use the model stored in this saved service."),
+                    reply_markup=InlineKeyboardMarkup(rows),
+                )
+                return
+            selected = fallback_model
+            await edit_query_rich_text(
+                query,
+                pick(lang, f"🤖 从 `{source_label}` 选择模型", f"🤖 Choose a model from `{source_label}`"),
+                reply_markup=specialized_model_keyboard(models, 0, selected, target=target, lang=lang),
+            )
+            return
+        if len(parts) >= 4 and parts[2] == "page":
+            picker = context.user_data.get("special_model_picker") or {}
+            models = picker.get("models") or []
+            target = picker.get("target")
+            if not models or target not in {"title", "cron"}:
+                await _edit(query, advanced_settings_panel(user_id, lang))
+                return
+            page = int(parts[3])
+            await query.edit_message_reply_markup(reply_markup=specialized_model_keyboard(
+                models,
+                page,
+                picker.get("fallback_model", ""),
+                target=target,
+                lang=lang,
+            ))
+            return
+        if len(parts) >= 4 and parts[2] == "pick":
+            picker = context.user_data.get("special_model_picker") or {}
+            models = picker.get("models") or []
+            try:
+                model = models[int(parts[3])]
+            except (IndexError, TypeError, ValueError):
+                await _edit(query, advanced_settings_panel(user_id, lang))
+                return
+            target = picker.get("target")
+            key = "title_model" if target == "title" else "cron_model"
+            provider_name = picker.get("provider_name")
+            value = f"{provider_name}:{model}" if provider_name else model
+            update_user_setting(user_id, key, value)
+            await _persist()
+            context.user_data.pop("special_model_picker", None)
+            await _edit(query, advanced_settings_panel(user_id, lang))
+            return
+        if len(parts) >= 3 and parts[2] == "fallback":
+            picker = context.user_data.get("special_model_picker") or {}
+            model = picker.get("fallback_model", "")
+            target = picker.get("target")
+            if model and target in {"title", "cron"}:
+                key = "title_model" if target == "title" else "cron_model"
+                provider_name = picker.get("provider_name")
+                value = f"{provider_name}:{model}" if provider_name else model
+                update_user_setting(user_id, key, value)
+                await _persist()
+            context.user_data.pop("special_model_picker", None)
+            await _edit(query, advanced_settings_panel(user_id, lang))
+            return
 
     if data == "ux:memory":
         await _edit(query, memory_panel(user_id, lang))
@@ -747,6 +872,33 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data == "ux:cron:add":
         context.user_data.pop("cron_draft", None)
         await _ask(query, context, kind="cron_name", lang=lang, back="ux:cron:cancel", text=pick(lang, "请输入任务名称。", "Send a name for the scheduled task."))
+        return
+    if data.startswith("ux:cron:schedule:"):
+        preset = data.rsplit(":", 1)[1]
+        if preset == "custom":
+            await _ask(
+                query,
+                context,
+                kind="cron_expression",
+                lang=lang,
+                back="ux:cron:cancel",
+                text=pick(lang, "请输入 5 段 Cron 表达式，例如 `15 10 * * 1-5`。", "Enter a five-field cron expression, such as `15 10 * * 1-5`."),
+            )
+            return
+        expression = CRON_PRESETS.get(preset)
+        draft = context.user_data.setdefault("cron_draft", {})
+        if not expression or not draft.get("name"):
+            await _edit(query, cron_panel(user_id, lang))
+            return
+        draft["cron_expression"] = expression
+        await _ask(
+            query,
+            context,
+            kind="cron_prompt",
+            lang=lang,
+            back="ux:cron:cancel",
+            text=pick(lang, "请输入任务执行时交给 AI 的提示词。", "Send the prompt the AI should run for this task."),
+        )
         return
     if data.startswith("ux:cron:view:"):
         await _edit(query, cron_detail(user_id, data.rsplit(":", 1)[1], lang))

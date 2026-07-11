@@ -20,6 +20,13 @@ from infrastructure.config import (
 )
 
 from .locale import pick
+from .choice_panels import (
+    CRON_PRESETS,
+    cron_schedule_panel,
+    specialized_model_keyboard,
+    specialized_model_source_panel,
+    token_limit_panel,
+)
 from .feature_panels import (
     admin_panel,
     feature_panel,
