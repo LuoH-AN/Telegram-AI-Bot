@@ -13,7 +13,7 @@ from infrastructure.config import (
     normalize_telegram_tool_progress,
 )
 
-from .json_utils import parse_json_object
+from .json_utils import parse_json_list, parse_json_object
 
 
 def _parse_show_thinking(value) -> bool:
@@ -55,4 +55,5 @@ def parse_settings_row(row: Mapping) -> dict:
         "cron_model": row.get("cron_model") or "",
         "global_prompt": row.get("global_prompt") or "",
         "timezone": row.get("timezone") or "Asia/Shanghai",
+        "terminal_approvals": parse_json_list(row.get("terminal_approvals")),
     }

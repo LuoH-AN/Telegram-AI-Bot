@@ -29,7 +29,16 @@ def _default_context(user_id: int) -> ToolContext:
         outbound = get_outbound()
     except Exception:
         outbound = None
-    return ToolContext(user_id=user_id, outbound=outbound)
+    sender = getattr(outbound, "sender", None)
+    update = getattr(sender, "update", None)
+    chat = getattr(update, "effective_chat", None)
+    confirm = getattr(sender, "request_terminal_approval", None)
+    return ToolContext(
+        user_id=user_id,
+        chat_id=getattr(chat, "id", None),
+        outbound=outbound,
+        confirm=confirm if callable(confirm) else None,
+    )
 
 
 def _ensure_discovered() -> None:

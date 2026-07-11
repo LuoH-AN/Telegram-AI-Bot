@@ -99,7 +99,7 @@ async def chat(
     current_task = asyncio.current_task()
     if current_task:
         register_response(response_key, task=current_task, pump=runtime.render_pump)
-    outbound_token = bind_outbound(TelegramOutbound(update, context))
+    outbound_token = bind_outbound(TelegramOutbound(update, context, session_id=req["session_id"]))
     try:
         queue_position = await conversation_queue_position(conversation_key)
         if queue_position:

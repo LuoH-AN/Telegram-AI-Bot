@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 
 @dataclass
@@ -14,7 +14,7 @@ class ToolContext:
     chat_id: int | None = None
     outbound: Any = None
     env: dict[str, str] = field(default_factory=dict)
-    confirm: Callable[[str], bool] | None = None
+    confirm: Callable[..., Awaitable[str]] | None = None
     emit: Callable[[str], None] | None = None
 
 

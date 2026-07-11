@@ -10,10 +10,13 @@ from infrastructure.tools.core import ToolContext, ToolResult, tool
 from ._shared import USER_DATA_INSTRUCTION, commit, dumps, get_cache
 
 _SENSITIVE_PARTS = ("api_key", "token", "secret", "password", "credential")
+_PROTECTED_KEYS = {"terminal_approvals"}
 
 
 def _redact(value: Any, key: str = "") -> Any:
     lowered = key.lower()
+    if lowered in _PROTECTED_KEYS:
+        return "<managed by terminal approval buttons>"
     if any(part in lowered for part in _SENSITIVE_PARTS):
         return "<redacted>" if value not in (None, "") else value
     if isinstance(value, dict):
@@ -36,6 +39,8 @@ def _run(user_id: int, action: str, key: str, value: Any) -> ToolResult:
     if action == "set":
         if not key:
             return ToolResult.error("missing_key", "key required for set")
+        if key.lower() in _PROTECTED_KEYS:
+            return ToolResult.error("protected_setting", f"settings.{key} can only be changed through terminal approval controls")
         cache.update_settings(user_id, key, value)
         commit()
         return ToolResult.text(f"Updated settings.{key} = {dumps(_redact(value, key), indent=False)}")

@@ -17,7 +17,7 @@ from infrastructure.database.loaders import parse_settings_row
 SETTINGS_COLUMNS = [
     "user_id", "api_key", "base_url", "model", "temperature", "reasoning_effort", "show_thinking",
     "token_limit", "current_persona", "stream_mode", "busy_mode", "tool_progress",
-    "api_presets", "title_model", "cron_model", "global_prompt", "timezone",
+    "api_presets", "title_model", "cron_model", "global_prompt", "timezone", "terminal_approvals",
 ]
 _PLACEHOLDERS = ", ".join(["%s"] * len(SETTINGS_COLUMNS))
 _UPDATE = ", ".join(f"{col} = EXCLUDED.{col}" for col in SETTINGS_COLUMNS[1:])
@@ -31,6 +31,8 @@ UPSERT_SQL = (
 def values(user_id: int, settings: dict) -> tuple:
     presets = settings.get("api_presets")
     presets_json = json.dumps(presets, ensure_ascii=False) if presets else None
+    terminal_approvals = settings.get("terminal_approvals")
+    terminal_approvals_json = json.dumps(terminal_approvals, ensure_ascii=False) if terminal_approvals else None
     return (
         user_id,
         settings["api_key"],
@@ -55,6 +57,7 @@ def values(user_id: int, settings: dict) -> tuple:
         settings.get("cron_model", ""),
         settings.get("global_prompt", ""),
         settings.get("timezone", "Asia/Shanghai"),
+        terminal_approvals_json,
     )
 
 

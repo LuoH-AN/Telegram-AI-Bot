@@ -20,7 +20,8 @@ CREATE_USER_SETTINGS_TABLE = """
         busy_mode TEXT DEFAULT 'interrupt',
         tool_progress TEXT DEFAULT 'compact',
         global_prompt TEXT,
-        timezone TEXT DEFAULT 'Asia/Shanghai'
+        timezone TEXT DEFAULT 'Asia/Shanghai',
+        terminal_approvals TEXT
     )
 """
 
@@ -33,6 +34,11 @@ ALTER_USER_SETTINGS_ADD_TELEGRAM_UX = """
     ALTER TABLE user_settings
     ADD COLUMN IF NOT EXISTS busy_mode TEXT DEFAULT 'interrupt',
     ADD COLUMN IF NOT EXISTS tool_progress TEXT DEFAULT 'compact'
+"""
+
+ALTER_USER_SETTINGS_ADD_TERMINAL_APPROVALS = """
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS terminal_approvals TEXT
 """
 
 CREATE_USER_PERSONAS_TABLE = """
