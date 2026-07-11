@@ -35,4 +35,12 @@ def exec_foreground(command: str, cwd_path: Path, timeout: int) -> ToolResult:
         note = persist_install_command(command)
         if note:
             parts.append(note)
+    # Failed installers can still leave caches, partial environments and logs.
+    # Request a complete snapshot after every terminal mutation opportunity.
+    try:
+        from entrypoints.launcher.backup import request_snapshot
+
+        request_snapshot()
+    except Exception:
+        pass
     return ToolResult.text("\n\n".join(parts))

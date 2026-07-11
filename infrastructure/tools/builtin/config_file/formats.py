@@ -4,9 +4,29 @@ from __future__ import annotations
 
 import configparser
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from .path_ops import delete_path, get_path, set_path
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.exists():
+            os.chmod(temp_name, path.stat().st_mode & 0o777)
+        os.replace(temp_name, path)
+    finally:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
 
 
 def _read_env(path: Path) -> dict[str, str]:
@@ -24,7 +44,46 @@ def _read_env(path: Path) -> dict[str, str]:
 
 def _write_env(path: Path, data: dict[str, object]) -> None:
     lines = [f"{key}={value}" for key, value in sorted(data.items())]
-    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    _atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
+
+
+def set_env_key(path: Path, key: str, value: object) -> None:
+    lines = path.read_text("utf-8", errors="ignore").splitlines() if path.exists() else []
+    replacement = f"{key}={'' if value is None else value}"
+    output: list[str] = []
+    replaced = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            current = stripped.split("=", 1)[0].strip()
+            if current == key:
+                if not replaced:
+                    output.append(replacement)
+                    replaced = True
+                continue
+        output.append(line)
+    if not replaced:
+        output.append(replacement)
+    _atomic_write_text(path, "\n".join(output) + "\n")
+
+
+def delete_env_key(path: Path, key: str) -> bool:
+    if not path.exists():
+        return False
+    lines = path.read_text("utf-8", errors="ignore").splitlines()
+    output: list[str] = []
+    deleted = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            current = stripped.split("=", 1)[0].strip()
+            if current == key:
+                deleted = True
+                continue
+        output.append(line)
+    if deleted:
+        _atomic_write_text(path, "\n".join(output) + ("\n" if output else ""))
+    return deleted
 
 
 def _read_json(path: Path):
@@ -32,7 +91,7 @@ def _read_json(path: Path):
 
 
 def _write_json(path: Path, data) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def _read_ini(path: Path) -> dict:
@@ -53,8 +112,11 @@ def _write_ini(path: Path, data: dict) -> None:
         if section == "DEFAULT" or not isinstance(values, dict):
             continue
         parser[section] = {key: str(value) for key, value in values.items()}
-    with path.open("w", encoding="utf-8") as handle:
-        parser.write(handle)
+    from io import StringIO
+
+    buffer = StringIO()
+    parser.write(buffer)
+    _atomic_write_text(path, buffer.getvalue())
 
 
 def load_data(path: Path, file_format: str):
@@ -75,7 +137,7 @@ def dump_data(path: Path, file_format: str, data) -> None:
         return _write_json(path, data)
     if file_format == "ini":
         return _write_ini(path, data)
-    path.write_text(data if isinstance(data, str) else json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_text(path, data if isinstance(data, str) else json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def render_value(value) -> str:

@@ -37,3 +37,32 @@ def test_uninstall_rejects_unsafe_name(tmp_path, monkeypatch):
     result = installer.uninstall("../outside")
     assert result["ok"] is False
     assert "unsafe" in result["message"].lower()
+
+
+def test_transactional_upgrade_can_restore_previous_install(tmp_path, monkeypatch):
+    plugin_root = tmp_path / "plugins"
+    marker_root = plugin_root / ".installed"
+    old = plugin_root / "demo"
+    old.mkdir(parents=True)
+    marker_root.mkdir()
+    (old / "SKILL.md").write_text(
+        "---\nname: demo\nversion: '1'\ndescription: old\n---\nold body\n",
+        encoding="utf-8",
+    )
+    old_marker = b'{"name":"demo","version":"1"}'
+    (marker_root / "demo.json").write_bytes(old_marker)
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\nname: demo\nversion: '2'\ndescription: new\n---\nnew body\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(installer, "PLUGIN_DIR", plugin_root)
+    monkeypatch.setattr(installer, "INSTALLED_MARKER", marker_root)
+    result = installer.install_from_local(source, transactional=True)
+    assert "new body" in (old / "SKILL.md").read_text("utf-8")
+
+    assert installer.rollback_install(result)["ok"] is True
+    assert "old body" in (old / "SKILL.md").read_text("utf-8")
+    assert (marker_root / "demo.json").read_bytes() == old_marker

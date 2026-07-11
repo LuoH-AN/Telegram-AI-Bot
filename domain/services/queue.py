@@ -80,7 +80,7 @@ def cancel_user_responses(chat_id: int, user_id: int, *, platform: str = "telegr
             # Cancel the task
             task = entry.get("task")
             if task and not task.done():
-                task.cancel()
+                task.cancel("user-stop")
             # Stop the pump
             pump = entry.get("pump")
             if pump:

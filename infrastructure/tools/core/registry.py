@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import threading
 from dataclasses import dataclass
 from typing import Callable
 
@@ -27,6 +28,7 @@ class ToolEntry:
     instruction: str = ""
     skill: str | None = None
     raw_args: bool = False
+    side_effects: bool = False
     _schema: dict | None = None
 
     def schema(self) -> dict:
@@ -42,25 +44,43 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._entries: dict[str, ToolEntry] = {}
         self._order: list[str] = []
+        self._lock = threading.RLock()
 
     def register(self, entry: ToolEntry) -> None:
-        if entry.name in self._entries:
-            self._order.remove(entry.name)
-        self._entries[entry.name] = entry
-        self._order.append(entry.name)
+        with self._lock:
+            if entry.name in self._entries:
+                self._order.remove(entry.name)
+            self._entries[entry.name] = entry
+            self._order.append(entry.name)
 
     def unregister(self, name: str) -> bool:
-        if name in self._entries:
-            self._entries.pop(name)
-            self._order.remove(name)
-            return True
-        return False
+        with self._lock:
+            if name in self._entries:
+                self._entries.pop(name)
+                self._order.remove(name)
+                return True
+            return False
+
+    def replace(self, old_names: set[str], entries: list[ToolEntry]) -> None:
+        """Replace a group of tools while readers are excluded by one lock."""
+        with self._lock:
+            for name in old_names:
+                if name in self._entries:
+                    self._entries.pop(name)
+                    self._order.remove(name)
+            for entry in entries:
+                if entry.name in self._entries:
+                    self._order.remove(entry.name)
+                self._entries[entry.name] = entry
+                self._order.append(entry.name)
 
     def get(self, name: str) -> ToolEntry | None:
-        return self._entries.get(name)
+        with self._lock:
+            return self._entries.get(name)
 
     def all(self) -> list[ToolEntry]:
-        return [self._entries[name] for name in self._order]
+        with self._lock:
+            return [self._entries[name] for name in self._order]
 
 
 registry = ToolRegistry()
@@ -72,6 +92,7 @@ def tool(
     risk: str = "safe",
     serial: bool = False,
     danger: bool = False,
+    side_effects: bool = False,
     timeout: int = 0,
     requires_env: tuple[str, ...] = (),
     check_fn: Callable[[], bool] | None = None,
@@ -92,6 +113,7 @@ def tool(
             serial=serial,
             risk=risk,
             danger=danger,
+            side_effects=side_effects,
             timeout=timeout,
             requires_env=tuple(requires_env),
             check_fn=check_fn,

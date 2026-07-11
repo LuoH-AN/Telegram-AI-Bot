@@ -73,7 +73,33 @@ async def _run_one(user_id, item, build_context, event_callback):
     emit(event_callback, user_id, "tool_start", index=idx, tool_name=name, arguments=args)
     timeout = getattr(entry, "timeout", 0) or TOOL_TIMEOUT
     try:
-        result = await asyncio.wait_for(invoke_entry(entry, ctx, args), timeout=timeout)
+        invocation = asyncio.create_task(invoke_entry(entry, ctx, args))
+        if getattr(entry, "side_effects", False):
+            try:
+                result = await asyncio.wait_for(asyncio.shield(invocation), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[user=%d] side-effecting tool %s exceeded %ds; waiting for a truthful outcome",
+                    user_id,
+                    name,
+                    timeout,
+                )
+                emit(
+                    event_callback,
+                    user_id,
+                    "tool_progress",
+                    index=idx,
+                    tool_name=name,
+                    message="Operation exceeded its normal timeout and is finishing safely.",
+                )
+                result = await invocation
+            except asyncio.CancelledError:
+                try:
+                    await asyncio.shield(invocation)
+                finally:
+                    raise
+        else:
+            result = await asyncio.wait_for(invocation, timeout=timeout)
         content = _truncate(result.content, entry.max_result_chars)
         ok = result.ok
     except asyncio.TimeoutError:

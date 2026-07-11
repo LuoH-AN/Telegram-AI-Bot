@@ -22,6 +22,7 @@ LABELS = {
     "updated_skills": "updated skills",
     "deleted_skills": "deleted skills",
     "updated_skill_states": "updated skill states",
+    "deleted_skill_states": "deleted skill states",
 }
 
 

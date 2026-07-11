@@ -36,6 +36,7 @@ def _default_context(user_id: int) -> ToolContext:
     return ToolContext(
         user_id=user_id,
         chat_id=getattr(chat, "id", None),
+        session_id=getattr(sender, "session_id", None),
         outbound=outbound,
         confirm=confirm if callable(confirm) else None,
     )
@@ -145,11 +146,24 @@ def get_all_tools(enabled_tools="all", *, user_id: int | None = None) -> list[di
     return [entry.schema() for entry in _visible(user_id, enabled_tools)]
 
 
-async def process_tool_calls(user_id, tool_calls, enabled_tools="all", event_callback=None):
+async def process_tool_calls(
+    user_id,
+    tool_calls,
+    enabled_tools="all",
+    event_callback=None,
+    tool_context: ToolContext | None = None,
+):
     _ensure_discovered()
     from .core.execute import execute_tool_calls
     visible = {entry.name: entry for entry in _visible(user_id, enabled_tools)}
-    return await execute_tool_calls(user_id, tool_calls, event_callback=event_callback, build_context=_default_context, visible=visible)
+    build_context = (lambda _user_id: tool_context) if tool_context is not None else _default_context
+    return await execute_tool_calls(
+        user_id,
+        tool_calls,
+        event_callback=event_callback,
+        build_context=build_context,
+        visible=visible,
+    )
 
 
 def _skill_instructions(user_id: int | None, seen: set[str], enabled: set[str] | None) -> list[str]:

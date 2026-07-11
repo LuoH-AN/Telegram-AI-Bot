@@ -18,6 +18,7 @@ def init_dirty_state(obj) -> None:
     obj._updated_skills = []
     obj._deleted_skills = []
     obj._updated_skill_states = []
+    obj._deleted_skill_states = []
     obj._new_sessions = []
     obj._dirty_session_titles = {}
     obj._deleted_sessions = set()

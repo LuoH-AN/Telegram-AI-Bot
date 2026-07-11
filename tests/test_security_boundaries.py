@@ -37,7 +37,11 @@ def test_enabled_tools_filter_matches_name_skill_or_toolset(monkeypatch):
     monkeypatch.setattr(tool_api, "is_admin", lambda _user_id: False)
 
     assert _tool_names(tool_api.get_all_tools("search", user_id=2)) == {"search"}
-    assert _tool_names(tool_api.get_all_tools("memory", user_id=2)) == {"save_memory", "list_memories"}
+    assert _tool_names(tool_api.get_all_tools("memory", user_id=2)) == {
+        "save_memory",
+        "list_memories",
+        "manage_memory",
+    }
 
 
 def test_session_tools_reject_cross_user_ids(monkeypatch):
@@ -56,7 +60,7 @@ def test_session_tools_reject_cross_user_ids(monkeypatch):
     monkeypatch.setattr(sessions, "commit", lambda: (_ for _ in ()).throw(AssertionError("must not commit")))
 
     session_result = sessions._run(1001, "get", "", victim["id"], "")
-    conversation_result = conversations._run(1001, "get", victim["id"], None)
+    conversation_result = conversations._run(1001, "get", victim["id"], None, -1, "")
 
     assert session_result.ok is False
     assert conversation_result.ok is False

@@ -14,26 +14,34 @@ def register_external_skill_manifest(user_id: int, path: Path) -> str:
 
     if not _is_ext(path):
         return ""
+    manifest = load_manifest(path.parent, is_builtin=False)
+    if not manifest:
+        raise ValueError(f"Invalid SKILL.md: {path}")
+    manager = get_skill_manager()
+    previous = manager.snapshot_record(manifest.name)
     try:
-        manager = get_skill_manager()
         name = manager.hot_load(path.parent)
-        manager.add_user_skill(user_id, name, source_type="external", source_ref=str(path))
+        if not manager.add_user_skill(user_id, name, source_type="external", source_ref=str(path)):
+            raise RuntimeError(f"Skill '{name}' was loaded but could not be registered for the user")
         return f" Registered external skill `{name}` for this user."
-    except Exception as exc:
-        return f" Saved skill file, but runtime registration failed: {exc}"
+    except Exception:
+        manager.restore_record(manifest.name, previous)
+        raise
 
 
 def unregister_external_skill_manifest(user_id: int, path: Path) -> str:
     from infrastructure.tools.builtin.config_file.files import is_external_skill_manifest as _is_ext
     if not _is_ext(path):
         return ""
+    manifest = load_manifest(path.parent, is_builtin=False)
+    if not manifest:
+        return ""
+    manager = get_skill_manager()
+    previous = manager.snapshot_record(manifest.name)
     try:
-        manifest = load_manifest(path.parent, is_builtin=False)
-        if not manifest:
-            return ""
-        manager = get_skill_manager()
         manager.remove_user_skill(user_id, manifest.name)
         manager.unregister(manifest.name)
         return f" Unregistered external skill `{manifest.name}` for this user."
-    except Exception as exc:
-        return f" Deleted skill file, but runtime unregister failed: {exc}"
+    except Exception:
+        manager.restore_record(manifest.name, previous)
+        raise

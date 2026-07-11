@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 BUILTIN_SKILL_ROOTS = [Path(__file__).resolve().parent / "builtin"]
 EXTERNAL_SKILL_DIR = Path(os.getenv("PLUGIN_DIR", "/data/plugins"))
+LEGACY_EXTERNAL_SKILL_DIR = Path(__file__).resolve().parents[3] / "runtime" / "plugins"
 
 
 class SkillLoadError(Exception):
@@ -39,7 +40,7 @@ def _load_skill_body(manifest: SkillManifest) -> str:
             lines.append(f"Scripts directory: {scripts_dir}")
             lines.append("Invoke via terminal tool, e.g.:")
             for script in scripts[:3]:
-                lines.append(f'  {{"action":"exec","command":"python3 {scripts_dir}/{script} <args>"}}')
+                lines.append(f'  {{"command":"python3 {scripts_dir}/{script} <args>"}}')
     lines.append("")
     return "\n".join(lines) + manifest.body + "\n"
 
@@ -76,8 +77,14 @@ class SkillManager:
                 manifest = load_manifest(skill_path.parent, is_builtin=True)
                 if manifest:
                     manifests.append(manifest)
-        if EXTERNAL_SKILL_DIR.is_dir():
-            for skill_path in discover_skill_dirs(EXTERNAL_SKILL_DIR):
+        roots = [LEGACY_EXTERNAL_SKILL_DIR, EXTERNAL_SKILL_DIR]
+        seen_roots: set[Path] = set()
+        for root in roots:
+            resolved = root.expanduser().resolve()
+            if resolved in seen_roots or not resolved.is_dir():
+                continue
+            seen_roots.add(resolved)
+            for skill_path in discover_skill_dirs(resolved):
                 manifest = load_manifest(skill_path.parent, is_builtin=False)
                 if manifest:
                     manifests.append(manifest)
@@ -102,6 +109,16 @@ class SkillManager:
 
     def unregister(self, name: str) -> bool:
         return self._records.pop(name, None) is not None
+
+    def snapshot_record(self, name: str) -> SkillRecord | None:
+        """Capture a loaded record so a multi-step registration can roll back."""
+        return self._records.get(name)
+
+    def restore_record(self, name: str, record: SkillRecord | None) -> None:
+        if record is None:
+            self._records.pop(name, None)
+        else:
+            self._records[name] = record
 
     def list_manifests(self, user_id: int | None = None) -> list[SkillManifest]:
         self.discover()

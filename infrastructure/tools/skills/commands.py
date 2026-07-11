@@ -7,7 +7,7 @@ from pathlib import Path
 
 from infrastructure.config import is_admin
 
-from .installer import PLUGIN_DIR, install_from_github, install_from_local, uninstall
+from .installer import PLUGIN_DIR, commit_install, install_from_github, install_from_local, rollback_install, uninstall
 from .manager import get_skill_manager
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,8 @@ async def handle_skill_install(user_id: int, source: str, *, lang: str = "en") -
     if not source:
         return "**用法：** `/skill install <GitHub URL 或 owner/repo>`" if lang == "zh" else "**Usage:** `/skill install <github-url-or-owner/repo>`"
     source_type = _install_source_type(source)
-    result = install_from_github(source) if source_type == "github" else install_from_local(source)
+    result = (install_from_github(source, transactional=True) if source_type == "github"
+              else install_from_local(source, transactional=True))
     if not result.get("ok"):
         label = "安装失败" if lang == "zh" else "Install failed"
         fallback = "未知错误" if lang == "zh" else "unknown error"
@@ -54,12 +55,25 @@ async def handle_skill_install(user_id: int, source: str, *, lang: str = "en") -
     name = result.get("name")
     manager = get_skill_manager()
     plugin_dir = Path(result.get("path", PLUGIN_DIR / name))
+    previous_record = manager.snapshot_record(str(name))
     try:
         name = manager.hot_load(plugin_dir)
     except Exception as exc:
         logger.warning("Failed to hot-load skill '%s': %s", name, exc)
+        manager.restore_record(str(name), previous_record)
+        rollback_install(result)
         return f"⚠️ **技能已安装，但加载失败：** {exc}" if lang == "zh" else f"⚠️ **Installed but failed to load:** {exc}"
-    manager.add_user_skill(user_id, name, source_type=source_type, source_ref=source)
+    try:
+        if not manager.add_user_skill(user_id, name, source_type=source_type, source_ref=source):
+            raise RuntimeError("user registration returned false")
+    except Exception as exc:
+        manager.restore_record(name, previous_record)
+        cleanup = rollback_install(result)
+        logger.warning("Rolled back skill '%s' after user registration failed: %s", name, exc)
+        suffix = "" if cleanup.get("ok") else f" Runtime cleanup also failed: {cleanup.get('message', 'unknown error')}"
+        return (f"❌ **技能注册失败，安装已回滚：** {exc}{suffix}" if lang == "zh"
+                else f"❌ **Skill registration failed; installation rolled back:** {exc}{suffix}")
+    commit_install(result)
     return f"✅ **技能 `{name}` 已安装到你的账户。**" if lang == "zh" else f"✅ **Skill `{name}` installed for your account.**"
 
 

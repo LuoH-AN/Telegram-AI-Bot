@@ -46,7 +46,7 @@ def get_current_persona_name(user_id: int) -> str:
     return cache.get_current_persona_name(user_id)
 
 
-def get_system_prompt(user_id: int, persona_name: str | None = None) -> str:
+def get_system_prompt(user_id: int, persona_name: str | None = None, session_id: int | None = None) -> str:
     """Get a persona's system prompt combined with the global prompt."""
     if persona_name is None:
         persona = cache.get_current_persona(user_id)
@@ -60,6 +60,14 @@ def get_system_prompt(user_id: int, persona_name: str | None = None) -> str:
     skill_instructions = _get_skill_instructions(user_id)
     if skill_instructions:
         parts.append(skill_instructions)
+    if session_id is not None:
+        try:
+            from infrastructure.tools.builtin.terminal.background import active_session_prompt
+            terminal_context = active_session_prompt(user_id=user_id, conversation_id=session_id)
+            if terminal_context:
+                parts.append(terminal_context)
+        except Exception:
+            logger.debug("terminal session context unavailable for user=%s", user_id, exc_info=True)
     return "\n\n".join(parts)
 
 

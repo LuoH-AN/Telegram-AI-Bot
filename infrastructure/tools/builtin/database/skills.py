@@ -43,7 +43,7 @@ def _run(user_id: int, action: str, name: str, enabled: bool | None) -> ToolResu
     return ToolResult.error("invalid_action", "action must be list, get, toggle, or delete.")
 
 
-@tool(toolset="admin", description="View or change the calling user's installed skills: list, get, toggle, delete. toggle flips enabled, or set it explicitly with enabled.")
+@tool(toolset="admin", side_effects=True, description="View or change the calling user's installed skills: list, get, toggle, delete. toggle flips enabled, or set it explicitly with enabled.")
 async def user_skills(
     ctx: ToolContext,
     action: Literal["list", "get", "toggle", "delete"],

@@ -42,10 +42,20 @@ def _run(user_id: int, action: str, name: str, prompt: str) -> ToolResult:
     if action == "delete":
         if not name:
             return ToolResult.error("missing_name", "name required")
-        if not cache.delete_persona(user_id, name):
+        if name == "default" or name not in cache.get_personas(user_id):
             return ToolResult.error("not_deleted", f"Cannot delete '{name}' (default or not found)")
+        from .conversations import _write_backup
+
+        backups = []
+        for session in cache.get_sessions(user_id, name):
+            backups.append(
+                f"{session['id']}:{_write_backup(user_id, session['id'], cache.get_conversation_by_session(session['id']))}"
+            )
+        if not cache.delete_persona(user_id, name):
+            return ToolResult.error("not_deleted", f"Cannot delete '{name}'")
         commit()
-        return ToolResult.text(f"Deleted persona '{name}'")
+        suffix = ", ".join(backups) if backups else "no sessions"
+        return ToolResult.text(f"Deleted persona '{name}'; backups={suffix}")
     if action == "switch":
         if not name:
             return ToolResult.error("missing_name", "name required")
@@ -57,7 +67,7 @@ def _run(user_id: int, action: str, name: str, prompt: str) -> ToolResult:
     return ToolResult.error("invalid_action", "action must be list, get, create, edit, delete, or switch.")
 
 
-@tool(toolset="admin", description="Manage the calling user's personas: list, get, create, edit, delete, switch. 'default' cannot be deleted.")
+@tool(toolset="admin", side_effects=True, description="Manage the calling user's personas: list, get, create, edit, delete, switch. 'default' cannot be deleted.")
 async def user_personas(
     ctx: ToolContext,
     action: Literal["list", "get", "create", "edit", "delete", "switch"],

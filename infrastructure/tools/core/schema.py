@@ -50,6 +50,10 @@ def _type_info(annotation):
         return "string", list(typing.get_args(base)), description
     if typing.get_origin(base) is list:
         return "array", None, description
+    if base is list:
+        return "array", None, description
+    if typing.get_origin(base) is dict or base is dict:
+        return "object", None, description
     return _SCALARS.get(base), None, description
 
 
@@ -80,35 +84,86 @@ def build_schema(func, *, name: str, description: str) -> dict:
         properties[pname] = schema
         if param.default is inspect.Parameter.empty and annotation is not inspect.Parameter.empty:
             required.append(pname)
-    parameters = {"type": "object", "properties": properties}
+    parameters = {"type": "object", "properties": properties, "additionalProperties": False}
     if required:
         parameters["required"] = required
     return {"type": "function", "function": {"name": name, "description": description, "parameters": parameters}}
 
 
+def _allows_none(annotation) -> bool:
+    origin = typing.get_origin(annotation)
+    return origin in {typing.Union, types.UnionType} and type(None) in typing.get_args(annotation)
+
+
 def _coerce(value, annotation) -> tuple[object, str | None]:
+    if annotation in {inspect.Parameter.empty, typing.Any}:
+        return value, None
+    if value is None:
+        return (None, None) if _allows_none(annotation) else (value, "value may not be null")
     base, _ = _unwrap(annotation)
     if typing.get_origin(base) is typing.Literal:
         allowed = list(typing.get_args(base))
         return (value, None) if value in allowed else (value, f"value must be one of {allowed}")
-    if base is int and isinstance(value, str):
-        try:
-            return int(value), None
-        except ValueError:
+    origin = typing.get_origin(base)
+    if origin is list or base is list:
+        if not isinstance(value, list):
+            return value, "value must be an array"
+        item_type = typing.get_args(base)
+        if not item_type or item_type[0] is typing.Any:
             return value, None
-    if base is float and isinstance(value, str):
-        try:
+        cleaned = []
+        for index, item in enumerate(value):
+            coerced, err = _coerce(item, item_type[0])
+            if err:
+                return value, f"item {index}: {err}"
+            cleaned.append(coerced)
+        return cleaned, None
+    if origin is dict or base is dict:
+        return (value, None) if isinstance(value, dict) else (value, "value must be an object")
+    if base is str:
+        return (value, None) if isinstance(value, str) else (value, "value must be a string")
+    if base is int:
+        if isinstance(value, bool):
+            return value, "value must be an integer"
+        if isinstance(value, int):
+            return value, None
+        if isinstance(value, str):
+            try:
+                return int(value), None
+            except ValueError:
+                pass
+        return value, "value must be an integer"
+    if base is float:
+        if isinstance(value, bool):
+            return value, "value must be a number"
+        if isinstance(value, (int, float)):
             return float(value), None
-        except ValueError:
+        if isinstance(value, str):
+            try:
+                return float(value), None
+            except ValueError:
+                pass
+        return value, "value must be a number"
+    if base is bool:
+        if isinstance(value, bool):
             return value, None
-    if base is bool and isinstance(value, str):
-        return value.lower() in ("true", "1", "yes"), None
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "on"}:
+                return True, None
+            if lowered in {"false", "0", "no", "off"}:
+                return False, None
+        return value, "value must be a boolean"
     return value, None
 
 
 def validate(func, args: dict) -> tuple[dict, str | None]:
     sig = inspect.signature(func)
     hints = _hints(func)
+    allowed = {name for name in sig.parameters if name not in _INJECTED}
+    unknown = sorted(set(args) - allowed)
+    if unknown:
+        return {}, f"unknown parameter(s): {', '.join(unknown)}"
     clean: dict = {}
     for pname, param in sig.parameters.items():
         if pname in _INJECTED:

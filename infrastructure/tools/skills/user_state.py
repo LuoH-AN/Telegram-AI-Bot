@@ -2,11 +2,35 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Iterable
 
 from infrastructure.cache import cache, sync_to_database
 
 from .manifest import SkillManifest
+
+
+def _mutation_snapshot(user_id: int) -> tuple[bool, list[dict], list, list, list]:
+    with cache._lock:
+        return (
+            user_id in cache._skills_cache,
+            deepcopy(cache._skills_cache.get(user_id, [])),
+            [item for item in cache._new_skills if item.get("user_id") == user_id],
+            [item for item in cache._updated_skills if item.get("user_id") == user_id],
+            [item for item in cache._deleted_skills if item[0] == user_id],
+        )
+
+
+def _restore_mutation(user_id: int, snapshot: tuple[bool, list[dict], list, list, list]) -> None:
+    existed, skills, new_skills, updated_skills, deleted_skills = snapshot
+    with cache._lock:
+        if existed:
+            cache._skills_cache[user_id] = skills
+        else:
+            cache._skills_cache.pop(user_id, None)
+        cache._new_skills = [item for item in cache._new_skills if item.get("user_id") != user_id] + new_skills
+        cache._updated_skills = [item for item in cache._updated_skills if item.get("user_id") != user_id] + updated_skills
+        cache._deleted_skills = [item for item in cache._deleted_skills if item[0] != user_id] + deleted_skills
 
 
 def _find_user_skill(user_id: int, name: str) -> dict | None:
@@ -56,6 +80,7 @@ def ensure_user_skill(
     source_ref: str | None = None,
     sync: bool = True,
 ) -> dict:
+    snapshot = _mutation_snapshot(user_id) if sync else None
     existing = _find_user_skill(user_id, manifest.name)
     final_enabled = bool(existing.get("enabled", True)) if existing and enabled is None else (True if enabled is None else enabled)
     data = {
@@ -80,7 +105,11 @@ def ensure_user_skill(
     else:
         skill = cache.add_skill(user_id, **data) or data
     if sync:
-        sync_to_database()
+        try:
+            sync_to_database()
+        except Exception:
+            _restore_mutation(user_id, snapshot)
+            raise
     return skill
 
 
@@ -94,8 +123,13 @@ def remove_user_skill(user_id: int, manifest: SkillManifest) -> None:
         return
     existing = _find_user_skill(user_id, manifest.name)
     if existing:
+        snapshot = _mutation_snapshot(user_id)
         cache.delete_skill(user_id, existing["name"])
-        sync_to_database()
+        try:
+            sync_to_database()
+        except Exception:
+            _restore_mutation(user_id, snapshot)
+            raise
 
 
 def any_user_has_skill(name: str) -> bool:

@@ -12,6 +12,7 @@ class ToolContext:
     """Injected into every tool call — replaces globals and adapter imports."""
     user_id: int
     chat_id: int | None = None
+    session_id: int | None = None
     outbound: Any = None
     env: dict[str, str] = field(default_factory=dict)
     confirm: Callable[..., Awaitable[str]] | None = None

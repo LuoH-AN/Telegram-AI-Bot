@@ -8,6 +8,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from shared.terminal_environment import build_persistent_terminal_env
+
 logger = logging.getLogger(__name__)
 
 BOOTSTRAP_FILENAME = "telegram_ai_bot_cli_bootstrap.txt"
@@ -80,6 +82,7 @@ def run_cli_bootstrap(*, root_dir: Path) -> None:
             completed = subprocess.run(
                 ["bash", "-lc", command],
                 cwd=str(root_dir),
+                env=build_persistent_terminal_env(os.environ),
                 capture_output=True,
                 text=True,
                 timeout=max(1, timeout),

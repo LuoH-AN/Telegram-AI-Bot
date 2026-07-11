@@ -75,6 +75,9 @@ def download_url(
     with opener.open(request, timeout=timeout) as response:
         final_url = response.geturl()
         assert_safe_url(final_url)
+        peer_ip = _response_peer_ip(response)
+        if peer_ip and _is_private_ip(peer_ip):
+            raise ValueError(f"connection resolved to a blocked private/internal address: {peer_ip}")
         content_length = response.headers.get("Content-Length")
         if content_length:
             try:
@@ -89,3 +92,20 @@ def download_url(
         content_type = response.headers.get("Content-Type", "")
         headers = response.headers
     return FetchedResource(data=data, final_url=final_url, content_type=content_type, headers=headers)
+
+
+def _response_peer_ip(response) -> str:
+    """Best-effort verification of the address actually used by urllib."""
+    candidates = [
+        getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None),
+        getattr(getattr(response, "fp", None), "_sock", None),
+    ]
+    for sock in candidates:
+        if sock is None:
+            continue
+        try:
+            peer = sock.getpeername()
+            return str(peer[0]) if peer else ""
+        except Exception:
+            continue
+    return ""

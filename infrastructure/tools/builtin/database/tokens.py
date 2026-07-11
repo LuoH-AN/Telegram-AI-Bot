@@ -28,7 +28,7 @@ def _run(user_id: int, action: str, persona: str, limit: int | None) -> ToolResu
     return ToolResult.error("invalid_action", "action must be get, reset, or set_limit.")
 
 
-@tool(toolset="admin", description="View or reset the calling user's token usage, or set a per-persona token limit. action: get|reset|set_limit. persona defaults to current.")
+@tool(toolset="admin", side_effects=True, description="View or reset the calling user's token usage, or set a per-persona token limit. action: get|reset|set_limit. persona defaults to current.")
 async def user_tokens(
     ctx: ToolContext,
     action: Literal["get", "reset", "set_limit"],
@@ -36,6 +36,6 @@ async def user_tokens(
     limit: Annotated[int, "Token limit (for set_limit). 0 = unlimited."] = 0,
 ) -> ToolResult:
     try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, persona, int(limit) if limit else None)
+        return await asyncio.to_thread(_run, ctx.user_id, action, persona, int(limit))
     except Exception as exc:
         return ToolResult.error("operation_failed", f"user_tokens failed: {exc}")

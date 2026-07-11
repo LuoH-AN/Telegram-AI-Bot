@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import threading
 from typing import Any
 
 from infrastructure.tools.core.context import ToolContext, ToolResult
@@ -21,6 +23,9 @@ from .config import McpServerConfig, load_servers
 
 logger = logging.getLogger(__name__)
 _REGISTERED = False
+_REGISTERED_NAMES: set[str] = set()
+_TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_RELOAD_LOCK = threading.RLock()
 
 
 def _qualified(server: str, tool: str) -> str:
@@ -48,50 +53,86 @@ def _make_handler(config: McpServerConfig, tool_name: str):
     return handler
 
 
-def _register_server(config: McpServerConfig, tools: list) -> int:
-    count = 0
+def _server_entries(config: McpServerConfig, tools: list) -> list[ToolEntry]:
+    entries: list[ToolEntry] = []
     for tool in tools:
         name = _qualified(config.name, tool.name)
+        if not _TOOL_NAME_RE.fullmatch(name):
+            logger.warning("MCP tool skipped because its qualified name is provider-unsafe: %r", name)
+            continue
         entry = ToolEntry(
             name=name,
             description=(getattr(tool, "description", None) or name),
-            toolset="mcp",
+            toolset="admin" if config.access == "admin" else "mcp",
             handler=_make_handler(config, tool.name),
             is_async=True,
             serial=False,
+            danger=config.access == "admin",
             requires_env=(),
-            check_fn=lambda: True,
+            check_fn=None,
             max_result_chars=20000,
             skill=f"mcp_{config.name}",
             raw_args=True,
         )
         entry._schema = _build_schema(config.name, tool)
+        entries.append(entry)
+    return entries
+
+
+def _register_server(config: McpServerConfig, tools: list) -> int:
+    entries = _server_entries(config, tools)
+    for entry in entries:
         registry.register(entry)
-        count += 1
-    return count
+        _REGISTERED_NAMES.add(entry.name)
+    return len(entries)
 
 
 def discover_mcp() -> int:
     """Contact each configured MCP server and register its tools. Best-effort."""
     global _REGISTERED
-    if _REGISTERED:
-        return 0
-    servers = load_servers()
-    if not servers:
+    with _RELOAD_LOCK:
+        if _REGISTERED:
+            return 0
+        servers = load_servers()
+        total = 0
+        for config in servers:
+            try:
+                tools = _probe_sync(config)
+            except Exception as exc:
+                logger.warning("MCP server '%s' unreachable, skipping: %s", config.name, exc)
+                continue
+            registered = _register_server(config, tools)
+            logger.info("MCP server '%s': registered %d tool(s)", config.name, registered)
+            total += registered
         _REGISTERED = True
-        return 0
-    total = 0
+        return total
+
+
+def reload_mcp() -> dict[str, Any]:
+    """Probe the new configuration, then atomically replace registered MCP tools.
+
+    Existing tools remain available while network probes run. Once probing is
+    complete, the registry is swapped under a lock so callers never observe a
+    half-reloaded set.
+    """
+    global _REGISTERED
+    servers = load_servers()
+    prepared: list[ToolEntry] = []
+    failures: dict[str, str] = {}
     for config in servers:
         try:
-            tools = _probe_sync(config)
+            prepared.extend(_server_entries(config, _probe_sync(config)))
         except Exception as exc:
-            logger.warning("MCP server '%s' unreachable, skipping: %s", config.name, exc)
-            continue
-        registered = _register_server(config, tools)
-        logger.info("MCP server '%s': registered %d tool(s)", config.name, registered)
-        total += registered
-    _REGISTERED = True
-    return total
+            failures[config.name] = str(exc)
+            logger.warning("MCP server '%s' unreachable during reload: %s", config.name, exc)
+
+    with _RELOAD_LOCK:
+        registry.replace(set(_REGISTERED_NAMES), prepared)
+        _REGISTERED_NAMES.clear()
+        _REGISTERED_NAMES.update(entry.name for entry in prepared)
+        total = len(prepared)
+        _REGISTERED = True
+    return {"servers": len(servers), "registered_tools": total, "failures": failures}
 
 
 def _probe_sync(config: McpServerConfig) -> list:
@@ -106,4 +147,8 @@ def _probe_sync(config: McpServerConfig) -> list:
 def reset() -> None:
     """Allow re-discovery (used by tests / config reload)."""
     global _REGISTERED
-    _REGISTERED = False
+    with _RELOAD_LOCK:
+        for name in list(_REGISTERED_NAMES):
+            registry.unregister(name)
+        _REGISTERED_NAMES.clear()
+        _REGISTERED = False

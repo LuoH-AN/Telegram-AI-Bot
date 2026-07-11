@@ -61,3 +61,8 @@ class SkillsMixin:
         with self._lock:
             if user_id in self._skill_states_cache:
                 self._skill_states_cache[user_id].pop(name, None)
+            self._updated_skill_states = [
+                item for item in self._updated_skill_states
+                if not (item.get("user_id") == user_id and item.get("skill_name") == name)
+            ]
+            self._deleted_skill_states.append((user_id, name))

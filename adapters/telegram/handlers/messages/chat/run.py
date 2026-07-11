@@ -39,7 +39,7 @@ def _cancel_previous_responses(chat_id: int, user_id: int, settings: dict, ctx: 
 
 
 def _build_messages(req: dict) -> list[dict]:
-    system_prompt = get_system_prompt(req["user_id"], req["persona_name"])
+    system_prompt = get_system_prompt(req["user_id"], req["persona_name"], req.get("session_id"))
     memory_prompt = format_memories_for_prompt(req["user_id"], req.get("user_content"))
     if memory_prompt:
         system_prompt += "\n\n" + memory_prompt

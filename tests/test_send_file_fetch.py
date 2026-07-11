@@ -52,13 +52,26 @@ def test_redirect_handler_rejects_unsafe_target_before_follow(monkeypatch):
 
 
 def test_send_file_schema_only_accepts_existing_sources():
-    from infrastructure.tools import get_all_tools, get_tool_instructions
+    import infrastructure.tools as tool_api
+    from infrastructure.tools import get_tool_instructions
 
-    tool = next(item for item in get_all_tools("send_file") if item["function"]["name"] == "send_file")
+    tool = next(item for item in tool_api.get_all_tools("send_file") if item["function"]["name"] == "send_file")
     parameters = tool["function"]["parameters"]["properties"]
 
-    assert parameters["source"]["enum"] == ["url", "path"]
+    assert "url" in parameters
+    assert "path" not in parameters
     assert "prompt" not in parameters
     assert "size" not in parameters
     assert not hasattr(sources, "generate_image")
     assert "cannot generate" in get_tool_instructions("send_file").lower()
+
+
+def test_local_file_delivery_is_admin_only(monkeypatch):
+    import infrastructure.tools as tool_api
+
+    monkeypatch.setattr(tool_api, "is_admin", lambda user_id: user_id == 1)
+    regular = {item["function"]["name"] for item in tool_api.get_all_tools("send_file", user_id=2)}
+    admin = {item["function"]["name"] for item in tool_api.get_all_tools("send_file", user_id=1)}
+
+    assert "send_local_file" not in regular
+    assert "send_local_file" in admin

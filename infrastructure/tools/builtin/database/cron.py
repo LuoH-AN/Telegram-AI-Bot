@@ -11,8 +11,16 @@ from ._shared import commit, dumps, get_cache
 
 
 def _run(user_id: int, action: str, name: str, cron: str, prompt: str, enabled: bool | None) -> ToolResult:
+    from domain.services.cron.matcher import is_valid_cron
+
     cache = get_cache()
     name = (name or "").strip()
+    cron = (cron or "").strip()
+    prompt = (prompt or "").strip()
+    if len(name) > 120:
+        return ToolResult.error("name_too_long", "name must be 120 characters or fewer")
+    if len(prompt) > 20000:
+        return ToolResult.error("prompt_too_long", "prompt must be 20000 characters or fewer")
     if action == "list":
         tasks = cache.get_cron_tasks(user_id)
         lines = [f"Cron tasks ({len(tasks)}):"]
@@ -27,6 +35,8 @@ def _run(user_id: int, action: str, name: str, cron: str, prompt: str, enabled: 
     if action == "add":
         if not name or not cron or not prompt:
             return ToolResult.error("missing_args", "name, cron, and prompt required")
+        if not is_valid_cron(cron):
+            return ToolResult.error("invalid_cron", "cron must be a valid five-field expression")
         if not cache.add_cron_task(user_id, name, cron, prompt):
             return ToolResult.error("not_added", f"Task '{name}' exists or the task limit was reached")
         commit()
@@ -36,6 +46,8 @@ def _run(user_id: int, action: str, name: str, cron: str, prompt: str, enabled: 
             return ToolResult.error("missing_name", "name required")
         updates: dict = {}
         if cron:
+            if not is_valid_cron(cron):
+                return ToolResult.error("invalid_cron", "cron must be a valid five-field expression")
             updates["cron_expression"] = cron
         if prompt:
             updates["prompt"] = prompt
@@ -57,7 +69,7 @@ def _run(user_id: int, action: str, name: str, cron: str, prompt: str, enabled: 
     return ToolResult.error("invalid_action", "action must be list, get, add, update, or delete.")
 
 
-@tool(toolset="admin", description="Manage the calling user's scheduled tasks: list, get, add, update, delete. add takes name+cron+prompt; update takes name plus any of cron/prompt/enabled.")
+@tool(toolset="admin", side_effects=True, description="Manage the calling user's scheduled tasks: list, get, add, update, delete. add takes name+cron+prompt; update takes name plus any of cron/prompt/enabled.")
 async def user_cron(
     ctx: ToolContext,
     action: Literal["list", "get", "add", "update", "delete"],

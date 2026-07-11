@@ -70,6 +70,9 @@ def build_application(logger) -> Application:
         from domain.services.cron import set_main_loop
 
         set_main_loop(asyncio.get_running_loop())
+        from adapters.telegram.terminal_completion import start_terminal_completion_monitor
+
+        start_terminal_completion_monitor(application)
         common_commands = [
             BotCommand("start", "打开主菜单 / Open main menu"),
             BotCommand("chat", "管理会话 / Manage chats"),
@@ -94,7 +97,12 @@ def build_application(logger) -> Application:
             except Exception as exc:
                 logger.warning("Could not set Telegram command menu for admin %s: %s", admin_id, exc)
 
-    application = builder.post_init(_post_init).build()
+    async def _post_shutdown(application: Application) -> None:
+        from adapters.telegram.terminal_completion import stop_terminal_completion_monitor
+
+        await stop_terminal_completion_monitor(application)
+
+    application = builder.post_init(_post_init).post_shutdown(_post_shutdown).build()
     _register_handlers(application)
     application.add_error_handler(build_error_handler(logger))
     return application

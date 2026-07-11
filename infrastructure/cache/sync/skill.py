@@ -119,6 +119,8 @@ def load(cur, cache) -> None:
 
 
 def sync_deleted(cur, dirty: dict) -> None:
+    for user_id, name in dirty.get("deleted_skill_states", []):
+        cur.execute(DELETE_STATE_SQL, (user_id, name))
     for user_id, name in dirty["deleted_skills"]:
         cur.execute(DELETE_STATE_SQL, (user_id, name))
         cur.execute(DELETE_SKILL_SQL, (user_id, name))

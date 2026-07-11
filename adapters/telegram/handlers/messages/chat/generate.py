@@ -23,6 +23,7 @@ async def generate_with_tools(
     user_id: int,
     ctx: str,
     runtime,
+    tool_context=None,
 ) -> dict:
     total_prompt_tokens = 0
     total_completion_tokens = 0
@@ -89,6 +90,7 @@ async def generate_with_tools(
                 tool_calls,
                 "all",
                 runtime.tool_event_callback,
+                tool_context,
             )
             await asyncio.sleep(0)
             await runtime.render_pump.drain()

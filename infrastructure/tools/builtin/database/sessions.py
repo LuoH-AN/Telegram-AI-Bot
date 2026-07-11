@@ -46,16 +46,32 @@ def _run(user_id: int, action: str, persona: str, session_id: int | None, title:
         if not session:
             return ToolResult.error("not_found", f"Session {session_id or '?'} not found")
         if action == "delete":
+            from .conversations import _write_backup
+
+            backup_id = _write_backup(
+                user_id,
+                session_id,
+                cache.get_conversation_by_session(session_id),
+            )
+            was_current = cache.get_current_session_id(user_id, session["persona_name"]) == session_id
             cache.delete_session(session_id, user_id, session["persona_name"])
+            if was_current:
+                remaining = cache.get_sessions(user_id, session["persona_name"])
+                replacement_id = (
+                    remaining[-1]["id"]
+                    if remaining
+                    else cache.create_session(user_id, session["persona_name"])["id"]
+                )
+                cache.set_current_session_id(user_id, session["persona_name"], replacement_id)
             commit()
-            return ToolResult.text(f"Deleted session {session_id}")
+            return ToolResult.text(f"Deleted session {session_id}; conversation backup_id={backup_id}")
         cache.set_current_session_id(user_id, session["persona_name"], session_id)
         commit()
         return ToolResult.text(f"Switched to session {session_id} ({session['persona_name']})")
     return ToolResult.error("invalid_action", "action must be list, get, rename, delete, or switch.")
 
 
-@tool(toolset="admin", description="Manage the calling user's chat sessions: list, get, rename, delete, switch. list/get take optional persona; the rest take session_id.")
+@tool(toolset="admin", side_effects=True, description="Manage the calling user's chat sessions: list, get, rename, delete, switch. list/get take optional persona; the rest take session_id.")
 async def user_sessions(
     ctx: ToolContext,
     action: Literal["list", "get", "rename", "delete", "switch"],

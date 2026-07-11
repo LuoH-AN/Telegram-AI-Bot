@@ -23,6 +23,7 @@ class DirtyMixin:
         "updated_skills": ("_updated_skills", "list"),
         "deleted_skills": ("_deleted_skills", "list"),
         "updated_skill_states": ("_updated_skill_states", "list"),
+        "deleted_skill_states": ("_deleted_skill_states", "list"),
         "dirty_session_titles": ("_dirty_session_titles", "dict"),
     }
 

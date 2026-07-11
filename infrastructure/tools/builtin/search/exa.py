@@ -174,19 +174,20 @@ def search_once(
             top_k=top_k,
             content_limit=content_limit,
         )
+        content_fetch = {"attempted": 0, "fetched": 0, "failed": 0}
+        if include_content and content_top_k:
+            content_fetch = enrich_results(
+                normalized,
+                top_n=content_top_k,
+                timeout=min(12, timeout),
+                content_limit=content_limit,
+            ) or content_fetch
         if exact_match:
             phrase = _exact_phrase(query)
             normalized = [item for item in normalized if _contains_exact(item, phrase)]
             for index, item in enumerate(normalized, 1):
                 item["source_id"] = index
                 item["citation"] = f"[{index}]"
-        if include_content and content_top_k:
-            enrich_results(
-                normalized,
-                top_n=content_top_k,
-                timeout=min(12, timeout),
-                content_limit=content_limit,
-            )
         result = {
             "ok": True,
             "backend": "exa",
@@ -197,6 +198,7 @@ def search_once(
             "returned": len(normalized),
             "cached": False,
             "results": normalized,
+            "content_fetch": content_fetch,
             "request_id": raw.get("requestId") if isinstance(raw, dict) else None,
             "cost_dollars": raw.get("costDollars") if isinstance(raw, dict) else None,
         }

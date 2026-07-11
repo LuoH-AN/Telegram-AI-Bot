@@ -78,10 +78,10 @@ def fetch_page_text(url: str, *, timeout: int = 10, limit: int = 5000) -> str:
     return _clean(decoded, limit)
 
 
-def enrich_results(results: list[dict], *, top_n: int, timeout: int, content_limit: int) -> None:
+def enrich_results(results: list[dict], *, top_n: int, timeout: int, content_limit: int) -> dict:
     candidates = [item for item in results[:max(0, top_n)] if not item.get("content") and item.get("url")]
     if not candidates:
-        return
+        return {"attempted": 0, "fetched": 0, "failed": 0}
 
     def fetch(item: dict) -> tuple[dict, str]:
         try:
@@ -89,8 +89,11 @@ def enrich_results(results: list[dict], *, top_n: int, timeout: int, content_lim
         except Exception:
             return item, ""
 
+    fetched = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(candidates))) as executor:
         for item, content in executor.map(fetch, candidates):
             if content:
                 item["content"] = content
                 item["content_source"] = "page"
+                fetched += 1
+    return {"attempted": len(candidates), "fetched": fetched, "failed": len(candidates) - fetched}
