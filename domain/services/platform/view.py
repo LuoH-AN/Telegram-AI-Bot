@@ -35,16 +35,32 @@ def build_settings_text(user_id: int, *, command_prefix: str, lang: str = "en") 
     ctx_note = format_context_window_note(settings["model"])
     if ctx_note:
         model_display = f"{settings['model']}  ({ctx_note})"
+    reasoning = settings.get("reasoning_effort", "") or ""
+    reasoning_labels = {
+        "": "（提供商/模型默认）" if lang == "zh" else "(provider/model default)",
+        "none": "关闭" if lang == "zh" else "off",
+        "minimal": "最少" if lang == "zh" else "minimal",
+        "low": "低" if lang == "zh" else "low",
+        "medium": "中" if lang == "zh" else "medium",
+        "high": "高" if lang == "zh" else "high",
+        "xhigh": "极高" if lang == "zh" else "extra high",
+    }
+    stream = settings.get("stream_mode", "") or "default"
+    stream_labels = {
+        "default": "实时流式" if lang == "zh" else "live streaming",
+        "time": "定时刷新" if lang == "zh" else "timed updates",
+        "chars": "按字数刷新" if lang == "zh" else "character batches",
+        "off": "生成完再发送" if lang == "zh" else "send when complete",
+    }
     return build_settings_summary_message(
         command_prefix,
         base_url=settings["base_url"],
         masked_api_key=mask_key(settings["api_key"]),
         model=model_display,
         temperature=settings["temperature"],
-        reasoning_effort=settings.get("reasoning_effort", "")
-        or ("（提供商/模型默认）" if lang == "zh" else "(provider/model default)"),
+        reasoning_effort=reasoning_labels.get(reasoning, reasoning),
         show_thinking="on" if settings.get("show_thinking") else "off",
-        stream_mode=settings.get("stream_mode", "") or "default",
+        stream_mode=stream_labels.get(stream, stream),
         title_model=settings.get("title_model", "") or current_model_text,
         cron_model=settings.get("cron_model", "") or current_model_text,
         persona_name=persona_name,

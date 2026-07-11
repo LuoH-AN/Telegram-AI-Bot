@@ -14,32 +14,52 @@ from telegram.ext import ContextTypes
 from adapters.telegram.commands.settings.model import _build_model_keyboard, fetch_models
 from adapters.telegram.rich_text import edit_query_rich_text, reply_rich_text
 from domain.services import (
+    add_memory,
+    clear_conversation,
+    clear_memories,
     create_session,
+    delete_memory,
     delete_chat_session,
     delete_persona,
+    ensure_session,
+    export_to_markdown,
     get_current_persona_name,
     get_current_session_id,
     get_personas,
     get_sessions,
+    reset_token_usage,
+    run_hot_update,
+    run_safe_restart,
+    schedule_process_restart,
+    set_token_limit,
     switch_persona,
     update_user_setting,
 )
 from domain.services.cron.trigger import run_cron_task
 from domain.services.refresh import ensure_user_state
 from infrastructure.cache import cache, sync_to_database
-from infrastructure.config import normalize_telegram_busy_mode, normalize_telegram_tool_progress
+from infrastructure.config import is_admin, normalize_telegram_busy_mode, normalize_telegram_tool_progress
+from infrastructure.tools.skills.manager import get_skill_manager
 
 from .locale import language, pick
 from .panels import (
+    advanced_settings_panel,
+    admin_panel,
     confirmation,
     connection_panel,
     cron_detail,
     cron_panel,
     generation_panel,
+    feature_panel,
     help_panel,
     help_topic,
     main_panel,
+    memory_panel,
     personas_panel,
+    provider_detail,
+    providers_panel,
+    skill_detail,
+    skills_panel,
     sessions_panel,
     settings_panel,
     timezone_panel,
@@ -64,6 +84,16 @@ async def _persist() -> None:
 
 def _cron_task(user_id: int, token: str) -> dict | None:
     return next((task for task in cache.get_cron_tasks(user_id) if stable_token(task["name"]) == token), None)
+
+
+def _provider(user_id: int, token: str) -> tuple[str, dict] | None:
+    presets = cache.get_settings(user_id).get("api_presets", {}) or {}
+    return next(((name, preset) for name, preset in presets.items() if stable_token(name) == token), None)
+
+
+def _skill(user_id: int, token: str):
+    manager = get_skill_manager()
+    return next((skill for skill in manager.list_manifests(user_id) if stable_token(skill.name) == token), None)
 
 
 def _action_owner(data: str, action: str) -> int | None:
@@ -93,12 +123,20 @@ async def _model_picker(query, context, user_id: int, lang: str) -> None:
     models = await asyncio.to_thread(fetch_models, user_id)
     if not models:
         text = pick(lang, "❌ 无法获取模型，请检查 API 地址和密钥。", "❌ Could not fetch models. Check the API endpoint and key.")
-        await edit_query_rich_text(query, text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pick(lang, "⬅️ API 连接", "⬅️ API connection"), callback_data="ux:settings:connection")]]))
+        await edit_query_rich_text(query, text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pick(lang, "⬅️ 模型服务连接", "⬅️ Model service"), callback_data="ux:settings:connection")]]))
         return
     context.user_data["models"] = models
     current = cache.get_settings(user_id).get("model", "")
     keyboard = _build_model_keyboard(models, 0, current, lang=lang)
-    await edit_query_rich_text(query, pick(lang, f"选择模型（当前：`{current}`）", f"Choose a model (current: `{current}`)"), reply_markup=keyboard)
+    await edit_query_rich_text(
+        query,
+        pick(
+            lang,
+            f"🤖 **选择对话模型**\n\n当前模型：`{current}`\n列表来自当前模型服务；选择模型不会更改 API 地址或 API Key。",
+            f"🤖 **Choose a chat model**\n\nCurrent model: `{current}`\nThis list comes from the active model service. Choosing a model does not change the endpoint or API key.",
+        ),
+        reply_markup=keyboard,
+    )
 
 
 async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -132,6 +170,12 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 show_alert=True,
             )
             return
+    if data.startswith("ux:admin") and not is_admin(user_id):
+        await query.answer(pick(lang, "此操作仅限机器人管理员。", "This action is restricted to bot administrators."), show_alert=True)
+        return
+    if data == "ux:skill:install" and not is_admin(user_id):
+        await query.answer(pick(lang, "只有管理员可以安装技能。", "Only administrators can install skills."), show_alert=True)
+        return
     await query.answer()
     if not (is_stop or is_retry):
         await ensure_user_state(user_id)
@@ -148,11 +192,17 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data == "ux:settings":
         await _edit(query, settings_panel(user_id, lang))
         return
+    if data == "ux:features":
+        await _edit(query, feature_panel(user_id, lang))
+        return
     if data == "ux:settings:generation":
         await _edit(query, generation_panel(user_id, lang))
         return
     if data == "ux:settings:connection":
         await _edit(query, connection_panel(user_id, lang))
+        return
+    if data == "ux:settings:advanced":
+        await _edit(query, advanced_settings_panel(user_id, lang))
         return
     if data == "ux:settings:timezone":
         await _edit(query, timezone_panel(user_id, lang))
@@ -170,6 +220,35 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     if data == "ux:settings:model":
         await _model_picker(query, context, user_id, lang)
+        return
+    if data == "ux:settings:connection_test":
+        if not cache.get_settings(user_id).get("api_key"):
+            await _edit(query, connection_panel(user_id, lang))
+            return
+        await edit_query_rich_text(query, pick(lang, "🧪 正在测试模型服务连接…", "🧪 Testing the model service connection…"))
+        models = await asyncio.to_thread(fetch_models, user_id)
+        if not models:
+            await edit_query_rich_text(
+                query,
+                pick(
+                    lang,
+                    "❌ **连接测试失败**\n\n服务没有返回模型列表。请检查 API 地址、API Key，以及服务是否兼容 OpenAI API。",
+                    "❌ **Connection test failed**\n\nThe service returned no model list. Check the endpoint, API key, and OpenAI API compatibility.",
+                ),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(pick(lang, "⬅️ 返回模型服务连接", "⬅️ Back to model service"), callback_data="ux:settings:connection")
+                ]]),
+            )
+            return
+        context.user_data["models"] = models
+        await edit_query_rich_text(
+            query,
+            pick(lang, f"✅ **连接正常**\n\n成功获取 {len(models)} 个模型。", f"✅ **Connection successful**\n\nReceived {len(models)} model(s)."),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(pick(lang, "🤖 选择模型", "🤖 Choose model"), callback_data="ux:settings:model"),
+                InlineKeyboardButton(pick(lang, "⬅️ 返回连接", "⬅️ Back"), callback_data="ux:settings:connection"),
+            ]]),
+        )
         return
     if data == "ux:settings:timezone_custom":
         await _ask(query, context, kind="timezone", lang=lang, back="ux:settings:timezone", text=pick(lang, "请输入 IANA 时区，例如 `Asia/Shanghai`、`Europe/Paris` 或 `UTC`。", "Send an IANA timezone such as `Asia/Shanghai`, `Europe/Paris`, or `UTC`."))
@@ -195,6 +274,346 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         update_user_setting(user_id, "api_key", "")
         await _persist()
         await _edit(query, connection_panel(user_id, lang))
+        return
+
+    if data == "ux:providers":
+        await _edit(query, providers_panel(user_id, lang))
+        return
+    if data == "ux:provider:save":
+        if not cache.get_settings(user_id).get("api_key"):
+            await edit_query_rich_text(
+                query,
+                pick(lang, "保存模型服务前，请先设置并验证 API Key。", "Set and verify an API key before saving a model service."),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(pick(lang, "🔑 设置 API Key", "🔑 Set API key"), callback_data="ux:onboard:key"),
+                    InlineKeyboardButton(pick(lang, "⬅️ 返回", "⬅️ Back"), callback_data="ux:providers"),
+                ]]),
+            )
+            return
+        await _ask(
+            query,
+            context,
+            kind="provider_name",
+            lang=lang,
+            back="ux:providers",
+            text=pick(lang, "请输入这个模型服务的保存名称，例如 `工作 OpenAI` 或 `本地模型`。", "Enter a name for this model service, such as `Work OpenAI` or `Local model`."),
+        )
+        return
+    if data.startswith("ux:provider:view:"):
+        await _edit(query, provider_detail(user_id, data.rsplit(":", 1)[1], lang))
+        return
+    if data.startswith("ux:provider:load:"):
+        token = data.rsplit(":", 1)[1]
+        match = _provider(user_id, token)
+        if match:
+            _, preset = match
+            update_user_setting(user_id, "base_url", preset.get("base_url", ""))
+            update_user_setting(user_id, "api_key", preset.get("api_key", ""))
+            update_user_setting(user_id, "model", preset.get("model", ""))
+            await _persist()
+        await _edit(query, provider_detail(user_id, token, lang))
+        return
+    if data.startswith("ux:provider:delete:"):
+        token = data.rsplit(":", 1)[1]
+        match = _provider(user_id, token)
+        name = match[0] if match else ""
+        await _edit(
+            query,
+            confirmation(
+                pick(lang, f"确定删除保存的模型服务 `{name}`？当前正在使用的连接不会被清除。", f"Delete saved model service `{name}`? Your active connection will not be cleared."),
+                f"ux:provider:delete_yes:{token}",
+                f"ux:provider:view:{token}",
+                lang,
+            ),
+        )
+        return
+    if data.startswith("ux:provider:delete_yes:"):
+        token = data.rsplit(":", 1)[1]
+        match = _provider(user_id, token)
+        if match:
+            name, _ = match
+            presets = dict(cache.get_settings(user_id).get("api_presets", {}) or {})
+            presets.pop(name, None)
+            update_user_setting(user_id, "api_presets", presets)
+            await _persist()
+        await _edit(query, providers_panel(user_id, lang))
+        return
+
+    if data == "ux:advanced:global_prompt":
+        await _ask(
+            query,
+            context,
+            kind="global_prompt",
+            lang=lang,
+            back="ux:settings:advanced",
+            text=pick(lang, "请输入全局提示词。它会放在所有角色提示词之前，并影响每次对话。", "Enter the global prompt. It is prepended to every persona prompt and affects every chat."),
+        )
+        return
+    if data == "ux:advanced:global_prompt_clear":
+        update_user_setting(user_id, "global_prompt", "")
+        await _persist()
+        await _edit(query, advanced_settings_panel(user_id, lang))
+        return
+    if data in {"ux:advanced:title_model", "ux:advanced:cron_model"}:
+        key = "title_model" if data.endswith("title_model") else "cron_model"
+        label = pick(lang, "会话标题模型", "chat-title model") if key == "title_model" else pick(lang, "定时任务模型", "scheduled-task model")
+        await _ask(
+            query,
+            context,
+            kind=key,
+            lang=lang,
+            back="ux:settings:advanced",
+            text=pick(lang, f"请输入{label}。可填写 `模型名` 或 `保存项名称:模型名`。", f"Enter the {label}. Use either `model` or `saved-service:model`."),
+        )
+        return
+    if data == "ux:advanced:models_current":
+        update_user_setting(user_id, "title_model", "")
+        update_user_setting(user_id, "cron_model", "")
+        await _persist()
+        await _edit(query, advanced_settings_panel(user_id, lang))
+        return
+    if data == "ux:advanced:token_limit":
+        await _ask(
+            query,
+            context,
+            kind="token_limit",
+            lang=lang,
+            back="ux:settings:advanced",
+            text=pick(lang, "请输入当前角色的 Token 限额（非负整数）。输入 `0` 表示不限。", "Enter the token limit for the current persona (a non-negative integer). Use `0` for unlimited."),
+        )
+        return
+    if data == "ux:advanced:token_limit_clear":
+        set_token_limit(user_id, 0, get_current_persona_name(user_id))
+        await _persist()
+        await _edit(query, advanced_settings_panel(user_id, lang))
+        return
+
+    if data == "ux:memory":
+        await _edit(query, memory_panel(user_id, lang))
+        return
+    if data.startswith("ux:memory:page:"):
+        await _edit(query, memory_panel(user_id, lang, int(data.rsplit(":", 1)[1])))
+        return
+    if data == "ux:memory:add":
+        await _ask(
+            query,
+            context,
+            kind="memory_content",
+            lang=lang,
+            back="ux:memory",
+            text=pick(
+                lang,
+                "请输入需要长期记住的内容，例如稳定偏好或长期项目约束。\n\n请勿发送密码、API Key 或临时任务。",
+                "Enter something worth remembering long-term, such as a stable preference or project constraint.\n\nDo not send passwords, API keys, or temporary tasks.",
+            ),
+        )
+        return
+    if data.startswith("ux:memory:delete:"):
+        index = data.rsplit(":", 1)[1]
+        await _edit(
+            query,
+            confirmation(
+                pick(lang, f"确定删除第 {index} 条长期记忆？", f"Delete long-term memory #{index}?"),
+                f"ux:memory:delete_yes:{index}",
+                "ux:memory",
+                lang,
+            ),
+        )
+        return
+    if data.startswith("ux:memory:delete_yes:"):
+        try:
+            index = int(data.rsplit(":", 1)[1])
+        except ValueError:
+            index = 0
+        if index > 0:
+            delete_memory(user_id, index)
+            await _persist()
+        await _edit(query, memory_panel(user_id, lang))
+        return
+    if data == "ux:memory:clear":
+        await _edit(
+            query,
+            confirmation(
+                pick(lang, "确定清空全部长期记忆？此操作无法撤销。", "Clear all long-term memories? This cannot be undone."),
+                "ux:memory:clear_yes",
+                "ux:memory",
+                lang,
+            ),
+        )
+        return
+    if data == "ux:memory:clear_yes":
+        clear_memories(user_id)
+        await _persist()
+        await _edit(query, memory_panel(user_id, lang))
+        return
+
+    if data == "ux:skills":
+        await _edit(query, skills_panel(user_id, lang))
+        return
+    if data.startswith("ux:skills:page:"):
+        await _edit(query, skills_panel(user_id, lang, int(data.rsplit(":", 1)[1])))
+        return
+    if data == "ux:skill:install":
+        await _ask(
+            query,
+            context,
+            kind="skill_source",
+            lang=lang,
+            back="ux:skills",
+            text=pick(lang, "请输入技能的 GitHub URL、`owner/repo` 或本地目录。", "Enter a GitHub URL, `owner/repo`, or local directory for the skill."),
+        )
+        return
+    if data.startswith("ux:skill:view:"):
+        await _edit(query, skill_detail(user_id, data.rsplit(":", 1)[1], lang))
+        return
+    if data.startswith("ux:skill:toggle:"):
+        token = data.rsplit(":", 1)[1]
+        skill = _skill(user_id, token)
+        if skill:
+            manager = get_skill_manager()
+            enabled = manager.is_enabled(skill.name, user_id)
+            await asyncio.to_thread(manager.set_user_enabled, user_id, skill.name, not enabled)
+        await _edit(query, skill_detail(user_id, token, lang))
+        return
+    if data.startswith("ux:skill:remove:"):
+        token = data.rsplit(":", 1)[1]
+        skill = _skill(user_id, token)
+        name = skill.name if skill else ""
+        await _edit(
+            query,
+            confirmation(
+                pick(lang, f"确定从你的账户移除技能 `{name}`？", f"Remove skill `{name}` from your account?"),
+                f"ux:skill:remove_yes:{token}",
+                f"ux:skill:view:{token}",
+                lang,
+            ),
+        )
+        return
+    if data.startswith("ux:skill:remove_yes:"):
+        token = data.rsplit(":", 1)[1]
+        skill = _skill(user_id, token)
+        if skill and not skill.is_builtin:
+            await asyncio.to_thread(get_skill_manager().remove_user_skill, user_id, skill.name)
+        await _edit(query, skills_panel(user_id, lang))
+        return
+
+    if data == "ux:status":
+        from domain.services import build_status_text
+
+        await edit_query_rich_text(
+            query,
+            build_status_text(user_id, lang=lang),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(pick(lang, "🔄 刷新状态", "🔄 Refresh status"), callback_data="ux:status"),
+                InlineKeyboardButton(pick(lang, "⬅️ 功能中心", "⬅️ Features"), callback_data="ux:features"),
+            ]]),
+        )
+        return
+    if data == "ux:chat:export":
+        persona = get_current_persona_name(user_id)
+        file_buffer = export_to_markdown(user_id, persona)
+        if file_buffer is None:
+            await edit_query_rich_text(
+                query,
+                pick(lang, "当前会话没有可导出的消息。", "The current chat has no messages to export."),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(pick(lang, "⬅️ 返回功能中心", "⬅️ Back to feature center"), callback_data="ux:features")
+                ]]),
+            )
+            return
+        try:
+            file_buffer.seek(0)
+        except Exception:
+            pass
+        await query.message.reply_document(
+            document=file_buffer,
+            filename=getattr(file_buffer, "name", None) or f"chat_export_{persona}.md",
+            caption=pick(lang, f"当前会话导出 · 角色：{persona}", f"Current chat export · Persona: {persona}"),
+        )
+        return
+    if data == "ux:confirm:clear_chat":
+        await _edit(
+            query,
+            confirmation(
+                pick(lang, "确定清空当前会话的全部消息并重置当前角色用量？", "Clear all messages in the current chat and reset usage for this persona?"),
+                "ux:clear_chat:yes",
+                "ux:features",
+                lang,
+            ),
+        )
+        return
+    if data == "ux:clear_chat:yes":
+        persona = get_current_persona_name(user_id)
+        clear_conversation(ensure_session(user_id, persona))
+        reset_token_usage(user_id, persona)
+        await _persist()
+        await _edit(query, feature_panel(user_id, lang))
+        return
+
+    if data == "ux:admin":
+        await _edit(query, admin_panel(lang))
+        return
+    if data == "ux:admin:update":
+        await _edit(
+            query,
+            confirmation(
+                pick(lang, "从远程主分支检查并应用更新？如有新版本，服务将自动重启。", "Check the remote main branch and apply updates? The service will restart if a new version is found."),
+                "ux:admin:update_yes",
+                "ux:admin",
+                lang,
+            ),
+        )
+        return
+    if data == "ux:admin:update_yes":
+        await edit_query_rich_text(query, pick(lang, "⬇️ 正在检查并应用更新…", "⬇️ Checking and applying updates…"))
+        result = await asyncio.to_thread(run_hot_update)
+        if not result.get("ok"):
+            await edit_query_rich_text(
+                query,
+                pick(lang, f"❌ 更新失败\n\n{result.get('message')}", f"❌ Update failed\n\n{result.get('message')}"),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pick(lang, "⬅️ 管理员操作", "⬅️ Administrator actions"), callback_data="ux:admin")]]),
+            )
+            return
+        if not result.get("changed"):
+            await edit_query_rich_text(
+                query,
+                pick(lang, "✅ 当前已经是最新版本。", "✅ The service is already up to date."),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pick(lang, "⬅️ 管理员操作", "⬅️ Administrator actions"), callback_data="ux:admin")]]),
+            )
+            return
+        await edit_query_rich_text(
+            query,
+            pick(
+                lang,
+                f"✅ 更新完成\n\n分支：`{result.get('branch')}`\n提交：`{str(result.get('old', ''))[:7]}` → `{str(result.get('new', ''))[:7]}`\n服务即将重启。",
+                f"✅ Update complete\n\nBranch: `{result.get('branch')}`\nCommit: `{str(result.get('old', ''))[:7]}` → `{str(result.get('new', ''))[:7]}`\nThe service will restart now.",
+            ),
+        )
+        schedule_process_restart()
+        return
+    if data == "ux:admin:restart":
+        await _edit(
+            query,
+            confirmation(
+                pick(lang, "同步运行数据并安全重启服务？", "Sync runtime data and safely restart the service?"),
+                "ux:admin:restart_yes",
+                "ux:admin",
+                lang,
+            ),
+        )
+        return
+    if data == "ux:admin:restart_yes":
+        await edit_query_rich_text(query, pick(lang, "🔄 正在同步数据并准备重启…", "🔄 Syncing data and preparing to restart…"))
+        result = await asyncio.to_thread(run_safe_restart)
+        if not result.get("ok"):
+            await edit_query_rich_text(
+                query,
+                pick(lang, f"❌ 无法重启\n\n{result.get('message')}", f"❌ Restart cancelled\n\n{result.get('message')}"),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pick(lang, "⬅️ 管理员操作", "⬅️ Administrator actions"), callback_data="ux:admin")]]),
+            )
+            return
+        await edit_query_rich_text(query, pick(lang, "✅ 数据已同步，服务即将重启。", "✅ Data synced. The service will restart now."))
+        schedule_process_restart()
         return
 
     if data.startswith("ux:set:reasoning:"):

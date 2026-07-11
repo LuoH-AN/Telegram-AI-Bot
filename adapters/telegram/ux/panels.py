@@ -17,11 +17,25 @@ from domain.services.cron.timezone import describe_cron, next_run_at
 from infrastructure.cache import cache
 from infrastructure.config import (
     is_admin,
-    normalize_telegram_busy_mode,
-    normalize_telegram_tool_progress,
 )
 
 from .locale import pick
+from .feature_panels import (
+    admin_panel,
+    feature_panel,
+    memory_panel,
+    skill_detail,
+    skills_panel,
+)
+from .settings_panels import (
+    advanced_settings_panel,
+    connection_panel,
+    generation_panel,
+    provider_detail,
+    providers_panel,
+    settings_panel,
+    timezone_panel,
+)
 from .tokens import stable_token
 
 PAGE_SIZE = 6
@@ -43,7 +57,8 @@ def main_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
         rows = [
             [InlineKeyboardButton(pick(lang, "💬 会话", "💬 Chats"), callback_data="ux:chat:0"), InlineKeyboardButton(pick(lang, "🎭 角色", "🎭 Personas"), callback_data="ux:persona:0")],
             [InlineKeyboardButton(pick(lang, "⚙️ 设置", "⚙️ Settings"), callback_data="ux:settings"), InlineKeyboardButton(pick(lang, "⏰ 定时任务", "⏰ Schedules"), callback_data="ux:cron")],
-            [InlineKeyboardButton(pick(lang, "📚 帮助", "📚 Help"), callback_data="ux:help"), InlineKeyboardButton(pick(lang, "➕ 新会话", "➕ New chat"), callback_data="ux:chat:new")],
+            [InlineKeyboardButton(pick(lang, "🧰 功能中心", "🧰 Features"), callback_data="ux:features"), InlineKeyboardButton(pick(lang, "➕ 新会话", "➕ New chat"), callback_data="ux:chat:new")],
+            [InlineKeyboardButton(pick(lang, "📚 帮助", "📚 Help"), callback_data="ux:help")],
         ]
     else:
         text = pick(
@@ -52,132 +67,15 @@ def main_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
             "👋 **Welcome to AI Bot**\n\nThree quick steps:\n1. Choose an API endpoint\n2. Save your API key securely\n3. Pick a model and send your first message",
         )
         rows = [
-            [InlineKeyboardButton(pick(lang, "1️⃣ 使用 OpenAI 默认地址", "1️⃣ Use OpenAI endpoint"), callback_data="ux:onboard:base_default")],
-            [InlineKeyboardButton(pick(lang, "🌐 自定义 API 地址", "🌐 Custom API endpoint"), callback_data="ux:onboard:base_custom")],
-            [InlineKeyboardButton(pick(lang, "🔑 设置 API Key", "🔑 Set API key"), callback_data="ux:onboard:key")],
+            [InlineKeyboardButton(pick(lang, "1️⃣ 使用 OpenAI 官方 API 地址", "1️⃣ Use official OpenAI API endpoint"), callback_data="ux:onboard:base_default")],
+            [InlineKeyboardButton(pick(lang, "🌐 使用其他兼容 API 地址", "🌐 Use another compatible endpoint"), callback_data="ux:onboard:base_custom")],
+            [InlineKeyboardButton(pick(lang, "🔑 设置服务商 API Key", "🔑 Set provider API key"), callback_data="ux:onboard:key")],
             [InlineKeyboardButton(pick(lang, "📚 查看帮助", "📚 View help"), callback_data="ux:help")],
         ]
     rows.append([
         InlineKeyboardButton("中文", callback_data="ux:lang:zh"),
         InlineKeyboardButton("English", callback_data="ux:lang:en"),
     ])
-    return text, _markup(rows)
-
-
-def settings_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
-    settings = get_user_settings(user_id)
-    persona = get_current_persona_name(user_id)
-    key_state = pick(lang, "已配置", "configured") if settings.get("api_key") else pick(lang, "未配置", "missing")
-    text = pick(
-        lang,
-        "⚙️ **设置**\n\n"
-        f"🤖 模型：`{settings.get('model')}`\n"
-        f"🎭 角色：`{persona}`\n"
-        f"🌊 输出：`{settings.get('stream_mode') or 'default'}`\n"
-        f"🧠 推理：`{settings.get('reasoning_effort') or 'default'}`\n"
-        f"🔑 API Key：{key_state}\n"
-        f"🕐 时区：`{settings.get('timezone', 'Asia/Shanghai')}`",
-        "⚙️ **Settings**\n\n"
-        f"🤖 Model: `{settings.get('model')}`\n"
-        f"🎭 Persona: `{persona}`\n"
-        f"🌊 Output: `{settings.get('stream_mode') or 'default'}`\n"
-        f"🧠 Reasoning: `{settings.get('reasoning_effort') or 'default'}`\n"
-        f"🔑 API key: {key_state}\n"
-        f"🕐 Timezone: `{settings.get('timezone', 'Asia/Shanghai')}`",
-    )
-    rows = [
-        [InlineKeyboardButton(pick(lang, "🤖 选择模型", "🤖 Choose model"), callback_data="ux:settings:model")],
-        [InlineKeyboardButton(pick(lang, "🎨 生成设置", "🎨 Generation"), callback_data="ux:settings:generation"), InlineKeyboardButton(pick(lang, "🔌 API 连接", "🔌 API connection"), callback_data="ux:settings:connection")],
-        [InlineKeyboardButton(pick(lang, "🕐 时区", "🕐 Timezone"), callback_data="ux:settings:timezone"), InlineKeyboardButton(pick(lang, "📋 完整设置", "📋 Full settings"), callback_data="ux:settings:full")],
-        [InlineKeyboardButton(pick(lang, "📊 用量与上下文", "📊 Usage & context"), callback_data="ux:usage")],
-        [InlineKeyboardButton(pick(lang, "⬅️ 主菜单", "⬅️ Main menu"), callback_data="ux:menu")],
-    ]
-    return text, _markup(rows)
-
-
-def generation_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
-    settings = get_user_settings(user_id)
-    busy_mode = normalize_telegram_busy_mode(settings.get("busy_mode"))
-    tool_progress = normalize_telegram_tool_progress(settings.get("tool_progress"))
-    busy_label = pick(
-        lang,
-        {"interrupt": "中断当前回复", "queue": "排队等待"}[busy_mode],
-        {"interrupt": "interrupt current", "queue": "queue"}[busy_mode],
-    )
-    progress_label = pick(
-        lang,
-        {"off": "关闭", "compact": "精简", "full": "完整"}[tool_progress],
-        {"off": "off", "compact": "compact", "full": "full"}[tool_progress],
-    )
-    text = pick(
-        lang,
-        "🎨 **生成设置**\n\n"
-        f"推理强度：`{settings.get('reasoning_effort') or 'default'}`\n"
-        f"输出模式：`{settings.get('stream_mode') or 'default'}`\n"
-        f"显示思考摘要：`{'on' if settings.get('show_thinking') else 'off'}`\n"
-        f"忙碌时：`{busy_label}`\n"
-        f"工具进度：`{progress_label}`\n"
-        f"温度：`{settings.get('temperature', 0.7)}`",
-        "🎨 **Generation settings**\n\n"
-        f"Reasoning: `{settings.get('reasoning_effort') or 'default'}`\n"
-        f"Output mode: `{settings.get('stream_mode') or 'default'}`\n"
-        f"Thinking summary: `{'on' if settings.get('show_thinking') else 'off'}`\n"
-        f"When busy: `{busy_label}`\n"
-        f"Tool activity: `{progress_label}`\n"
-        f"Temperature: `{settings.get('temperature', 0.7)}`",
-    )
-    rows = [
-        [InlineKeyboardButton("default", callback_data="ux:set:reasoning:clear"), InlineKeyboardButton("low", callback_data="ux:set:reasoning:low"), InlineKeyboardButton("medium", callback_data="ux:set:reasoning:medium")],
-        [InlineKeyboardButton("high", callback_data="ux:set:reasoning:high"), InlineKeyboardButton("xhigh", callback_data="ux:set:reasoning:xhigh")],
-        [InlineKeyboardButton("stream", callback_data="ux:set:stream:default"), InlineKeyboardButton("time", callback_data="ux:set:stream:time"), InlineKeyboardButton("chars", callback_data="ux:set:stream:chars"), InlineKeyboardButton("off", callback_data="ux:set:stream:off")],
-        [InlineKeyboardButton(pick(lang, "🧠 切换思考摘要", "🧠 Toggle thinking"), callback_data="ux:set:thinking:toggle")],
-        [
-            InlineKeyboardButton(pick(lang, "⚡ 中断", "⚡ Interrupt"), callback_data="ux:set:busy:interrupt"),
-            InlineKeyboardButton(pick(lang, "🕐 排队", "🕐 Queue"), callback_data="ux:set:busy:queue"),
-        ],
-        [
-            InlineKeyboardButton(pick(lang, "🔕 关闭", "🔕 Off"), callback_data="ux:set:progress:off"),
-            InlineKeyboardButton(pick(lang, "🧰 精简", "🧰 Compact"), callback_data="ux:set:progress:compact"),
-            InlineKeyboardButton(pick(lang, "📋 完整", "📋 Full"), callback_data="ux:set:progress:full"),
-        ],
-        [InlineKeyboardButton("🌡 0.2", callback_data="ux:set:temperature:0.2"), InlineKeyboardButton("🌡 0.7", callback_data="ux:set:temperature:0.7"), InlineKeyboardButton("🌡 1.0", callback_data="ux:set:temperature:1.0")],
-        [InlineKeyboardButton(pick(lang, "✏️ 自定义温度", "✏️ Custom temperature"), callback_data="ux:settings:temperature_custom")],
-        [InlineKeyboardButton(pick(lang, "⬅️ 设置", "⬅️ Settings"), callback_data="ux:settings")],
-    ]
-    return text, _markup(rows)
-
-
-def connection_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
-    settings = get_user_settings(user_id)
-    text = pick(
-        lang,
-        "🔌 **API 连接**\n\n"
-        f"地址：`{settings.get('base_url')}`\n"
-        f"API Key：{'✅ 已配置' if settings.get('api_key') else '❌ 未配置'}\n\n"
-        "为保护密钥，API Key 只能在私聊中设置。",
-        "🔌 **API connection**\n\n"
-        f"Endpoint: `{settings.get('base_url')}`\n"
-        f"API key: {'✅ configured' if settings.get('api_key') else '❌ missing'}\n\n"
-        "For safety, API keys can only be entered in a private chat.",
-    )
-    rows = [
-        [InlineKeyboardButton(pick(lang, "🔑 设置 API Key", "🔑 Set API key"), callback_data="ux:onboard:key")],
-        [InlineKeyboardButton(pick(lang, "🌐 自定义地址", "🌐 Custom endpoint"), callback_data="ux:onboard:base_custom"), InlineKeyboardButton("OpenAI", callback_data="ux:onboard:base_default")],
-        [InlineKeyboardButton(pick(lang, "🗑 清除 API Key", "🗑 Clear API key"), callback_data="ux:confirm:clear_key")],
-        [InlineKeyboardButton(pick(lang, "⬅️ 设置", "⬅️ Settings"), callback_data="ux:settings")],
-    ]
-    return text, _markup(rows)
-
-
-def timezone_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
-    current = get_user_settings(user_id).get("timezone", "Asia/Shanghai")
-    text = pick(lang, f"🕐 **时区**\n\n当前：`{current}`\n定时任务会按此时区运行。", f"🕐 **Timezone**\n\nCurrent: `{current}`\nScheduled tasks run in this timezone.")
-    rows = [
-        [InlineKeyboardButton("Asia/Shanghai", callback_data="ux:set:timezone:Asia/Shanghai")],
-        [InlineKeyboardButton("UTC", callback_data="ux:set:timezone:UTC"), InlineKeyboardButton("Europe/London", callback_data="ux:set:timezone:Europe/London")],
-        [InlineKeyboardButton(pick(lang, "✏️ 自定义", "✏️ Custom"), callback_data="ux:settings:timezone_custom")],
-        [InlineKeyboardButton(pick(lang, "⬅️ 设置", "⬅️ Settings"), callback_data="ux:settings")],
-    ]
     return text, _markup(rows)
 
 

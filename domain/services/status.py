@@ -23,11 +23,17 @@ from .update import git_info
 logger = logging.getLogger(__name__)
 
 
-def _format_uptime(seconds: float) -> str:
+def _format_uptime(seconds: float, lang: str = "en") -> str:
     total = int(max(0, seconds))
     days, rem = divmod(total, 86400)
     hours, rem = divmod(rem, 3600)
     minutes = rem // 60
+    if lang == "zh":
+        if days:
+            return f"{days} 天 {hours} 小时 {minutes} 分钟"
+        if hours:
+            return f"{hours} 小时 {minutes} 分钟"
+        return f"{minutes} 分钟"
     if days:
         return f"{days}d {hours}h {minutes}m"
     if hours:
@@ -75,43 +81,49 @@ def _plugin_names() -> list[str]:
         return []
 
 
-def build_status_text(user_id: int) -> str:
+def build_status_text(user_id: int, *, lang: str = "en") -> str:
     git = git_info()
     stats = cache.runtime_stats()
-    lines = ["🟢 **Project Status**", ""]
+    lines = ["🟢 **项目运行状态**" if lang == "zh" else "🟢 **Project Status**", ""]
 
     if git.get("available"):
-        workdir = "clean" if git["changed_files"] == 0 else f"{git['changed_files']} uncommitted"
+        if lang == "zh":
+            workdir = "干净" if git["changed_files"] == 0 else f"{git['changed_files']} 个未提交文件"
+        else:
+            workdir = "clean" if git["changed_files"] == 0 else f"{git['changed_files']} uncommitted"
         lines += [
-            "📦 **Code**",
-            f"• Branch: `{git['branch']}`",
-            f"• Commit: `{git['commit']}`",
-            f"• Workdir: {workdir}",
+            "📦 **代码**" if lang == "zh" else "📦 **Code**",
+            f"• {'分支' if lang == 'zh' else 'Branch'}: `{git['branch']}`",
+            f"• {'提交' if lang == 'zh' else 'Commit'}: `{git['commit']}`",
+            f"• {'工作区' if lang == 'zh' else 'Workdir'}: {workdir}",
             "",
         ]
 
     python = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    mode = "🛡️ managed" if os.getenv("BOT_LAUNCHER_MANAGED") == "1" else "🖥️ standalone"
+    if lang == "zh":
+        mode = "🛡️ 启动器托管" if os.getenv("BOT_LAUNCHER_MANAGED") == "1" else "🖥️ 独立运行"
+    else:
+        mode = "🛡️ managed" if os.getenv("BOT_LAUNCHER_MANAGED") == "1" else "🖥️ standalone"
     lines += [
-        "⚙️ **Runtime**",
-        f"• Uptime: ⏱️ {_format_uptime(time.time() - PROCESS_START_TIME)}",
-        f"• Memory: {_memory_bar()}",
+        "⚙️ **运行环境**" if lang == "zh" else "⚙️ **Runtime**",
+        f"• {'运行时间' if lang == 'zh' else 'Uptime'}: ⏱️ {_format_uptime(time.time() - PROCESS_START_TIME, lang)}",
+        f"• {'内存' if lang == 'zh' else 'Memory'}: {_memory_bar()}",
         f"• Python: {python}",
-        f"• Mode: {mode}",
+        f"• {'模式' if lang == 'zh' else 'Mode'}: {mode}",
         "",
-        "💾 **Data**",
-        f"• 👤 Users: {stats['users']}",
-        f"• 💬 Sessions: {stats['sessions']}",
-        f"• ✉️ Messages: {format_count(stats['messages'])}",
-        f"• ⏰ Cron tasks: {stats['cron_tasks']}",
+        "💾 **数据**" if lang == "zh" else "💾 **Data**",
+        f"• 👤 {'用户' if lang == 'zh' else 'Users'}: {stats['users']}",
+        f"• 💬 {'会话' if lang == 'zh' else 'Sessions'}: {stats['sessions']}",
+        f"• ✉️ {'消息' if lang == 'zh' else 'Messages'}: {format_count(stats['messages'])}",
+        f"• ⏰ {'定时任务' if lang == 'zh' else 'Cron tasks'}: {stats['cron_tasks']}",
         "",
     ]
 
     plugins = _plugin_names()
     if plugins:
-        lines += [f"🧩 **Plugins** ({len(plugins)})", ", ".join(f"`{name}`" for name in plugins), ""]
+        lines += [f"🧩 **{'插件' if lang == 'zh' else 'Plugins'}** ({len(plugins)})", ", ".join(f"`{name}`" for name in plugins), ""]
 
     from shared.utils.format import format_tokens
 
-    lines.append(f"📊 **Your tokens**: {format_tokens(get_total_tokens_all_personas(user_id))}")
+    lines.append(f"📊 **{'你的 Token 用量' if lang == 'zh' else 'Your tokens'}**: {format_tokens(get_total_tokens_all_personas(user_id))}")
     return "\n".join(lines)

@@ -11,8 +11,16 @@ import pytest
 
 from adapters.telegram.commands.settings.model import _build_model_keyboard
 from adapters.telegram.ux.errors import error_panel
+from adapters.telegram.ux.feature_panels import feature_panel, memory_panel
 from adapters.telegram.ux.locale import language, pick
-from adapters.telegram.ux.panels import generation_panel, help_panel, main_panel, stop_keyboard
+from adapters.telegram.ux.panels import help_panel, main_panel, stop_keyboard
+from adapters.telegram.ux.settings_panels import (
+    advanced_settings_panel,
+    connection_panel,
+    generation_panel,
+    providers_panel,
+    settings_panel,
+)
 from domain.services.cron.matcher import is_valid_cron
 from domain.services.cron.timezone import describe_cron, next_run_at
 from shared.utils.ai.status import build_tool_progress_text
@@ -49,11 +57,65 @@ def test_configured_main_panel_links_primary_tasks(monkeypatch):
     monkeypatch.setattr(panels, "get_current_persona_name", lambda _user_id: "default")
     _, keyboard = main_panel(1, "en")
     callbacks = _callbacks(keyboard)
-    assert {"ux:chat:0", "ux:persona:0", "ux:settings", "ux:cron", "ux:help"} <= callbacks
+    assert {"ux:chat:0", "ux:persona:0", "ux:settings", "ux:cron", "ux:features", "ux:help"} <= callbacks
+
+
+def test_feature_center_exposes_command_only_capabilities(monkeypatch):
+    import adapters.telegram.ux.feature_panels as panels
+
+    monkeypatch.setattr(panels, "is_admin", lambda _user_id: False)
+    text, keyboard = feature_panel(2, "zh")
+    callbacks = _callbacks(keyboard)
+    assert "功能中心" in text
+    assert {
+        "ux:memory",
+        "ux:skills",
+        "ux:status",
+        "ux:chat:export",
+        "ux:confirm:clear_chat",
+    } <= callbacks
+    assert "ux:admin" not in callbacks
+
+    monkeypatch.setattr(panels, "is_admin", lambda _user_id: True)
+    _, admin_keyboard = feature_panel(1, "en")
+    assert "ux:admin" in _callbacks(admin_keyboard)
+
+
+def test_memory_panel_has_add_delete_and_clear_buttons(monkeypatch):
+    import adapters.telegram.ux.feature_panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_memories",
+        lambda _user_id: [
+            {"content": "Prefers concise answers"},
+            {"content": "Uses Asia/Shanghai timezone"},
+        ],
+    )
+    text, keyboard = memory_panel(1, "en")
+    callbacks = _callbacks(keyboard)
+    assert "Long-term memories" in text
+    assert {
+        "ux:memory:add",
+        "ux:memory:delete:1",
+        "ux:memory:delete:2",
+        "ux:memory:clear",
+    } <= callbacks
+
+
+def test_memory_panel_paginates_large_memory_lists(monkeypatch):
+    import adapters.telegram.ux.feature_panels as panels
+
+    monkeypatch.setattr(panels, "get_memories", lambda _user_id: [{"content": f"memory {i}"} for i in range(12)])
+    text, keyboard = memory_panel(1, "zh", page=1)
+    callbacks = _callbacks(keyboard)
+    assert "第 2/2 页" in text
+    assert "ux:memory:delete:9" in callbacks
+    assert "ux:memory:page:0" in callbacks
 
 
 def test_generation_panel_exposes_busy_and_tool_progress_controls(monkeypatch):
-    import adapters.telegram.ux.panels as panels
+    import adapters.telegram.ux.settings_panels as panels
 
     monkeypatch.setattr(
         panels,
@@ -70,13 +132,148 @@ def test_generation_panel_exposes_busy_and_tool_progress_controls(monkeypatch):
     text, keyboard = generation_panel(1, "en")
     callbacks = _callbacks(keyboard)
     assert "queue" in text.lower()
-    assert "compact" in text.lower()
+    assert "key activity" in text.lower()
     assert {"ux:set:busy:interrupt", "ux:set:busy:queue"} <= callbacks
     assert {
         "ux:set:progress:off",
         "ux:set:progress:compact",
         "ux:set:progress:full",
     } <= callbacks
+
+
+def test_settings_center_exposes_every_settings_category(monkeypatch):
+    import adapters.telegram.ux.settings_panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_user_settings",
+        lambda _user_id: {
+            "api_key": "secret",
+            "base_url": "https://api.openai.com/v1",
+            "model": "gpt-test",
+            "stream_mode": "default",
+            "reasoning_effort": "",
+            "timezone": "Asia/Shanghai",
+        },
+    )
+    monkeypatch.setattr(panels, "get_current_persona_name", lambda _user_id: "default")
+    text, keyboard = settings_panel(1, "zh")
+    callbacks = _callbacks(keyboard)
+    assert "设置中心" in text
+    assert "OpenAI 官方接口" in text
+    assert {
+        "ux:settings:model",
+        "ux:settings:connection",
+        "ux:settings:generation",
+        "ux:settings:advanced",
+        "ux:settings:timezone",
+        "ux:settings:full",
+        "ux:usage",
+    } <= callbacks
+
+
+def test_connection_panel_explains_official_openai_action(monkeypatch):
+    import adapters.telegram.ux.settings_panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_user_settings",
+        lambda _user_id: {
+            "api_key": "secret",
+            "base_url": "https://custom.example/v1",
+            "model": "model-a",
+            "api_presets": {},
+        },
+    )
+    text, keyboard = connection_panel(1, "zh")
+    labels = [button.text for row in keyboard.inline_keyboard for button in row]
+    callbacks = _callbacks(keyboard)
+    assert "只会恢复地址" in text
+    assert any("使用 OpenAI 官方 API 地址" in label for label in labels)
+    assert "OpenAI" not in labels
+    assert {"ux:settings:connection_test", "ux:providers", "ux:onboard:base_default"} <= callbacks
+
+
+def test_generation_panel_uses_clear_bilingual_labels(monkeypatch):
+    import adapters.telegram.ux.settings_panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_user_settings",
+        lambda _user_id: {
+            "reasoning_effort": "minimal",
+            "stream_mode": "chars",
+            "show_thinking": True,
+            "temperature": 0.7,
+            "busy_mode": "interrupt",
+            "tool_progress": "full",
+        },
+    )
+    zh_text, zh_keyboard = generation_panel(1, "zh")
+    en_text, en_keyboard = generation_panel(1, "en")
+    zh_labels = {button.text for row in zh_keyboard.inline_keyboard for button in row}
+    en_labels = {button.text for row in en_keyboard.inline_keyboard for button in row}
+    assert "消息发送" in zh_text
+    assert any("按字数刷新" in label for label in zh_labels)
+    assert "Message delivery" in en_text
+    assert any("Batched" in label for label in en_labels)
+    assert "ux:set:reasoning:minimal" in _callbacks(zh_keyboard)
+    assert "ux:set:reasoning:none" in _callbacks(zh_keyboard)
+
+
+def test_advanced_panel_has_buttons_for_previously_command_only_settings(monkeypatch):
+    import adapters.telegram.ux.settings_panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_user_settings",
+        lambda _user_id: {
+            "model": "chat-model",
+            "global_prompt": "",
+            "title_model": "",
+            "cron_model": "",
+        },
+    )
+    monkeypatch.setattr(panels, "get_current_persona_name", lambda _user_id: "default")
+    monkeypatch.setattr(panels, "get_token_limit", lambda *_args: 0)
+    text, keyboard = advanced_settings_panel(1, "en")
+    callbacks = _callbacks(keyboard)
+    assert "Advanced settings" in text
+    assert {
+        "ux:advanced:global_prompt",
+        "ux:advanced:global_prompt_clear",
+        "ux:advanced:title_model",
+        "ux:advanced:cron_model",
+        "ux:advanced:models_current",
+        "ux:advanced:token_limit",
+        "ux:advanced:token_limit_clear",
+    } <= callbacks
+
+
+def test_saved_provider_panel_marks_active_connection(monkeypatch):
+    import adapters.telegram.ux.settings_panels as panels
+
+    monkeypatch.setattr(
+        panels,
+        "get_user_settings",
+        lambda _user_id: {
+            "api_key": "secret",
+            "base_url": "https://provider.example/v1",
+            "model": "model-a",
+            "api_presets": {
+                "Work": {
+                    "api_key": "secret",
+                    "base_url": "https://provider.example/v1",
+                    "model": "model-a",
+                }
+            },
+        },
+    )
+    text, keyboard = providers_panel(1, "en")
+    labels = [button.text for row in keyboard.inline_keyboard for button in row]
+    assert "1 saved service" in text
+    assert "✅ Work" in labels
+    assert "ux:provider:save" in _callbacks(keyboard)
 
 
 def test_help_hides_admin_tools_for_regular_users(monkeypatch):
@@ -265,6 +462,135 @@ def test_telegram_ux_callbacks_persist_valid_modes(monkeypatch, callback_data, s
     asyncio.run(callbacks.ux_callback(update, context))
     assert saved == [(1, setting, value)]
     assert persisted == [True]
+
+
+def test_saved_provider_load_updates_connection_and_model(monkeypatch):
+    import adapters.telegram.ux.callbacks as callbacks
+
+    saved = []
+    persisted = []
+
+    class Query:
+        data = "ux:provider:load:token"
+
+        async def answer(self, *_args, **_kwargs):
+            return None
+
+    update = type(
+        "Update",
+        (),
+        {
+            "callback_query": Query(),
+            "effective_user": type("User", (), {"id": 1, "language_code": "zh"})(),
+            "effective_chat": type("Chat", (), {"id": 1, "type": "private"})(),
+        },
+    )()
+    context = type("Context", (), {"user_data": {}})()
+
+    async def fake_ensure_user_state(_user_id):
+        return None
+
+    async def fake_persist():
+        persisted.append(True)
+
+    async def fake_edit(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(callbacks, "ensure_user_state", fake_ensure_user_state)
+    monkeypatch.setattr(callbacks, "_provider", lambda *_args: ("Work", {
+        "base_url": "https://provider.example/v1",
+        "api_key": "secret",
+        "model": "model-a",
+    }))
+    monkeypatch.setattr(callbacks, "update_user_setting", lambda *args: saved.append(args))
+    monkeypatch.setattr(callbacks, "_persist", fake_persist)
+    monkeypatch.setattr(callbacks, "_edit", fake_edit)
+    monkeypatch.setattr(callbacks, "provider_detail", lambda *_args: ("provider", None))
+
+    asyncio.run(callbacks.ux_callback(update, context))
+    assert saved == [
+        (1, "base_url", "https://provider.example/v1"),
+        (1, "api_key", "secret"),
+        (1, "model", "model-a"),
+    ]
+    assert persisted == [True]
+
+
+def test_advanced_token_limit_clear_uses_current_persona(monkeypatch):
+    import adapters.telegram.ux.callbacks as callbacks
+
+    calls = []
+
+    class Query:
+        data = "ux:advanced:token_limit_clear"
+
+        async def answer(self, *_args, **_kwargs):
+            return None
+
+    update = type(
+        "Update",
+        (),
+        {
+            "callback_query": Query(),
+            "effective_user": type("User", (), {"id": 7, "language_code": "en"})(),
+            "effective_chat": type("Chat", (), {"id": 7, "type": "private"})(),
+        },
+    )()
+    context = type("Context", (), {"user_data": {}})()
+
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(callbacks, "ensure_user_state", fake_noop)
+    monkeypatch.setattr(callbacks, "get_current_persona_name", lambda _user_id: "coder")
+    monkeypatch.setattr(callbacks, "set_token_limit", lambda *args: calls.append(args))
+    monkeypatch.setattr(callbacks, "_persist", fake_noop)
+    monkeypatch.setattr(callbacks, "_edit", fake_noop)
+    monkeypatch.setattr(callbacks, "advanced_settings_panel", lambda *_args: ("advanced", None))
+
+    asyncio.run(callbacks.ux_callback(update, context))
+    assert calls == [(7, 0, "coder")]
+
+
+def test_non_admin_cannot_trigger_admin_button_callbacks(monkeypatch):
+    import adapters.telegram.ux.callbacks as callbacks
+
+    answers = []
+
+    class Query:
+        data = "ux:admin:restart_yes"
+
+        async def answer(self, *args, **kwargs):
+            answers.append((args, kwargs))
+
+    update = type(
+        "Update",
+        (),
+        {
+            "callback_query": Query(),
+            "effective_user": type("User", (), {"id": 8, "language_code": "en"})(),
+            "effective_chat": type("Chat", (), {"id": 8, "type": "private"})(),
+        },
+    )()
+    context = type("Context", (), {"user_data": {}})()
+    monkeypatch.setattr(callbacks, "is_admin", lambda _user_id: False)
+
+    asyncio.run(callbacks.ux_callback(update, context))
+    assert answers[0][1]["show_alert"] is True
+    assert "administrators" in answers[0][0][0]
+
+
+def test_status_text_is_localized(monkeypatch):
+    import domain.services.status as status
+
+    monkeypatch.setattr(status, "git_info", lambda: {"available": True, "changed_files": 0, "branch": "main", "commit": "abc1234"})
+    monkeypatch.setattr(status.cache, "runtime_stats", lambda: {"users": 2, "sessions": 3, "messages": 4, "cron_tasks": 5})
+    monkeypatch.setattr(status, "get_total_tokens_all_personas", lambda _user_id: 100)
+    monkeypatch.setattr(status, "_plugin_names", lambda: [])
+    text = status.build_status_text(1, lang="zh")
+    assert "项目运行状态" in text
+    assert "运行环境" in text
+    assert "用户" in text
 
 
 def test_cron_validation_preview_and_next_run():

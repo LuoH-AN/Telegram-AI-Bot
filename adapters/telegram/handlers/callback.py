@@ -57,7 +57,16 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info("%s model page %d", get_log_context(update), page)
         models = context.user_data.get("models", [])
         if not models:
-            await edit_query_rich_text(query, "Session expired. Use /set model again.")
+            await edit_query_rich_text(
+                query,
+                pick(language(update, context), "模型列表已过期，请重新打开模型选择器。", "The model list expired. Open the model picker again."),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        pick(language(update, context), "🤖 重新打开模型列表", "🤖 Reopen model list"),
+                        callback_data="ux:settings:model",
+                    )
+                ]]),
+            )
             return
 
         settings = get_user_settings(user_id)

@@ -13,8 +13,11 @@ from telegram.ext import ApplicationHandlerStop, ContextTypes
 from adapters.telegram.commands.settings.core import set_api_key_secure
 from adapters.telegram.rich_text import telegram_html
 from domain.services import (
+    add_memory,
     create_persona,
+    get_current_persona_name,
     get_personas,
+    set_token_limit,
     switch_persona,
     update_current_prompt,
     update_user_setting,
@@ -22,9 +25,21 @@ from domain.services import (
 from domain.services.cron.matcher import is_valid_cron
 from domain.services.cron.timezone import describe_cron, next_run_at
 from infrastructure.cache import cache, sync_to_database
+from infrastructure.config import is_admin
+from infrastructure.tools.skills.commands import handle_skill_install
 
 from .locale import language, pick
-from .panels import connection_panel, personas_panel, sessions_panel, settings_panel
+from .panels import (
+    advanced_settings_panel,
+    connection_panel,
+    generation_panel,
+    memory_panel,
+    personas_panel,
+    providers_panel,
+    sessions_panel,
+    skills_panel,
+    timezone_panel,
+)
 
 
 async def _send(message, text: str, keyboard=None):
@@ -91,7 +106,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_user_setting(user_id, "timezone", value)
         await _persist()
         context.user_data.pop("ux_pending", None)
-        await _send_panel(message, settings_panel(user_id, lang))
+        await _send_panel(message, timezone_panel(user_id, lang))
         raise ApplicationHandlerStop
 
     if kind == "temperature":
@@ -105,7 +120,92 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_user_setting(user_id, "temperature", temperature)
         await _persist()
         context.user_data.pop("ux_pending", None)
-        await _send_panel(message, settings_panel(user_id, lang))
+        await _send_panel(message, generation_panel(user_id, lang))
+        raise ApplicationHandlerStop
+
+    if kind == "provider_name":
+        name = " ".join(value.split())
+        presets = dict(cache.get_settings(user_id).get("api_presets", {}) or {})
+        if not name or len(name) > 32 or ":" in name:
+            await _send(message, pick(lang, "保存名称需为 1–32 个字符，且不能包含冒号。", "Saved-service names must be 1–32 characters and cannot contain a colon."), _cancel_keyboard(lang, "ux:providers"))
+            raise ApplicationHandlerStop
+        if any(existing.casefold() == name.casefold() for existing in presets):
+            await _send(message, pick(lang, "这个名称已经存在，请换一个名称。", "That name already exists. Choose another name."), _cancel_keyboard(lang, "ux:providers"))
+            raise ApplicationHandlerStop
+        settings = cache.get_settings(user_id)
+        if not settings.get("api_key"):
+            context.user_data.pop("ux_pending", None)
+            await _send_panel(message, connection_panel(user_id, lang))
+            raise ApplicationHandlerStop
+        presets[name] = {
+            "api_key": settings.get("api_key", ""),
+            "base_url": settings.get("base_url", ""),
+            "model": settings.get("model", ""),
+        }
+        update_user_setting(user_id, "api_presets", presets)
+        await _persist()
+        context.user_data.pop("ux_pending", None)
+        await _send_panel(message, providers_panel(user_id, lang))
+        raise ApplicationHandlerStop
+
+    if kind == "global_prompt":
+        if not value:
+            await _send(message, pick(lang, "全局提示词不能为空；如需删除，请使用“清除全局提示词”按钮。", "The global prompt cannot be empty. Use the Clear global prompt button to remove it."), _cancel_keyboard(lang, "ux:settings:advanced"))
+            raise ApplicationHandlerStop
+        update_user_setting(user_id, "global_prompt", value)
+        await _persist()
+        context.user_data.pop("ux_pending", None)
+        await _send_panel(message, advanced_settings_panel(user_id, lang))
+        raise ApplicationHandlerStop
+
+    if kind in {"title_model", "cron_model"}:
+        model = value.strip()
+        if not model:
+            await _send(message, pick(lang, "模型名称不能为空。", "The model name cannot be empty."), _cancel_keyboard(lang, "ux:settings:advanced"))
+            raise ApplicationHandlerStop
+        update_user_setting(user_id, kind, model)
+        await _persist()
+        context.user_data.pop("ux_pending", None)
+        await _send_panel(message, advanced_settings_panel(user_id, lang))
+        raise ApplicationHandlerStop
+
+    if kind == "token_limit":
+        try:
+            limit = int(value)
+        except ValueError:
+            limit = -1
+        if limit < 0:
+            await _send(message, pick(lang, "Token 限额必须是非负整数，输入 `0` 表示不限。", "The token limit must be a non-negative integer. Use `0` for unlimited."), _cancel_keyboard(lang, "ux:settings:advanced"))
+            raise ApplicationHandlerStop
+        set_token_limit(user_id, limit, get_current_persona_name(user_id))
+        await _persist()
+        context.user_data.pop("ux_pending", None)
+        await _send_panel(message, advanced_settings_panel(user_id, lang))
+        raise ApplicationHandlerStop
+
+    if kind == "memory_content":
+        if not value:
+            await _send(message, pick(lang, "记忆内容不能为空。", "Memory content cannot be empty."), _cancel_keyboard(lang, "ux:memory"))
+            raise ApplicationHandlerStop
+        await asyncio.to_thread(add_memory, user_id, value, "user")
+        await _persist()
+        context.user_data.pop("ux_pending", None)
+        await _send_panel(message, memory_panel(user_id, lang))
+        raise ApplicationHandlerStop
+
+    if kind == "skill_source":
+        if not is_admin(user_id):
+            context.user_data.pop("ux_pending", None)
+            await _send(message, pick(lang, "只有管理员可以安装技能。", "Only administrators can install skills."), _cancel_keyboard(lang, "ux:skills"))
+            raise ApplicationHandlerStop
+        context.user_data.pop("ux_pending", None)
+        status = await _send(message, pick(lang, "⏳ 正在安装并加载技能…", "⏳ Installing and loading the skill…"))
+        result = await handle_skill_install(user_id, value, lang=lang)
+        try:
+            await status.edit_text(telegram_html(result), parse_mode=ParseMode.HTML)
+        except Exception:
+            await _send(message, result)
+        await _send_panel(message, skills_panel(user_id, lang))
         raise ApplicationHandlerStop
 
     if kind == "session_title":

@@ -26,6 +26,7 @@ def build_settings_summary_message(
     on, off = "🟢", "⚪"
     thinking_icon = on if show_thinking == "on" else off
     if lang == "zh":
+        thinking_text = "显示" if show_thinking == "on" else "隐藏"
         return (
             "⚙️ **当前设置**\n\n"
             "🔌 **连接**\n"
@@ -40,7 +41,7 @@ def build_settings_summary_message(
             f"• `temperature`：{temperature}\n"
             f"• `reasoning_effort`：{reasoning_effort}\n"
             f"• `stream_mode`：{stream_mode}\n"
-            f"• `show_thinking`：{thinking_icon} {show_thinking}\n\n"
+            f"• `show_thinking`：{thinking_icon} {thinking_text}\n\n"
             "🕐 **时间**\n"
             f"• `timezone`：{timezone}\n\n"
             "🎭 **角色**\n"
@@ -50,6 +51,7 @@ def build_settings_summary_message(
             f"• 角色提示词：{prompt}\n\n"
             f"💡 `{prefix}persona` · `{prefix}chat` · `{prefix}set provider`"
         )
+    thinking_text = "shown" if show_thinking == "on" else "hidden"
     return (
         "⚙️ **Current Settings**\n\n"
         "🔌 **Connection**\n"
@@ -64,7 +66,7 @@ def build_settings_summary_message(
         f"• `temperature`: {temperature}\n"
         f"• `reasoning_effort`: {reasoning_effort}\n"
         f"• `stream_mode`: {stream_mode}\n"
-        f"• `show_thinking`: {thinking_icon} {show_thinking}\n\n"
+        f"• `show_thinking`: {thinking_icon} {thinking_text}\n\n"
         "🕐 **Time**\n"
         f"• `timezone`: {timezone}\n\n"
         "🎭 **Persona**\n"

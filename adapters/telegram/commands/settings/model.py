@@ -43,7 +43,7 @@ def _build_model_keyboard(
     keyboard = [
         [
             InlineKeyboardButton(
-                f"{'* ' if model == current_model else ''}{model[:48]}{'…' if len(model) > 48 else ''}",
+                f"{'✅ ' if model == current_model else ''}{model[:48]}{'…' if len(model) > 48 else ''}",
                 callback_data=f"model:index:{start + offset}",
             )
         ]
@@ -88,7 +88,11 @@ async def show_model_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
     keyboard = _build_model_keyboard(models, page, settings["model"], lang=lang)
     await edit_rich_text(
         msg,
-        pick(lang, f"选择模型（当前：`{settings['model']}`）", f"Select a model (current: `{settings['model']}`)"),
+        pick(
+            lang,
+            f"🤖 **选择对话模型**\n\n当前模型：`{settings['model']}`\n列表来自当前模型服务；选择模型不会更改 API 地址或 API Key。",
+            f"🤖 **Choose a chat model**\n\nCurrent model: `{settings['model']}`\nThis list comes from the active model service. Choosing a model does not change the endpoint or API key.",
+        ),
         reply_markup=keyboard,
     )
 

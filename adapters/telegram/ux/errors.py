@@ -14,7 +14,7 @@ def error_panel(exc: Exception, lang: str, *, user_id: int | None = None) -> tup
     retry_callback = f"ux:retry:{user_id}" if user_id is not None else "ux:retry"
     if any(token in lowered for token in ("api key", "authentication", "unauthorized", "401", "invalid_api_key")):
         text = pick(lang, "🔑 **API 验证失败**\n\n请检查 API Key 和服务地址。", "🔑 **API authentication failed**\n\nCheck the API key and endpoint.")
-        rows.append([InlineKeyboardButton(pick(lang, "🔌 检查 API 设置", "🔌 Check API settings"), callback_data="ux:settings:connection")])
+        rows.append([InlineKeyboardButton(pick(lang, "🔌 检查模型服务连接", "🔌 Check model service"), callback_data="ux:settings:connection")])
     elif any(token in lowered for token in ("rate limit", "too many requests", "429")):
         text = pick(lang, "⏳ **请求过于频繁**\n\n服务商暂时限流，请稍后重试。", "⏳ **Rate limited**\n\nThe provider is temporarily limiting requests. Try again shortly.")
         rows.append([InlineKeyboardButton(pick(lang, "🔄 重试", "🔄 Retry"), callback_data=retry_callback)])
