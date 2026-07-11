@@ -13,7 +13,7 @@ USER_DATA_INSTRUCTION = (
     "\nuser_* tools (admin toolset) read and change the calling user's OWN data — "
     "every call is scoped to that user, no raw SQL:\n"
     "- user_settings: list|get|set (api_key, base_url, model, temperature, reasoning_effort, "
-    "token_limit, current_persona, global_prompt, tts_*, title_model, cron_model, ...). "
+    "token_limit, current_persona, global_prompt, title_model, cron_model, ...). "
     "Clear a field by setting it to \"\".\n"
     "- user_personas: list|get|create|edit|delete|switch (name + prompt).\n"
     "- user_sessions: list|get|rename|delete|switch (persona; session_id; title).\n"

@@ -103,10 +103,6 @@ HEALTH_CHECK_PORT = int(os.getenv("PORT", "8080"))
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip() or build_default_jwt_secret()
 
 DEFAULT_SYSTEM_PROMPT = os.getenv("OPENAI_SYSTEM_PROMPT", "You are a helpful assistant.")
-DEFAULT_TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoMultilingualNeural")
-DEFAULT_TTS_STYLE = os.getenv("TTS_STYLE", "general")
-DEFAULT_TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "")
-DEFAULT_TTS_OUTPUT_FORMAT = os.getenv("TTS_OUTPUT_FORMAT", "ogg-24khz-16bit-mono-opus")
 DEFAULT_REASONING_EFFORT = normalize_reasoning_effort(
     os.getenv("OPENAI_REASONING_EFFORT", ""),
 )
@@ -118,9 +114,6 @@ def get_default_settings() -> dict:
     return build_default_settings(
         default_reasoning_effort=DEFAULT_REASONING_EFFORT,
         default_show_thinking=DEFAULT_SHOW_THINKING,
-        default_tts_voice=DEFAULT_TTS_VOICE,
-        default_tts_style=DEFAULT_TTS_STYLE,
-        default_tts_endpoint=DEFAULT_TTS_ENDPOINT,
     )
 
 

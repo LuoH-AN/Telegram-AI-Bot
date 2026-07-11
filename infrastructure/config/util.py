@@ -68,9 +68,6 @@ def build_default_settings(
     *,
     default_reasoning_effort: str,
     default_show_thinking: bool,
-    default_tts_voice: str,
-    default_tts_style: str,
-    default_tts_endpoint: str,
 ) -> dict:
     return {
         "api_key": os.getenv("OPENAI_API_KEY", ""),
@@ -84,9 +81,6 @@ def build_default_settings(
         "tool_progress": DEFAULT_TELEGRAM_TOOL_PROGRESS,
         "token_limit": 0,
         "current_persona": "default",
-        "tts_voice": default_tts_voice,
-        "tts_style": default_tts_style,
-        "tts_endpoint": default_tts_endpoint,
         "api_presets": {},
         "title_model": "",
         "cron_model": "",

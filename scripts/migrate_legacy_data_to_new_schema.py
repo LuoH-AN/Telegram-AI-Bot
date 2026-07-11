@@ -23,9 +23,6 @@ from infrastructure.config import (
     DATABASE_URL,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_SHOW_THINKING,
-    DEFAULT_TTS_ENDPOINT,
-    DEFAULT_TTS_STYLE,
-    DEFAULT_TTS_VOICE,
 )
 from infrastructure.database.schema_sql import (
     CREATE_MEMORIES_INDEX,
@@ -47,9 +44,6 @@ REQUIRED_SETTINGS_COLUMNS = {
     "show_thinking",
     "token_limit",
     "current_persona",
-    "tts_voice",
-    "tts_style",
-    "tts_endpoint",
     "api_presets",
     "title_model",
     "cron_model",
@@ -243,7 +237,6 @@ def _transform_settings_row(row: Mapping, mapper: UserIdMapper) -> tuple:
     if raw_user_id is None:
         raw_user_id = row.get("id")
     user_id = mapper.map(raw_user_id)
-    tts = _as_object(row.get("tts"))
     key_vaults = _as_object(row.get("key_vaults"))
     api_key = str(row.get("api_key") or "").strip()
     base_url = str(row.get("base_url") or "").strip() or "https://api.openai.com/v1"
@@ -260,9 +253,6 @@ def _transform_settings_row(row: Mapping, mapper: UserIdMapper) -> tuple:
         _as_bool(row.get("show_thinking"), DEFAULT_SHOW_THINKING),
         _as_int(row.get("token_limit"), 0),
         str(row.get("current_persona") or "default").strip() or "default",
-        str(row.get("tts_voice") or tts.get("voice") or DEFAULT_TTS_VOICE),
-        str(row.get("tts_style") or tts.get("style") or DEFAULT_TTS_STYLE),
-        str(row.get("tts_endpoint") or tts.get("endpoint") or DEFAULT_TTS_ENDPOINT),
         _as_json_text(row.get("api_presets") or key_vaults, default="{}"),
         str(row.get("title_model") or ""),
         str(row.get("cron_model") or ""),
@@ -331,8 +321,8 @@ def _migrate_user_settings(cur, mapper: UserIdMapper, *, dry_run: bool) -> bool:
             """
             INSERT INTO user_settings (
               user_id, api_key, base_url, model, temperature, reasoning_effort, show_thinking,
-              token_limit, current_persona, tts_voice, tts_style, tts_endpoint, api_presets,
-              title_model, cron_model, stream_mode, global_prompt
+              token_limit, current_persona, api_presets, title_model, cron_model, stream_mode,
+              global_prompt
             ) VALUES %s
             """,
             new_rows,

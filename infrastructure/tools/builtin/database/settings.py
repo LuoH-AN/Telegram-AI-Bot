@@ -42,7 +42,7 @@ def _run(user_id: int, action: str, key: str, value: Any) -> ToolResult:
     return ToolResult.error("invalid_action", "action must be list, get, or set.")
 
 
-@tool(toolset="admin", instruction=USER_DATA_INSTRUCTION, description="Read or change the calling user's own AI settings (api_key, base_url, model, temperature, reasoning_effort, token_limit, current_persona, global_prompt, tts_*, title_model, cron_model, ...). action: list|get|set. Set a field to \"\" to clear it.")
+@tool(toolset="admin", instruction=USER_DATA_INSTRUCTION, description="Read or change the calling user's own AI settings (api_key, base_url, model, temperature, reasoning_effort, token_limit, current_persona, global_prompt, title_model, cron_model, ...). action: list|get|set. Set a field to \"\" to clear it.")
 async def user_settings(
     ctx: ToolContext,
     action: Literal["list", "get", "set"],
