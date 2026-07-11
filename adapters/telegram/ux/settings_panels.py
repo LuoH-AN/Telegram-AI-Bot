@@ -127,7 +127,7 @@ def generation_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup
         f"📨 收到新消息时：{busy_label}\n"
         f"🧰 工具活动：{progress_label}\n"
         f"🌡 温度：`{settings.get('temperature', 0.7)}`\n\n"
-        "“消息发送”只影响 Telegram 中的刷新方式，不会改变模型能力。",
+        "“消息发送”只影响 Telegram 中的刷新方式，不会改变模型能力。每轮工具活动会作为独立消息保留在回答片段之间。",
         "🎨 **Generation & delivery**\n\n"
         f"🧠 Reasoning effort: {_reasoning_label(reasoning, lang)}\n"
         f"🌊 Message delivery: {_stream_label(stream, lang)}\n"
@@ -135,7 +135,7 @@ def generation_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup
         f"📨 When a new message arrives: {busy_label}\n"
         f"🧰 Tool activity: {progress_label}\n"
         f"🌡 Temperature: `{settings.get('temperature', 0.7)}`\n\n"
-        "Message delivery only controls Telegram updates; it does not change model capability.",
+        "Message delivery only controls Telegram updates; it does not change model capability. Each tool round remains as its own message between assistant segments.",
     )
     rows = [
         [

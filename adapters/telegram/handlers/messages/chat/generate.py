@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from infrastructure.config import MAX_TOOL_ROUNDS, SHOW_THINKING_MAX_CHARS, STREAM_UPDATE_MODE
@@ -30,6 +31,7 @@ async def generate_with_tools(
     last_text_response = ""
     last_reasoning_content = ""
     thinking_segments: list[str] = []
+    response_segments: list[str] = []
     full_response = ""
     initial_stall_retry_used = False
     user_stream_mode = settings.get("stream_mode", "") or STREAM_UPDATE_MODE
@@ -58,12 +60,20 @@ async def generate_with_tools(
             last_reasoning_content = reasoning_content
         if tool_calls:
             logger.info("%s model requested %d tool calls", ctx, len(tool_calls))
-            if full_response.strip():
+            round_response = truncated_prefix + full_response if truncated_prefix else full_response
+            visible = filter_thinking_content(round_response).strip()
+            prepare_boundary = getattr(runtime, "prepare_tool_boundary", None)
+            if prepare_boundary is not None:
+                await prepare_boundary(visible)
+            else:
                 await runtime.render_pump.drain()
-                visible = filter_thinking_content(full_response).strip()
                 if visible:
                     await runtime.outbound.deliver_final(visible)
-                    runtime.clear_placeholder()
+                runtime.clear_placeholder()
+            if visible:
+                response_segments.append(visible)
+            truncated_prefix = ""
+            last_text_response = ""
             if tool_rounds >= MAX_TOOL_ROUNDS:
                 if not active_tool_definitions:
                     logger.error("%s model emitted tool calls after tools were disabled; stopping loop", ctx)
@@ -80,6 +90,8 @@ async def generate_with_tools(
                 "all",
                 runtime.tool_event_callback,
             )
+            await asyncio.sleep(0)
+            await runtime.render_pump.drain()
             messages.append(build_assistant_tool_call_message(full_response, tool_calls, reasoning_content))
             messages.extend(tool_results)
             continue
@@ -109,9 +121,13 @@ async def generate_with_tools(
     )
     if final_text == "(Empty response)":
         logger.warning("%s model returned empty visible response", ctx)
+    persisted_segments = list(response_segments)
+    if final_text != "(Empty response)":
+        persisted_segments.append(final_text)
+    persisted_final_text = "\n\n".join(segment for segment in persisted_segments if segment.strip()) or "(Empty response)"
     return {
         "messages": messages,
-        "final_text": final_text,
+        "final_text": persisted_final_text,
         "display_final": display_final,
         "thinking_block": thinking_block,
         "total_prompt_tokens": total_prompt_tokens,

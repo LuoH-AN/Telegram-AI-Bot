@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from adapters.telegram.rich_text import send_rich_text
@@ -29,6 +29,7 @@ class RenderState:
     status_seed_cancelled: bool = False
     user_message_persisted: bool = False
     tool_message: object | None = None
+    tool_messages: list[object] = field(default_factory=list)
     native_draft_enabled: bool = False
     native_draft_failed: bool = False
     draft_id: int = 0
@@ -43,6 +44,7 @@ class RenderRuntime:
     stream_update: Callable[[str], Awaitable[bool]]
     status_update: Callable[[str], Awaitable[bool]]
     tool_event_callback: Callable[[dict], None]
+    prepare_tool_boundary: Callable[[str], Awaitable[bool]]
     clear_placeholder: Callable[[], None]
     clear_tool_status: Callable[[], Awaitable[None]]
     status_seed_task: asyncio.Task
@@ -110,27 +112,55 @@ async def setup_render_runtime(
         stream_edit_min_interval_seconds=STREAM_FORCE_UPDATE_INTERVAL,
     )
 
+    async def _start_tool_status(text: str) -> bool:
+        if state.tool_message is not None:
+            state.tool_messages.append(state.tool_message)
+            state.tool_message = None
+        sent_messages = await send_message_safe(message, text, disable_notification=True)
+        if not sent_messages:
+            return False
+        state.tool_message = sent_messages[-1]
+        return True
+
     async def _render_tool_status(text: str) -> bool:
         if state.tool_message is None:
-            sent_messages = await send_message_safe(message, text, disable_notification=True)
-            if not sent_messages:
-                return False
-            state.tool_message = sent_messages[-1]
-            return True
+            return await _start_tool_status(text)
         return await edit_message_safe(state.tool_message, text)
+
+    async def _finish_tool_status(text: str) -> bool:
+        if state.tool_message is None:
+            ok = await _start_tool_status(text)
+            if state.tool_message is not None:
+                state.tool_messages.append(state.tool_message)
+                state.tool_message = None
+            return ok
+        ok = await edit_message_safe(state.tool_message, text)
+        state.tool_messages.append(state.tool_message)
+        state.tool_message = None
+        return ok
+
+    tool_states: dict[str, str] = {}
 
     async def _clear_tool_status() -> None:
         if state.tool_message is None:
             return
-        try:
-            await state.tool_message.delete()
-        except Exception:
-            logger.debug("%s failed to remove tool status message", ctx, exc_info=True)
-        state.tool_message = None
+        for name, status in list(tool_states.items()):
+            if status == "running":
+                tool_states[name] = "error"
+        text = build_tool_progress_text(tool_states, lang=lang, mode=progress_mode)
+        if text:
+            await _finish_tool_status(text)
+        else:
+            state.tool_messages.append(state.tool_message)
+            state.tool_message = None
 
     async def _render_event(event) -> bool:
-        if event.kind == "tool_status":
+        if event.kind == "tool_round_start":
+            return await _start_tool_status(event.text)
+        if event.kind == "tool_round_update":
             return await _render_tool_status(event.text)
+        if event.kind == "tool_round_end":
+            return await _finish_tool_status(event.text)
         if event.kind in {"stream", "status"}:
             return await outbound.stream_update(event.text)
         return False
@@ -138,31 +168,64 @@ async def setup_render_runtime(
     render_pump = ChatEventPump(_render_event)
     render_pump.start()
     loop = asyncio.get_running_loop()
-    tool_states: dict[str, str] = {}
+    last_tool_status = ""
+
+    def _emit_tool_status(kind: str, *, force: bool = False) -> None:
+        nonlocal last_tool_status
+        status_text = build_tool_progress_text(tool_states, lang=lang, mode=progress_mode)
+        if not status_text:
+            return
+        if not force and status_text == last_tool_status:
+            return
+        last_tool_status = status_text
+        render_pump.emit_threadsafe(loop, kind, status_text)
 
     def _tool_event_callback(event: dict) -> None:
+        nonlocal last_tool_status
         event_type = str(event.get("type") or "").strip()
         name = str(event.get("tool_name") or "").strip()
         if event_type == "tool_batch_start":
+            tool_states.clear()
+            last_tool_status = ""
             for tool_name in event.get("tool_names") or []:
                 tool_states[str(tool_name)] = "running"
+            _emit_tool_status("tool_round_start", force=True)
         elif event_type == "tool_start" and name:
             tool_states[name] = "running"
         elif event_type == "tool_error" and name:
             tool_states[name] = "error"
         elif event_type == "tool_end" and name:
             tool_states[name] = "done" if event.get("ok") else "error"
+        elif event_type == "tool_batch_end":
+            _emit_tool_status("tool_round_end", force=True)
+            return
         else:
             return
-        status_text = build_tool_progress_text(tool_states, lang=lang, mode=progress_mode)
-        if status_text:
-            render_pump.emit_threadsafe(loop, "tool_status", status_text)
+        _emit_tool_status("tool_round_update")
 
     async def _stream_update(text: str) -> bool:
         return await render_pump.emit("stream", text)
 
     async def _status_update(text: str) -> bool:
         return await render_pump.emit("status", text)
+
+    async def _prepare_tool_boundary(text: str) -> bool:
+        await render_pump.drain()
+        state.native_draft_enabled = False
+        visible = (text or "").strip()
+        if visible:
+            ok = await outbound.deliver_final(visible)
+            if state.bot_message is not None:
+                try:
+                    await state.bot_message.edit_reply_markup(reply_markup=None)
+                except Exception:
+                    logger.debug("%s failed to remove stop keyboard at tool boundary", ctx, exc_info=True)
+        else:
+            await outbound.discard_placeholder()
+            ok = True
+        state.bot_message = None
+        outbound.reset_stream_window()
+        return ok
 
     async def _seed_status_after_delay() -> None:
         try:
@@ -181,6 +244,7 @@ async def setup_render_runtime(
         stream_update=_stream_update,
         status_update=_status_update,
         tool_event_callback=_tool_event_callback,
+        prepare_tool_boundary=_prepare_tool_boundary,
         clear_placeholder=lambda: setattr(state, "bot_message", None),
         clear_tool_status=_clear_tool_status,
         status_seed_task=asyncio.create_task(_seed_status_after_delay()),

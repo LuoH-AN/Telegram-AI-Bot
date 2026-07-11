@@ -24,7 +24,7 @@ class ChatEventPump:
         self._render_func = render_func
         self._queue: asyncio.Queue[ChatRenderEvent | None] = asyncio.Queue()
         self._runner_task: asyncio.Task | None = None
-        self._last_rendered_text: str | None = None
+        self._last_rendered_event: tuple[str, str] | None = None
         self._stopped = False
 
     def start(self) -> None:
@@ -85,9 +85,10 @@ class ChatEventPump:
             try:
                 # Deduplicate identical edits to reduce platform API pressure.
                 text = (event.text or "").rstrip() or "Thinking..."
-                if text != self._last_rendered_text:
+                event_key = (event.kind, text)
+                if event_key != self._last_rendered_event:
                     rendered = await self._render_func(ChatRenderEvent(kind=event.kind, text=text, created_at=event.created_at))
                     if rendered is not False:
-                        self._last_rendered_text = text
+                        self._last_rendered_event = event_key
             finally:
                 self._queue.task_done()

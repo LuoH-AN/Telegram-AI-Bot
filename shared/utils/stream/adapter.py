@@ -71,6 +71,15 @@ class StreamOutboundAdapter:
 
         return await self._send_text(safe_text)
 
+    async def discard_placeholder(self) -> None:
+        """Remove the active placeholder without sending fallback content."""
+        if self._has_placeholder():
+            await self._safe_delete_placeholder()
+
+    def reset_stream_window(self) -> None:
+        """Allow the next segment to render immediately after a boundary."""
+        self._last_stream_edit_at = 0.0
+
     async def _safe_delete_placeholder(self) -> None:
         try:
             await self._delete_placeholder()
