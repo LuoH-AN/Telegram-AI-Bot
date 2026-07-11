@@ -64,6 +64,29 @@ def test_terminal_environment_routes_dependency_managers_into_backup_data(monkey
     assert env["PATH"].startswith(str(root))
 
 
+def test_bot_runtime_keeps_image_user_site_importable(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    from shared.terminal_environment import build_persistent_runtime_env
+
+    legacy_site = tmp_path / "legacy" / "site-packages"
+    legacy_site.mkdir(parents=True)
+    (legacy_site / "legacy_dependency.py").write_text("VALUE = 42\n", encoding="utf-8")
+    monkeypatch.setenv("BACKUP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(sys, "path", [*sys.path, str(legacy_site)])
+    env = build_persistent_runtime_env({"PATH": "/usr/bin", "HOME": "/original-home"})
+
+    assert env["HOME"] == "/original-home"
+    completed = subprocess.run(
+        [sys.executable, "-c", "import legacy_dependency; assert legacy_dependency.VALUE == 42"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_terminal_backup_requests_are_coalesced_in_data_dir(monkeypatch, tmp_path):
     import entrypoints.launcher.backup as backup
 

@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from shared.terminal_environment import build_persistent_terminal_env
+from shared.terminal_environment import build_persistent_runtime_env
 
 HEADLESS_OFF_VALUES = {"0", "false", "no", "off", "headed"}
 UPDATE_RESTART_EXIT_CODE = 42
@@ -34,7 +34,7 @@ def _build_command(module_name: str) -> list[str]:
 
 
 def start_child(name: str, module_name: str, *, root_dir: Path, port: str) -> ChildProcess:
-    env = build_persistent_terminal_env(os.environ)
+    env = build_persistent_runtime_env(os.environ)
     env["PORT"] = str(port)
     env["BOT_LAUNCHER_MANAGED"] = "1"
     print(f">>> Starting {name} bot on PORT={port}", flush=True)

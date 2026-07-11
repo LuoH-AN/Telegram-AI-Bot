@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import site
 import sys
 from pathlib import Path
 from typing import Mapping
@@ -67,10 +68,35 @@ def build_persistent_terminal_env(base: Mapping[str, str] | None = None) -> dict
     current_path = env.get("PATH", "")
     env["PATH"] = os.pathsep.join([*(str(path) for path in persistent_bins), current_path])
     current_pythonpath = env.get("PYTHONPATH", "")
+    inherited_sites: list[str] = []
+    for candidate in [*sys.path, *site.getsitepackages(), site.getusersitepackages()]:
+        text = str(candidate or "")
+        if text and ("site-packages" in text or "dist-packages" in text) and text not in inherited_sites:
+            inherited_sites.append(text)
     env["PYTHONPATH"] = os.pathsep.join(
-        part for part in (str(python_site), current_pythonpath) if part
+        part for part in (str(python_site), current_pythonpath, *inherited_sites) if part
     )
     env.setdefault("PIP_BREAK_SYSTEM_PACKAGES", "1")
     env.setdefault("PIP_ROOT_USER_ACTION", "ignore")
     env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    return env
+
+
+def build_persistent_runtime_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Expose persistent tools to the bot without replacing its image HOME/user-site."""
+    original = dict(base or os.environ)
+    env = build_persistent_terminal_env(original)
+    for key in (
+        "HOME",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "TMPDIR",
+        "PYTHONUSERBASE",
+    ):
+        if key in original:
+            env[key] = original[key]
+        else:
+            env.pop(key, None)
     return env
