@@ -149,7 +149,7 @@ def test_key_pool_detects_runtime_key_changes(monkeypatch):
     assert pool.acquire() == "key-b"
 
 
-def test_tool_round_limit_forces_a_final_request(monkeypatch):
+def test_tool_rounds_continue_until_model_finishes(monkeypatch):
     generate = importlib.import_module("adapters.telegram.handlers.messages.chat.generate")
     tools_module = importlib.import_module("infrastructure.tools")
     tool_calls_seen = []
@@ -198,7 +198,6 @@ def test_tool_round_limit_forces_a_final_request(monkeypatch):
             return None
 
     monkeypatch.setattr(generate, "stream_response", fake_stream)
-    monkeypatch.setattr(generate, "MAX_TOOL_ROUNDS", 1)
     monkeypatch.setattr(tools_module, "get_all_tools", lambda **_kwargs: [{"type": "function"}])
     monkeypatch.setattr(tools_module, "process_tool_calls", fake_process)
 
@@ -214,6 +213,6 @@ def test_tool_round_limit_forces_a_final_request(monkeypatch):
         )
     )
     assert result["final_text"] == "done"
-    assert process_calls == [True]
-    assert tool_calls_seen == [[{"type": "function"}], [{"type": "function"}], []]
-    assert any("tool_round_limit" in message.get("content", "") for message in messages)
+    assert process_calls == [True, True]
+    assert tool_calls_seen == [[{"type": "function"}], [{"type": "function"}], [{"type": "function"}]]
+    assert not any("tool_round_limit" in message.get("content", "") for message in messages)

@@ -141,7 +141,7 @@ EXA_API_KEYS=exa-key-1,exa-key-2
 ENABLED_TOOLS=search,memory,send_file
 ```
 
-可通过 `EXA_SEARCH_TYPE`、`EXA_CACHE_TTL`、`EXA_MODERATION` 和 `MAX_TOOL_ROUNDS` 调整搜索模式、缓存、安全过滤及工具调用上限。日常查询推荐 `auto`；`deep-lite`、`deep`、`deep-reasoning` 更慢且费用更高，只适合复杂研究。
+可通过 `EXA_SEARCH_TYPE`、`EXA_CACHE_TTL` 和 `EXA_MODERATION` 调整搜索模式、缓存及安全过滤。工具调用不设固定轮次上限，会持续到模型完成任务、用户取消或现有超时机制中断。日常查询推荐 `auto`；`deep-lite`、`deep`、`deep-reasoning` 更慢且费用更高，只适合复杂研究。
 
 ## 关键环境变量
 

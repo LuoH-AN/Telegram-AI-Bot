@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from infrastructure.config import MAX_TOOL_ROUNDS, SHOW_THINKING_MAX_CHARS, STREAM_UPDATE_MODE
+from infrastructure.config import SHOW_THINKING_MAX_CHARS, STREAM_UPDATE_MODE
 from shared.utils.ai import filter_thinking_content
 
 from infrastructure.ai.stream import stream_response
-from .tool import build_assistant_tool_call_message, build_tool_limit_results
+from .tool import build_assistant_tool_call_message
 from .utils import append_thinking_segments, build_final_display, normalize_reasoning_effort
 
 logger = logging.getLogger(__name__)
@@ -40,15 +40,13 @@ async def generate_with_tools(
     show_thinking = bool(settings.get("show_thinking"))
     from infrastructure.tools import get_all_tools, process_tool_calls
     tool_definitions = get_all_tools(enabled_tools="all", user_id=user_id)
-    active_tool_definitions = tool_definitions
-    tool_rounds = 0
 
     while True:
         full_response, usage_info, thinking_seconds, finish_reason, reasoning_content, tool_calls = await stream_response(
             client, messages, settings["model"], settings["temperature"], user_reasoning_effort,
             runtime.stream_update, runtime.status_update, show_waiting=(not truncated_prefix),
             stream_mode=user_stream_mode, include_thought_prefix=True, stream_cursor=True,
-            show_thinking=show_thinking, thinking_max_chars=SHOW_THINKING_MAX_CHARS, tools=active_tool_definitions,
+            show_thinking=show_thinking, thinking_max_chars=SHOW_THINKING_MAX_CHARS, tools=tool_definitions,
         )
         total_thinking_seconds += thinking_seconds
         append_thinking_segments(show_thinking=show_thinking, full_response=full_response, reasoning_content=reasoning_content, segments=thinking_segments)
@@ -75,16 +73,6 @@ async def generate_with_tools(
                 response_segments.append(visible)
             truncated_prefix = ""
             last_text_response = ""
-            if tool_rounds >= MAX_TOOL_ROUNDS:
-                if not active_tool_definitions:
-                    logger.error("%s model emitted tool calls after tools were disabled; stopping loop", ctx)
-                    break
-                logger.warning("%s tool-call round limit reached (%d); forcing final answer", ctx, MAX_TOOL_ROUNDS)
-                messages.append(build_assistant_tool_call_message(full_response, tool_calls, reasoning_content))
-                messages.extend(build_tool_limit_results(tool_calls, MAX_TOOL_ROUNDS))
-                active_tool_definitions = []
-                continue
-            tool_rounds += 1
             tool_results = await process_tool_calls(
                 user_id,
                 tool_calls,
