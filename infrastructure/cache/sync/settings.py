@@ -17,7 +17,7 @@ from infrastructure.database.loaders import parse_settings_row
 SETTINGS_COLUMNS = [
     "user_id", "api_key", "base_url", "model", "temperature", "reasoning_effort", "show_thinking",
     "token_limit", "current_persona", "stream_mode", "busy_mode", "tool_progress",
-    "api_presets", "title_model", "cron_model", "global_prompt", "timezone", "terminal_approvals",
+    "api_presets", "title_model", "cron_model", "global_prompt", "timezone", "terminal_approvals", "ux_language",
 ]
 _PLACEHOLDERS = ", ".join(["%s"] * len(SETTINGS_COLUMNS))
 _UPDATE = ", ".join(f"{col} = EXCLUDED.{col}" for col in SETTINGS_COLUMNS[1:])
@@ -58,6 +58,7 @@ def values(user_id: int, settings: dict) -> tuple:
         settings.get("global_prompt", ""),
         settings.get("timezone", "Asia/Shanghai"),
         terminal_approvals_json,
+        settings.get("ux_language", ""),
     )
 
 

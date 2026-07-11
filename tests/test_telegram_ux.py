@@ -22,7 +22,9 @@ from adapters.telegram.ux.panels import help_panel, main_panel, stop_keyboard
 from adapters.telegram.ux.settings_panels import (
     advanced_settings_panel,
     connection_panel,
+    delivery_panel,
     generation_panel,
+    model_generation_panel,
     providers_panel,
     settings_panel,
 )
@@ -52,7 +54,6 @@ def test_onboarding_panel_has_safe_setup_actions(monkeypatch):
     callbacks = _callbacks(keyboard)
     assert "API Key" in text
     assert "ux:onboard:key" in callbacks
-    assert "ux:onboard:base_custom" in callbacks
 
 
 def test_configured_main_panel_links_primary_tasks(monkeypatch):
@@ -62,7 +63,7 @@ def test_configured_main_panel_links_primary_tasks(monkeypatch):
     monkeypatch.setattr(panels, "get_current_persona_name", lambda _user_id: "default")
     _, keyboard = main_panel(1, "en")
     callbacks = _callbacks(keyboard)
-    assert {"ux:chat:0", "ux:persona:0", "ux:settings", "ux:cron", "ux:features", "ux:help"} <= callbacks
+    assert {"ux:chat:0", "ux:chat:new", "ux:persona:0", "ux:settings", "ux:cron", "ux:features", "ux:help"} <= callbacks
 
 
 def test_feature_center_exposes_command_only_capabilities(monkeypatch):
@@ -102,8 +103,8 @@ def test_memory_panel_has_add_delete_and_clear_buttons(monkeypatch):
     assert "Long-term memories" in text
     assert {
         "ux:memory:add",
-        "ux:memory:delete:1",
-        "ux:memory:delete:2",
+        "ux:memory:view:1",
+        "ux:memory:view:2",
         "ux:memory:clear",
     } <= callbacks
 
@@ -115,7 +116,7 @@ def test_memory_panel_paginates_large_memory_lists(monkeypatch):
     text, keyboard = memory_panel(1, "zh", page=1)
     callbacks = _callbacks(keyboard)
     assert "第 2/2 页" in text
-    assert "ux:memory:delete:9" in callbacks
+    assert "ux:memory:view:9" in callbacks
     assert "ux:memory:page:0" in callbacks
 
 
@@ -134,10 +135,10 @@ def test_generation_panel_exposes_busy_and_tool_progress_controls(monkeypatch):
             "tool_progress": "compact",
         },
     )
-    text, keyboard = generation_panel(1, "en")
+    text, keyboard = delivery_panel(1, "en")
     callbacks = _callbacks(keyboard)
     assert "queue" in text.lower()
-    assert "key activity" in text.lower()
+    assert "brief" in text.lower()
     assert {"ux:set:busy:interrupt", "ux:set:busy:queue"} <= callbacks
     assert {
         "ux:set:progress:off",
@@ -174,6 +175,8 @@ def test_settings_center_exposes_every_settings_category(monkeypatch):
         "ux:settings:timezone",
         "ux:settings:full",
         "ux:usage",
+        "ux:lang:zh",
+        "ux:lang:en",
     } <= callbacks
 
 
@@ -214,16 +217,17 @@ def test_generation_panel_uses_clear_bilingual_labels(monkeypatch):
             "tool_progress": "full",
         },
     )
-    zh_text, zh_keyboard = generation_panel(1, "zh")
-    en_text, en_keyboard = generation_panel(1, "en")
+    zh_text, zh_keyboard = delivery_panel(1, "zh")
+    en_text, en_keyboard = delivery_panel(1, "en")
     zh_labels = {button.text for row in zh_keyboard.inline_keyboard for button in row}
     en_labels = {button.text for row in en_keyboard.inline_keyboard for button in row}
-    assert "消息发送" in zh_text
-    assert any("按字数刷新" in label for label in zh_labels)
-    assert "Message delivery" in en_text
+    assert "Telegram 发送设置" in zh_text
+    assert any("分段刷新" in label for label in zh_labels)
+    assert "Telegram delivery" in en_text
     assert any("Batched" in label for label in en_labels)
-    assert "ux:set:reasoning:minimal" in _callbacks(zh_keyboard)
-    assert "ux:set:reasoning:none" in _callbacks(zh_keyboard)
+    _, model_keyboard = model_generation_panel(1, "zh")
+    assert "ux:set:reasoning:minimal" in _callbacks(model_keyboard)
+    assert "ux:set:reasoning:none" in _callbacks(model_keyboard)
 
 
 def test_advanced_panel_has_buttons_for_previously_command_only_settings(monkeypatch):

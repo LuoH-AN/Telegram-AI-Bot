@@ -56,4 +56,5 @@ def parse_settings_row(row: Mapping) -> dict:
         "global_prompt": row.get("global_prompt") or "",
         "timezone": row.get("timezone") or "Asia/Shanghai",
         "terminal_approvals": parse_json_list(row.get("terminal_approvals")),
+        "ux_language": row.get("ux_language") or "",
     }

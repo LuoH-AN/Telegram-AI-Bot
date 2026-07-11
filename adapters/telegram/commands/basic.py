@@ -46,6 +46,16 @@ async def help_command(ctx: CommandContext) -> str:
     return build_help_message("/", groups)
 
 
+@command("cancel", help="cancel the current input flow", category="Chat", refresh_state=False)
+async def cancel_command(ctx: CommandContext) -> str:
+    lang = language(ctx.update, ctx.context)
+    pending = ctx.context.user_data.pop("ux_pending", None)
+    ctx.context.user_data.pop("cron_draft", None)
+    if pending:
+        return pick(lang, "✅ 已取消当前输入操作。你的下一条消息会正常发送给 AI。", "✅ Input cancelled. Your next message will be sent to the AI normally.")
+    return pick(lang, "当前没有等待输入的操作。", "There is no active input flow to cancel.")
+
+
 @command("clear", help="clear conversation", category="Chat")
 async def clear_command(ctx: CommandContext) -> str:
     persona_name = get_current_persona_name(ctx.user_id)

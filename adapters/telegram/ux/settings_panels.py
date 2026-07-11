@@ -96,6 +96,10 @@ def settings_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
             InlineKeyboardButton(pick(lang, "📊 用量与上下文", "📊 Usage & context"), callback_data="ux:usage"),
             InlineKeyboardButton(pick(lang, "📋 查看全部配置", "📋 View all values"), callback_data="ux:settings:full"),
         ],
+        [
+            InlineKeyboardButton(_selected(lang, "zh", "中文"), callback_data="ux:lang:zh"),
+            InlineKeyboardButton(_selected(lang, "en", "English"), callback_data="ux:lang:en"),
+        ],
         [InlineKeyboardButton(pick(lang, "⬅️ 返回主菜单", "⬅️ Back to main menu"), callback_data="ux:menu")],
     ]
     return text, _markup(rows)
@@ -138,6 +142,23 @@ def generation_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup
         "Message delivery only controls Telegram updates; it does not change model capability. Each tool round remains as its own message between assistant segments.",
     )
     rows = [
+        [InlineKeyboardButton(pick(lang, "🧠 模型生成设置", "🧠 Model generation"), callback_data="ux:settings:model_generation")],
+        [InlineKeyboardButton(pick(lang, "📨 Telegram 发送设置", "📨 Telegram delivery"), callback_data="ux:settings:delivery")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 返回设置中心", "⬅️ Back to settings"), callback_data="ux:settings")],
+    ]
+    return text, _markup(rows)
+
+
+def model_generation_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    settings = get_user_settings(user_id)
+    reasoning = settings.get("reasoning_effort", "") or ""
+    thinking = bool(settings.get("show_thinking"))
+    text = pick(
+        lang,
+        f"🧠 **模型生成设置**\n\n推理深度：{_reasoning_label(reasoning, lang)}\n思考摘要：{'显示' if thinking else '隐藏'}\n温度：`{settings.get('temperature', 0.7)}`\n\n多数用户建议使用“自动”；更高推理深度通常更慢。温度用于调整回答随机性。",
+        f"🧠 **Model generation**\n\nReasoning depth: {_reasoning_label(reasoning, lang)}\nThinking summary: {'Shown' if thinking else 'Hidden'}\nTemperature: `{settings.get('temperature', 0.7)}`\n\nAuto is recommended for most users. Deeper reasoning is usually slower. Temperature controls response randomness.",
+    )
+    rows = [
         [
             InlineKeyboardButton(_selected(reasoning, "", pick(lang, "自动", "Auto")), callback_data="ux:set:reasoning:clear"),
             InlineKeyboardButton(_selected(reasoning, "none", pick(lang, "关闭", "Off")), callback_data="ux:set:reasoning:none"),
@@ -149,31 +170,41 @@ def generation_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup
             InlineKeyboardButton(_selected(reasoning, "high", pick(lang, "高", "High")), callback_data="ux:set:reasoning:high"),
             InlineKeyboardButton(_selected(reasoning, "xhigh", pick(lang, "极高", "XHigh")), callback_data="ux:set:reasoning:xhigh"),
         ],
-        [
-            InlineKeyboardButton(_selected(stream, "default", pick(lang, "实时流式", "Live")), callback_data="ux:set:stream:default"),
-            InlineKeyboardButton(_selected(stream, "time", pick(lang, "定时刷新", "Timed")), callback_data="ux:set:stream:time"),
-        ],
-        [
-            InlineKeyboardButton(_selected(stream, "chars", pick(lang, "按字数刷新", "Batched")), callback_data="ux:set:stream:chars"),
-            InlineKeyboardButton(_selected(stream, "off", pick(lang, "完成后发送", "On completion")), callback_data="ux:set:stream:off"),
-        ],
         [InlineKeyboardButton(pick(lang, f"💭 思考摘要：{'显示' if thinking else '隐藏'}", f"💭 Thinking summary: {'shown' if thinking else 'hidden'}"), callback_data="ux:set:thinking:toggle")],
-        [
-            InlineKeyboardButton(_selected(busy_mode, "interrupt", pick(lang, "⚡ 中断旧回复", "⚡ Interrupt old reply")), callback_data="ux:set:busy:interrupt"),
-            InlineKeyboardButton(_selected(busy_mode, "queue", pick(lang, "🕐 新消息排队", "🕐 Queue new message")), callback_data="ux:set:busy:queue"),
-        ],
-        [
-            InlineKeyboardButton(_selected(tool_progress, "off", pick(lang, "🔕 隐藏工具进度", "🔕 Hide tools")), callback_data="ux:set:progress:off"),
-            InlineKeyboardButton(_selected(tool_progress, "compact", pick(lang, "🧰 关键进度", "🧰 Key activity")), callback_data="ux:set:progress:compact"),
-        ],
-        [InlineKeyboardButton(_selected(tool_progress, "full", pick(lang, "📋 完整工具进度", "📋 Full tool activity")), callback_data="ux:set:progress:full")],
         [
             InlineKeyboardButton("🌡 0.2", callback_data="ux:set:temperature:0.2"),
             InlineKeyboardButton("🌡 0.7", callback_data="ux:set:temperature:0.7"),
             InlineKeyboardButton("🌡 1.0", callback_data="ux:set:temperature:1.0"),
         ],
         [InlineKeyboardButton(pick(lang, "✏️ 输入自定义温度", "✏️ Enter custom temperature"), callback_data="ux:settings:temperature_custom")],
-        [InlineKeyboardButton(pick(lang, "⬅️ 返回设置中心", "⬅️ Back to settings"), callback_data="ux:settings")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 返回生成与发送", "⬅️ Back to generation & delivery"), callback_data="ux:settings:generation")],
+    ]
+    return text, _markup(rows)
+
+
+def delivery_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    settings = get_user_settings(user_id)
+    stream = settings.get("stream_mode", "") or "default"
+    busy_mode = normalize_telegram_busy_mode(settings.get("busy_mode"))
+    tool_progress = normalize_telegram_tool_progress(settings.get("tool_progress"))
+    progress_label = pick(
+        lang,
+        {"off": "隐藏", "compact": "简要", "full": "详细"}[tool_progress],
+        {"off": "Hidden", "compact": "Brief", "full": "Detailed"}[tool_progress],
+    )
+    text = pick(
+        lang,
+        f"📨 **Telegram 发送设置**\n\n显示方式：{_stream_label(stream, lang)}\n新消息：{'立即中断旧回复' if busy_mode == 'interrupt' else '按顺序排队'}\n工具进度：{progress_label}\n\n这些选项只影响 Telegram 中的显示和排队方式，不改变模型能力。",
+        f"📨 **Telegram delivery**\n\nDisplay: {_stream_label(stream, lang)}\nNew messages: {'Interrupt the old reply' if busy_mode == 'interrupt' else 'Process in order'}\nTool activity: {progress_label}\n\nThese options affect Telegram display and queueing only, not model capability.",
+    )
+    rows = [
+        [InlineKeyboardButton(_selected(stream, "default", pick(lang, "实时显示", "Live")), callback_data="ux:set:stream:default"), InlineKeyboardButton(_selected(stream, "time", pick(lang, "稳定刷新", "Timed")), callback_data="ux:set:stream:time")],
+        [InlineKeyboardButton(_selected(stream, "chars", pick(lang, "分段刷新", "Batched")), callback_data="ux:set:stream:chars"), InlineKeyboardButton(_selected(stream, "off", pick(lang, "完成后发送", "On completion")), callback_data="ux:set:stream:off")],
+        [InlineKeyboardButton(_selected(busy_mode, "interrupt", pick(lang, "⚡ 立即处理新消息", "⚡ Handle new message now")), callback_data="ux:set:busy:interrupt")],
+        [InlineKeyboardButton(_selected(busy_mode, "queue", pick(lang, "🕐 按顺序处理", "🕐 Process in order")), callback_data="ux:set:busy:queue")],
+        [InlineKeyboardButton(_selected(tool_progress, "off", pick(lang, "🔕 隐藏进度", "🔕 Hide activity")), callback_data="ux:set:progress:off"), InlineKeyboardButton(_selected(tool_progress, "compact", pick(lang, "🧰 简要进度", "🧰 Brief activity")), callback_data="ux:set:progress:compact")],
+        [InlineKeyboardButton(_selected(tool_progress, "full", pick(lang, "📋 详细进度", "📋 Detailed activity")), callback_data="ux:set:progress:full")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 返回生成与发送", "⬅️ Back to generation & delivery"), callback_data="ux:settings:generation")],
     ]
     return text, _markup(rows)
 

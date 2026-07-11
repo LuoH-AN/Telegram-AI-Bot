@@ -33,6 +33,7 @@ from domain.services import (
     schedule_process_restart,
     set_token_limit,
     switch_persona,
+    update_persona_prompt,
     update_user_setting,
 )
 from domain.services.cron.trigger import run_cron_task
@@ -53,17 +54,22 @@ from .panels import (
     cron_panel,
     cron_schedule_panel,
     generation_panel,
+    delivery_panel,
+    model_generation_panel,
     feature_panel,
     help_panel,
     help_topic,
     main_panel,
+    memory_detail,
     memory_panel,
+    persona_detail,
     personas_panel,
     provider_detail,
     providers_panel,
     skill_detail,
     skills_panel,
     sessions_panel,
+    session_detail,
     settings_panel,
     specialized_model_keyboard,
     specialized_model_source_panel,
@@ -188,7 +194,10 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     context.user_data.pop("ux_pending", None)
 
     if data.startswith("ux:lang:"):
-        context.user_data["ux_language"] = data.rsplit(":", 1)[1]
+        selected_language = data.rsplit(":", 1)[1]
+        context.user_data["ux_language"] = selected_language
+        update_user_setting(user_id, "ux_language", selected_language)
+        await _persist()
         lang = language(update, context)
         await _edit(query, main_panel(user_id, lang))
         return
@@ -203,6 +212,12 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     if data == "ux:settings:generation":
         await _edit(query, generation_panel(user_id, lang))
+        return
+    if data == "ux:settings:model_generation":
+        await _edit(query, model_generation_panel(user_id, lang))
+        return
+    if data == "ux:settings:delivery":
+        await _edit(query, delivery_panel(user_id, lang))
         return
     if data == "ux:settings:connection":
         await _edit(query, connection_panel(user_id, lang))
@@ -260,7 +275,7 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _ask(query, context, kind="timezone", lang=lang, back="ux:settings:timezone", text=pick(lang, "请输入 IANA 时区，例如 `Asia/Shanghai`、`Europe/Paris` 或 `UTC`。", "Send an IANA timezone such as `Asia/Shanghai`, `Europe/Paris`, or `UTC`."))
         return
     if data == "ux:settings:temperature_custom":
-        await _ask(query, context, kind="temperature", lang=lang, back="ux:settings:generation", text=pick(lang, "请输入 0.0–2.0 之间的温度值。", "Send a temperature between 0.0 and 2.0."))
+        await _ask(query, context, kind="temperature", lang=lang, back="ux:settings:model_generation", text=pick(lang, "你正在设置模型温度。下一条消息不会发送给 AI。\n\n请输入 0.0–2.0 之间的数值，或使用 /cancel 取消。", "You are setting model temperature. Your next message will not be sent to the AI.\n\nSend a value between 0.0 and 2.0, or use /cancel to stop."))
         return
     if data == "ux:onboard:key":
         await _ask(query, context, kind="api_key", lang=lang, back="ux:settings:connection", text=pick(lang, "🔑 请发送 API Key。\n\n收到后会立即尝试删除包含密钥的消息，并验证连接。", "🔑 Send your API key.\n\nThe message containing it will be deleted when possible, then the connection will be verified."))
@@ -519,6 +534,9 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data.startswith("ux:memory:page:"):
         await _edit(query, memory_panel(user_id, lang, int(data.rsplit(":", 1)[1])))
         return
+    if data.startswith("ux:memory:view:"):
+        await _edit(query, memory_detail(user_id, int(data.rsplit(":", 1)[1]), lang))
+        return
     if data == "ux:memory:add":
         await _ask(
             query,
@@ -745,37 +763,37 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         effort = data.rsplit(":", 1)[1]
         update_user_setting(user_id, "reasoning_effort", "" if effort == "clear" else effort)
         await _persist()
-        await _edit(query, generation_panel(user_id, lang))
+        await _edit(query, model_generation_panel(user_id, lang))
         return
     if data.startswith("ux:set:stream:"):
         update_user_setting(user_id, "stream_mode", data.rsplit(":", 1)[1])
         await _persist()
-        await _edit(query, generation_panel(user_id, lang))
+        await _edit(query, delivery_panel(user_id, lang))
         return
     if data.startswith("ux:set:busy:"):
         busy_mode = normalize_telegram_busy_mode(data.rsplit(":", 1)[1], default="")
         if busy_mode:
             update_user_setting(user_id, "busy_mode", busy_mode)
             await _persist()
-        await _edit(query, generation_panel(user_id, lang))
+        await _edit(query, delivery_panel(user_id, lang))
         return
     if data.startswith("ux:set:progress:"):
         tool_progress = normalize_telegram_tool_progress(data.rsplit(":", 1)[1], default="")
         if tool_progress:
             update_user_setting(user_id, "tool_progress", tool_progress)
             await _persist()
-        await _edit(query, generation_panel(user_id, lang))
+        await _edit(query, delivery_panel(user_id, lang))
         return
     if data == "ux:set:thinking:toggle":
         current = bool(cache.get_settings(user_id).get("show_thinking"))
         update_user_setting(user_id, "show_thinking", not current)
         await _persist()
-        await _edit(query, generation_panel(user_id, lang))
+        await _edit(query, model_generation_panel(user_id, lang))
         return
     if data.startswith("ux:set:temperature:"):
         update_user_setting(user_id, "temperature", float(data.rsplit(":", 1)[1]))
         await _persist()
-        await _edit(query, generation_panel(user_id, lang))
+        await _edit(query, model_generation_panel(user_id, lang))
         return
     if data.startswith("ux:set:timezone:"):
         timezone_name = data[len("ux:set:timezone:"):]
@@ -796,13 +814,34 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _edit(query, sessions_panel(user_id, lang, int(action)))
             return
         if action == "new":
-            create_session(user_id, persona)
+            session = create_session(user_id, persona)
+            cache.set_current_session_id(user_id, persona, session["id"])
             await _persist()
-            await _edit(query, sessions_panel(user_id, lang))
+            await _edit(query, session_detail(user_id, session["id"], lang))
+            return
+        if action.startswith("view:"):
+            await _edit(query, session_detail(user_id, int(action.split(":", 1)[1]), lang))
             return
         if action == "rename":
             session_id = get_current_session_id(user_id, persona)
             await _ask(query, context, kind="session_title", extra={"session_id": session_id}, lang=lang, back="ux:chat:0", text=pick(lang, "请输入当前会话的新标题。", "Send a new title for the current chat."))
+            return
+        if action.startswith("rename:"):
+            session_id = int(action.split(":", 1)[1])
+            await _ask(query, context, kind="session_title", extra={"session_id": session_id}, lang=lang, back=f"ux:chat:view:{session_id}", text=pick(lang, "你正在重命名这个会话。下一条消息不会发送给 AI。\n\n请输入新标题，或使用 /cancel 取消。", "You are renaming this chat. Your next message will not be sent to the AI.\n\nSend the new title, or use /cancel to stop."))
+            return
+        if action.startswith("delete:"):
+            session_id = int(action.split(":", 1)[1])
+            await _edit(query, confirmation(pick(lang, "确定删除这个会话及其全部消息？此操作无法撤销。", "Delete this chat and all its messages? This cannot be undone."), f"ux:chat:delete_yes:{session_id}", f"ux:chat:view:{session_id}", lang))
+            return
+        if action.startswith("delete_yes:"):
+            session_id = int(action.split(":", 1)[1])
+            sessions = get_sessions(user_id, persona)
+            index = next((i for i, item in enumerate(sessions, 1) if item["id"] == session_id), None)
+            if index:
+                delete_chat_session(user_id, index, persona)
+                await _persist()
+            await _edit(query, sessions_panel(user_id, lang))
             return
         if action.startswith("switch:"):
             session_id = int(action.split(":", 1)[1])
@@ -810,7 +849,7 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if session and session.get("user_id") == user_id:
                 cache.set_current_session_id(user_id, session["persona_name"], session_id)
                 await _persist()
-            await _edit(query, sessions_panel(user_id, lang))
+            await _edit(query, session_detail(user_id, session_id, lang))
             return
     if data == "ux:confirm:delete_chat":
         await _edit(query, confirmation(pick(lang, "确定删除当前会话及其全部消息？", "Delete the current chat and all its messages?"), "ux:delete_chat:yes", "ux:chat:0", lang))
@@ -832,10 +871,35 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _edit(query, personas_panel(user_id, lang, int(action)))
             return
         if action == "new":
-            await _ask(query, context, kind="persona_name", lang=lang, back="ux:persona:0", text=pick(lang, "请输入新角色名称。", "Send a name for the new persona."))
+            await _ask(query, context, kind="persona_name", lang=lang, back="ux:persona:0", text=pick(lang, "你正在创建新角色。下一条消息不会发送给 AI。\n\n请输入角色名称，或使用 /cancel 取消。", "You are creating a persona. Your next message will not be sent to the AI.\n\nSend its name, or use /cancel to stop."))
+            return
+        if action.startswith("view:"):
+            await _edit(query, persona_detail(user_id, action.split(":", 1)[1], lang))
             return
         if action == "prompt":
             await _ask(query, context, kind="persona_prompt", lang=lang, back="ux:persona:0", text=pick(lang, "请输入当前角色的新系统提示词。", "Send the new system prompt for the current persona."))
+            return
+        if action.startswith("prompt:"):
+            token = action.split(":", 1)[1]
+            persona = next((item for item in get_personas(user_id).values() if stable_token(item["name"]) == token), None)
+            if persona:
+                await _ask(query, context, kind="persona_prompt_named", extra={"persona_name": persona["name"], "token": token}, lang=lang, back=f"ux:persona:view:{token}", text=pick(lang, f"你正在编辑角色 `{persona['name']}` 的提示词。下一条消息不会发送给 AI。\n\n请输入新提示词，或使用 /cancel 取消。", f"You are editing the prompt for `{persona['name']}`. Your next message will not be sent to the AI.\n\nSend the new prompt, or use /cancel to stop."))
+            return
+        if action.startswith("delete:"):
+            token = action.split(":", 1)[1]
+            persona = next((item for item in get_personas(user_id).values() if stable_token(item["name"]) == token), None)
+            if not persona or persona["name"] == "default":
+                await edit_query_rich_text(query, pick(lang, "默认角色不能删除。", "The default persona cannot be deleted."), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pick(lang, "⬅️ 角色", "⬅️ Personas"), callback_data="ux:persona:0")]]))
+                return
+            await _edit(query, confirmation(pick(lang, f"确定删除角色 `{persona['name']}` 及其全部会话？此操作无法撤销。", f"Delete persona `{persona['name']}` and all its chats? This cannot be undone."), f"ux:persona:delete_yes:{token}", f"ux:persona:view:{token}", lang))
+            return
+        if action.startswith("delete_yes:"):
+            token = action.split(":", 1)[1]
+            persona = next((item for item in get_personas(user_id).values() if stable_token(item["name"]) == token), None)
+            if persona and persona["name"] != "default":
+                delete_persona(user_id, persona["name"])
+                await _persist()
+            await _edit(query, personas_panel(user_id, lang))
             return
         if action.startswith("switch:"):
             token = action.split(":", 1)[1]
@@ -844,7 +908,7 @@ async def ux_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if persona:
                 switch_persona(user_id, persona["name"])
                 await _persist()
-            await _edit(query, personas_panel(user_id, lang))
+            await _edit(query, persona_detail(user_id, token, lang))
             return
     if data == "ux:confirm:delete_persona":
         current = get_current_persona_name(user_id)

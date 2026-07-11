@@ -86,5 +86,6 @@ def build_default_settings(
         "cron_model": "",
         "global_prompt": "",
         "timezone": os.getenv("DEFAULT_TIMEZONE", "Asia/Shanghai"),
+        "ux_language": "",
         "terminal_approvals": [],
     }

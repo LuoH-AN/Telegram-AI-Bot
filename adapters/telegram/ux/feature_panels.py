@@ -64,7 +64,10 @@ def memory_panel(user_id: int, lang: str, page: int = 0) -> tuple[str, InlineKey
             "🧠 **Long-term memories**\n\nNo memories are saved. You can store stable preferences, personal facts, or long-term project constraints.\nDo not store passwords, API keys, or temporary tasks.",
         )
     indexes = list(range(start + 1, start + len(page_memories) + 1))
-    rows = [[InlineKeyboardButton(f"🗑 {index}", callback_data=f"ux:memory:delete:{index}") for index in indexes[i:i + 4]] for i in range(0, len(indexes), 4)]
+    rows = []
+    for index, memory in zip(indexes, page_memories):
+        content = " ".join(str(memory.get("content", "")).split())
+        rows.append([InlineKeyboardButton(f"{index}. {content[:34]}{'…' if len(content) > 34 else ''}", callback_data=f"ux:memory:view:{index}")])
     if pages > 1:
         rows.append([
             InlineKeyboardButton("◀️", callback_data=f"ux:memory:page:{max(0, page - 1)}"),
@@ -77,6 +80,18 @@ def memory_panel(user_id: int, lang: str, page: int = 0) -> tuple[str, InlineKey
         [InlineKeyboardButton(pick(lang, "⬅️ 返回功能中心", "⬅️ Back to feature center"), callback_data="ux:features")],
     ])
     return text, _markup(rows)
+
+
+def memory_detail(user_id: int, index: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    memories = get_memories(user_id)
+    if index < 1 or index > len(memories):
+        return memory_panel(user_id, lang)
+    content = str(memories[index - 1].get("content", ""))
+    text = pick(lang, f"🧠 **长期记忆 #{index}**\n\n{content}", f"🧠 **Long-term memory #{index}**\n\n{content}")
+    return text, _markup([
+        [InlineKeyboardButton(pick(lang, "🗑 删除这条记忆", "🗑 Delete this memory"), callback_data=f"ux:memory:delete:{index}")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 记忆列表", "⬅️ Memory list"), callback_data="ux:memory")],
+    ])
 
 
 def skills_panel(user_id: int, lang: str, page: int = 0) -> tuple[str, InlineKeyboardMarkup]:

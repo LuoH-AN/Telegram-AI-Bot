@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from domain.services import (
     get_current_persona_name,
     get_current_session_id,
+    get_conversation,
     get_personas,
     get_session_message_count,
     get_sessions,
@@ -30,6 +31,7 @@ from .choice_panels import (
 from .feature_panels import (
     admin_panel,
     feature_panel,
+    memory_detail,
     memory_panel,
     skill_detail,
     skills_panel,
@@ -37,7 +39,9 @@ from .feature_panels import (
 from .settings_panels import (
     advanced_settings_panel,
     connection_panel,
+    delivery_panel,
     generation_panel,
+    model_generation_panel,
     provider_detail,
     providers_panel,
     settings_panel,
@@ -53,6 +57,7 @@ def _markup(rows) -> InlineKeyboardMarkup:
 
 
 def main_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    settings = get_user_settings(user_id)
     configured = has_api_key(user_id)
     persona = get_current_persona_name(user_id)
     if configured:
@@ -62,27 +67,36 @@ def main_panel(user_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
             f"👋 **Welcome back**\n\nCurrent persona: `{persona}`\nSend a message to start chatting.",
         )
         rows = [
-            [InlineKeyboardButton(pick(lang, "💬 会话", "💬 Chats"), callback_data="ux:chat:0"), InlineKeyboardButton(pick(lang, "🎭 角色", "🎭 Personas"), callback_data="ux:persona:0")],
+            [InlineKeyboardButton(pick(lang, "➕ 开始新会话", "➕ Start a new chat"), callback_data="ux:chat:new")],
+            [InlineKeyboardButton(pick(lang, "💬 切换会话", "💬 Switch chat"), callback_data="ux:chat:0"), InlineKeyboardButton(pick(lang, "🎭 切换角色", "🎭 Switch persona"), callback_data="ux:persona:0")],
             [InlineKeyboardButton(pick(lang, "⚙️ 设置", "⚙️ Settings"), callback_data="ux:settings"), InlineKeyboardButton(pick(lang, "⏰ 定时任务", "⏰ Schedules"), callback_data="ux:cron")],
-            [InlineKeyboardButton(pick(lang, "🧰 功能中心", "🧰 Features"), callback_data="ux:features"), InlineKeyboardButton(pick(lang, "➕ 新会话", "➕ New chat"), callback_data="ux:chat:new")],
-            [InlineKeyboardButton(pick(lang, "📚 帮助", "📚 Help"), callback_data="ux:help")],
+            [InlineKeyboardButton(pick(lang, "🧰 功能中心", "🧰 Features"), callback_data="ux:features"), InlineKeyboardButton(pick(lang, "📚 帮助", "📚 Help"), callback_data="ux:help")],
         ]
     else:
+        has_endpoint = bool(settings.get("base_url"))
+        has_key = bool(settings.get("api_key"))
+        has_model = bool(settings.get("model"))
+        status = lambda ready: "✅" if ready else "⬜"
+        next_step = "base" if not has_endpoint else "key" if not has_key else "model"
         text = pick(
             lang,
-            "👋 **欢迎使用 AI Bot**\n\n只需三步：\n1. 设置 API 地址\n2. 安全保存 API Key\n3. 选择模型并发送第一条消息",
-            "👋 **Welcome to AI Bot**\n\nThree quick steps:\n1. Choose an API endpoint\n2. Save your API key securely\n3. Pick a model and send your first message",
+            f"👋 **欢迎使用 AI Bot**\n\n{status(has_endpoint)} 1. 设置 API 地址\n{status(has_key)} 2. 安全保存 API Key\n{status(has_model and has_key)} 3. 选择模型\n\n下一步：{'设置 API 地址' if next_step == 'base' else '发送 API Key' if next_step == 'key' else '选择模型'}。输入配置内容时，下一条消息不会发送给 AI。",
+            f"👋 **Welcome to AI Bot**\n\n{status(has_endpoint)} 1. Choose an API endpoint\n{status(has_key)} 2. Save your API key securely\n{status(has_model and has_key)} 3. Choose a model\n\nNext: {'choose an API endpoint' if next_step == 'base' else 'send your API key' if next_step == 'key' else 'choose a model'}. While entering settings, your next message will not be sent to the AI.",
         )
-        rows = [
+        rows = []
+        if next_step == "base":
+            rows.extend([
             [InlineKeyboardButton(pick(lang, "1️⃣ 使用 OpenAI 官方 API 地址", "1️⃣ Use official OpenAI API endpoint"), callback_data="ux:onboard:base_default")],
             [InlineKeyboardButton(pick(lang, "🌐 使用其他兼容 API 地址", "🌐 Use another compatible endpoint"), callback_data="ux:onboard:base_custom")],
+            ])
+        elif next_step == "key":
+            rows.append(
             [InlineKeyboardButton(pick(lang, "🔑 设置服务商 API Key", "🔑 Set provider API key"), callback_data="ux:onboard:key")],
-            [InlineKeyboardButton(pick(lang, "📚 查看帮助", "📚 View help"), callback_data="ux:help")],
-        ]
-    rows.append([
-        InlineKeyboardButton("中文", callback_data="ux:lang:zh"),
-        InlineKeyboardButton("English", callback_data="ux:lang:en"),
-    ])
+            )
+        else:
+            rows.append([InlineKeyboardButton(pick(lang, "🤖 选择模型", "🤖 Choose model"), callback_data="ux:settings:model")])
+        rows.append([InlineKeyboardButton(pick(lang, "📚 查看帮助", "📚 View help"), callback_data="ux:help")])
+        rows.append([InlineKeyboardButton("中文", callback_data="ux:lang:zh"), InlineKeyboardButton("English", callback_data="ux:lang:en")])
     return text, _markup(rows)
 
 
@@ -99,7 +113,7 @@ def sessions_panel(user_id: int, lang: str, page: int = 0) -> tuple[str, InlineK
         marker = "✅ " if session["id"] == current else ""
         title = session.get("title") or pick(lang, "新会话", "New chat")
         count = get_session_message_count(session["id"])
-        rows.append([InlineKeyboardButton(f"{marker}{title[:34]} · {count}", callback_data=f"ux:chat:switch:{session['id']}")])
+        rows.append([InlineKeyboardButton(f"{marker}{title[:34]} · {count}", callback_data=f"ux:chat:view:{session['id']}")])
     if pages > 1:
         rows.append([
             InlineKeyboardButton("◀️", callback_data=f"ux:chat:{max(0, page - 1)}"),
@@ -107,8 +121,8 @@ def sessions_panel(user_id: int, lang: str, page: int = 0) -> tuple[str, InlineK
             InlineKeyboardButton("▶️", callback_data=f"ux:chat:{min(pages - 1, page + 1)}"),
         ])
     rows.extend([
-        [InlineKeyboardButton(pick(lang, "➕ 新会话", "➕ New chat"), callback_data="ux:chat:new"), InlineKeyboardButton(pick(lang, "✏️ 重命名当前", "✏️ Rename current"), callback_data="ux:chat:rename")],
-        [InlineKeyboardButton(pick(lang, "🗑 删除当前", "🗑 Delete current"), callback_data="ux:confirm:delete_chat"), InlineKeyboardButton(pick(lang, "⬅️ 主菜单", "⬅️ Main menu"), callback_data="ux:menu")],
+        [InlineKeyboardButton(pick(lang, "➕ 新会话", "➕ New chat"), callback_data="ux:chat:new")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 主菜单", "⬅️ Main menu"), callback_data="ux:menu")],
     ])
     return text, _markup(rows)
 
@@ -122,7 +136,7 @@ def personas_panel(user_id: int, lang: str, page: int = 0) -> tuple[str, InlineK
     rows = []
     for persona in personas[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
         name = persona["name"]
-        rows.append([InlineKeyboardButton(f"{'✅ ' if name == current else ''}{name[:42]}", callback_data=f"ux:persona:switch:{stable_token(name)}")])
+        rows.append([InlineKeyboardButton(f"{'✅ ' if name == current else ''}{name[:42]}", callback_data=f"ux:persona:view:{stable_token(name)}")])
     if pages > 1:
         rows.append([
             InlineKeyboardButton("◀️", callback_data=f"ux:persona:{max(0, page - 1)}"),
@@ -130,8 +144,47 @@ def personas_panel(user_id: int, lang: str, page: int = 0) -> tuple[str, InlineK
             InlineKeyboardButton("▶️", callback_data=f"ux:persona:{min(pages - 1, page + 1)}"),
         ])
     rows.extend([
-        [InlineKeyboardButton(pick(lang, "➕ 新角色", "➕ New persona"), callback_data="ux:persona:new"), InlineKeyboardButton(pick(lang, "📝 编辑提示词", "📝 Edit prompt"), callback_data="ux:persona:prompt")],
-        [InlineKeyboardButton(pick(lang, "🗑 删除当前", "🗑 Delete current"), callback_data="ux:confirm:delete_persona"), InlineKeyboardButton(pick(lang, "⬅️ 主菜单", "⬅️ Main menu"), callback_data="ux:menu")],
+        [InlineKeyboardButton(pick(lang, "➕ 新角色", "➕ New persona"), callback_data="ux:persona:new")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 主菜单", "⬅️ Main menu"), callback_data="ux:menu")],
+    ])
+    return text, _markup(rows)
+
+
+def session_detail(user_id: int, session_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    persona = get_current_persona_name(user_id)
+    session = next((item for item in get_sessions(user_id, persona) if item["id"] == session_id), None)
+    if session is None:
+        return sessions_panel(user_id, lang)
+    current = get_current_session_id(user_id, persona) == session_id
+    messages = get_conversation(session_id)
+    preview = next((" ".join(str(item.get("content", "")).split()) for item in reversed(messages) if item.get("content")), "")
+    title = session.get("title") or pick(lang, "新会话", "New chat")
+    text = pick(lang, f"💬 **{title}**\n\n状态：{'✅ 当前会话' if current else '未选中'}\n消息：{len(messages)} 条\n最近内容：{preview[:180] or '—'}", f"💬 **{title}**\n\nStatus: {'✅ Current chat' if current else 'Not selected'}\nMessages: {len(messages)}\nLatest: {preview[:180] or '—'}")
+    rows = []
+    if not current:
+        rows.append([InlineKeyboardButton(pick(lang, "✅ 切换到此会话", "✅ Switch to this chat"), callback_data=f"ux:chat:switch:{session_id}")])
+    rows.extend([
+        [InlineKeyboardButton(pick(lang, "✏️ 重命名", "✏️ Rename"), callback_data=f"ux:chat:rename:{session_id}"), InlineKeyboardButton(pick(lang, "🗑 删除", "🗑 Delete"), callback_data=f"ux:chat:delete:{session_id}")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 会话列表", "⬅️ Chat list"), callback_data="ux:chat:0")],
+    ])
+    return text, _markup(rows)
+
+
+def persona_detail(user_id: int, token: str, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    personas = get_personas(user_id)
+    match = next((item for item in personas.values() if stable_token(item["name"]) == token), None)
+    if match is None:
+        return personas_panel(user_id, lang)
+    name = match["name"]
+    current = name == get_current_persona_name(user_id)
+    prompt = " ".join(str(match.get("system_prompt", "")).split())
+    text = pick(lang, f"🎭 **角色：{name}**\n\n状态：{'✅ 当前角色' if current else '未选中'}\n提示词：{prompt[:400] or '—'}", f"🎭 **Persona: {name}**\n\nStatus: {'✅ Current persona' if current else 'Not selected'}\nPrompt: {prompt[:400] or '—'}")
+    rows = []
+    if not current:
+        rows.append([InlineKeyboardButton(pick(lang, "✅ 切换到此角色", "✅ Switch to this persona"), callback_data=f"ux:persona:switch:{token}")])
+    rows.extend([
+        [InlineKeyboardButton(pick(lang, "📝 编辑提示词", "📝 Edit prompt"), callback_data=f"ux:persona:prompt:{token}"), InlineKeyboardButton(pick(lang, "🗑 删除", "🗑 Delete"), callback_data=f"ux:persona:delete:{token}")],
+        [InlineKeyboardButton(pick(lang, "⬅️ 角色列表", "⬅️ Persona list"), callback_data="ux:persona:0")],
     ])
     return text, _markup(rows)
 

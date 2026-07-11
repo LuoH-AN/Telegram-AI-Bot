@@ -20,6 +20,7 @@ from domain.services import (
     set_token_limit,
     switch_persona,
     update_current_prompt,
+    update_persona_prompt,
     update_user_setting,
 )
 from domain.services.cron.matcher import is_valid_cron
@@ -95,6 +96,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_user_setting(user_id, "base_url", value.rstrip("/"))
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ API 地址已保存。下一步请设置 API Key。", "✅ API endpoint saved. Next, set your API key."))
         await _send_panel(message, connection_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -107,6 +109,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_user_setting(user_id, "timezone", value)
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ 时区已保存。", "✅ Timezone saved."))
         await _send_panel(message, timezone_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -121,6 +124,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_user_setting(user_id, "temperature", temperature)
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ 温度已保存。", "✅ Temperature saved."))
         await _send_panel(message, generation_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -146,6 +150,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_user_setting(user_id, "api_presets", presets)
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ 模型服务已保存。", "✅ Model service saved."))
         await _send_panel(message, providers_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -156,6 +161,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_user_setting(user_id, "global_prompt", value)
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ 全局提示词已保存。", "✅ Global prompt saved."))
         await _send_panel(message, advanced_settings_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -170,6 +176,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         set_token_limit(user_id, limit, get_current_persona_name(user_id))
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ Token 限额已保存。", "✅ Token limit saved."))
         await _send_panel(message, advanced_settings_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -180,6 +187,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await asyncio.to_thread(add_memory, user_id, value, "user")
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ 长期记忆已添加。", "✅ Long-term memory added."))
         await _send_panel(message, memory_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -209,6 +217,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
             cache.update_session_title(session_id, title[:120])
             await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, "✅ 会话标题已更新。", "✅ Chat title updated."))
         await _send_panel(message, sessions_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -221,6 +230,7 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         switch_persona(user_id, name)
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, f"✅ 角色 `{name}` 已创建并切换。", f"✅ Persona `{name}` created and selected."))
         await _send_panel(message, personas_panel(user_id, lang))
         raise ApplicationHandlerStop
 
@@ -228,6 +238,16 @@ async def handle_pending_input(update: Update, context: ContextTypes.DEFAULT_TYP
         update_current_prompt(user_id, value)
         await _persist()
         context.user_data.pop("ux_pending", None)
+        await _send_panel(message, personas_panel(user_id, lang))
+        raise ApplicationHandlerStop
+
+    if kind == "persona_prompt_named":
+        name = pending.get("persona_name")
+        if name and name in get_personas(user_id):
+            update_persona_prompt(user_id, name, value)
+            await _persist()
+        context.user_data.pop("ux_pending", None)
+        await _send(message, pick(lang, f"✅ 角色 `{name}` 的提示词已更新。", f"✅ Prompt updated for `{name}`."))
         await _send_panel(message, personas_panel(user_id, lang))
         raise ApplicationHandlerStop
 

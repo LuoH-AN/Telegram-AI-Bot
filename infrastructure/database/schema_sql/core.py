@@ -21,7 +21,8 @@ CREATE_USER_SETTINGS_TABLE = """
         tool_progress TEXT DEFAULT 'compact',
         global_prompt TEXT,
         timezone TEXT DEFAULT 'Asia/Shanghai',
-        terminal_approvals TEXT
+        terminal_approvals TEXT,
+        ux_language TEXT
     )
 """
 
@@ -39,6 +40,11 @@ ALTER_USER_SETTINGS_ADD_TELEGRAM_UX = """
 ALTER_USER_SETTINGS_ADD_TERMINAL_APPROVALS = """
     ALTER TABLE user_settings
     ADD COLUMN IF NOT EXISTS terminal_approvals TEXT
+"""
+
+ALTER_USER_SETTINGS_ADD_UX_LANGUAGE = """
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS ux_language TEXT
 """
 
 CREATE_USER_PERSONAS_TABLE = """

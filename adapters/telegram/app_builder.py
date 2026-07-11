@@ -1,4 +1,5 @@
 """Telegram application builder and handler registration."""
+from telegram import BotCommand, BotCommandScopeChat
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from infrastructure.config import (
@@ -13,6 +14,8 @@ from infrastructure.config import (
     TELEGRAM_SEND_PER_CHAT_RATE,
     TELEGRAM_SEND_QUEUE_WARN_THRESHOLD,
     TELEGRAM_SEND_RETRY_JITTER,
+    ADMIN_IDS,
+    OWNER_ID,
 )
 from adapters.telegram.commands import all_commands, make_handler
 from adapters.telegram.approval import terminal_approval_callback
@@ -67,6 +70,29 @@ def build_application(logger) -> Application:
         from domain.services.cron import set_main_loop
 
         set_main_loop(asyncio.get_running_loop())
+        common_commands = [
+            BotCommand("start", "打开主菜单 / Open main menu"),
+            BotCommand("chat", "管理会话 / Manage chats"),
+            BotCommand("settings", "打开设置 / Open settings"),
+            BotCommand("usage", "查看用量 / View usage"),
+            BotCommand("stop", "停止生成 / Stop generating"),
+            BotCommand("cancel", "取消当前输入 / Cancel input"),
+            BotCommand("help", "查看帮助 / View help"),
+        ]
+        await application.bot.set_my_commands(common_commands)
+        admin_commands = common_commands + [
+            BotCommand("update", "检查并应用更新 / Apply updates"),
+            BotCommand("restart", "安全重启服务 / Restart safely"),
+            BotCommand("status", "查看运行状态 / Runtime status"),
+        ]
+        admin_ids = set(ADMIN_IDS)
+        if OWNER_ID is not None:
+            admin_ids.add(OWNER_ID)
+        for admin_id in admin_ids:
+            try:
+                await application.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(admin_id))
+            except Exception as exc:
+                logger.warning("Could not set Telegram command menu for admin %s: %s", admin_id, exc)
 
     application = builder.post_init(_post_init).build()
     _register_handlers(application)
