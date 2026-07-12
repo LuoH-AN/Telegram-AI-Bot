@@ -19,7 +19,6 @@ from .background import (
 )
 from .exec_fg import exec_foreground, resolve_cwd
 from .store import get_session
-from .rootfs import TerminalRootfsError
 
 TERMINAL_INSTRUCTION = (
     "\nTerminal tools:\n"
@@ -27,7 +26,6 @@ TERMINAL_INSTRUCTION = (
     "- For commands that may take more than a few seconds, set yield_ms=10000. The command becomes a persistent session only if it is still running.\n"
     "- `terminal_process`: list, poll, wait, write, submit, or kill persistent sessions by session_id.\n"
     "- Persistent sessions are owned by detached workers: they survive bot restarts and remain visible in later turns of the same conversation.\n"
-    "- Every command runs inside a proot filesystem whose complete writable root is stored under /data; missing isolation is a hard error, never a host fallback.\n"
     "- Use pty=true for interactive/TTY programs. Use terminal_process write/submit when a session needs input.\n"
     "- Destructive commands (rm -rf /, mkfs, fork bombs, dd to devices, shutdown) are blocked.\n"
     "- Risky commands (rm -r, sudo, force-push, curl|sh) automatically show the user approval buttons. The original tool call waits and resumes after their choice.\n"
@@ -78,19 +76,16 @@ async def terminal(
     if pty and not background and managed_yield_ms <= 0:
         managed_yield_ms = 10_000
     if background or managed_yield_ms > 0:
-        try:
-            started = await asyncio.to_thread(
-                run_background,
-                command,
-                cwd_path,
-                user_id=ctx.user_id,
-                chat_id=ctx.chat_id,
-                conversation_id=ctx.session_id,
-                pty=bool(pty),
-                notify_on_exit=bool(background),
-            )
-        except TerminalRootfsError as exc:
-            return ToolResult.error("persistent_filesystem_unavailable", str(exc))
+        started = await asyncio.to_thread(
+            run_background,
+            command,
+            cwd_path,
+            user_id=ctx.user_id,
+            chat_id=ctx.chat_id,
+            conversation_id=ctx.session_id,
+            pty=bool(pty),
+            notify_on_exit=bool(background),
+        )
         if background:
             return ToolResult.text(started)
         session_id = next(

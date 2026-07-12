@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Literal
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import commit, dumps, get_cache
+from ._shared import commit, dumps, get_cache, run_tool
 
 
 def _run(user_id: int, action: str, name: str, cron: str, prompt: str, enabled: bool | None) -> ToolResult:
@@ -78,7 +77,4 @@ async def user_cron(
     prompt: Annotated[str, "Prompt to run (for add/update)."] = "",
     enabled: Annotated[bool | None, "Enable/disable (for update)."] = None,
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, name, cron, prompt, enabled)
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_cron failed: {exc}")
+    return await run_tool("user_cron", _run, ctx.user_id, action, name, cron, prompt, enabled)

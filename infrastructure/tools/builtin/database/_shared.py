@@ -6,8 +6,11 @@ layer, which owns dirty-tracking and DB sync — no raw SQL leaves this package.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
+
+from infrastructure.tools.core import ToolResult
 
 USER_DATA_INSTRUCTION = (
     "\nuser_* tools (admin toolset) read and change the calling user's OWN data — "
@@ -17,10 +20,10 @@ USER_DATA_INSTRUCTION = (
     "Clear a field by setting it to \"\".\n"
     "- user_personas: list|get|create|edit|delete|switch (name + prompt).\n"
     "- user_sessions: list|get|rename|delete|switch (persona; session_id; title).\n"
-    "- user_conversations: list|get|clear|replace (session_id; messages=[{role, content}]). "
+    "- user_conversations: list|get|clear|replace|restore (session_id; messages=[{role, content}]). "
     "replace overwrites the whole session.\n"
     "- user_cron: list|get|add|update|delete (name; cron; prompt; enabled).\n"
-    "- user_skills: list|get|toggle|delete (name; enabled).\n"
+    "- user_skills: list|get|toggle (name; enabled). Use /skill remove to uninstall.\n"
     "- user_skill_state: get|set (name; state object). set {} to clear.\n"
     "- user_tokens: get|reset|set_limit (persona; limit).\n"
     "Prefer these over terminal/psql for user data."
@@ -42,3 +45,10 @@ def commit() -> None:
 
 def dumps(value: Any, indent: bool = True) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2 if indent else None, default=str)
+
+
+async def run_tool(label: str, function, *args) -> ToolResult:
+    try:
+        return await asyncio.to_thread(function, *args)
+    except Exception as exc:
+        return ToolResult.error("operation_failed", f"{label} failed: {exc}")

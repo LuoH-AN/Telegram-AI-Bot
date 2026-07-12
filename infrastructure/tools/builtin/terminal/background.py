@@ -15,7 +15,6 @@ from pathlib import Path
 from shared.terminal_environment import build_persistent_terminal_env
 
 from .state import REPO_ROOT, ensure_control_dir, ensure_log_dir
-from .rootfs import ensure_rootfs
 from .store import (
     acknowledge_completion_event,
     arm_completion_event,
@@ -93,7 +92,6 @@ def run_background(
     pty: bool = False,
     notify_on_exit: bool = False,
 ) -> str:
-    ensure_rootfs()
     session_id = _session_id()
     log_file = ensure_log_dir() / f"{session_id}.log"
     socket_path = ensure_control_dir() / f"{session_id}.sock"

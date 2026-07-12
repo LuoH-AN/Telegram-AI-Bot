@@ -20,7 +20,6 @@ def test_backup_has_no_dependency_or_hidden_directory_exclusions(monkeypatch, tm
     monkeypatch.setattr(backup, "DATA_DIR", data)
     monkeypatch.setattr(backup, "BACKUP_DIR", destination)
     monkeypatch.setattr(backup, "BACKUP_FILE", destination / "data.zip")
-    monkeypatch.setattr(backup, "WORKSPACE_DIR", None)
 
     assert backup._snapshot() is True
     with zipfile.ZipFile(backup.BACKUP_FILE) as archive:
@@ -103,79 +102,3 @@ def test_terminal_backup_requests_are_coalesced_in_data_dir(monkeypatch, tmp_pat
     backup.request_snapshot()
     backup.request_snapshot()
     assert request.is_file()
-
-
-def test_backup_includes_complete_terminal_workspace(monkeypatch, tmp_path):
-    import entrypoints.launcher.backup as backup
-
-    data = tmp_path / "data"
-    workspace = tmp_path / "workspace"
-    destination = tmp_path / "backup"
-    data.mkdir()
-    (workspace / ".git").mkdir(parents=True)
-    (workspace / "node_modules" / "pkg").mkdir(parents=True)
-    (workspace / ".venv" / "bin").mkdir(parents=True)
-    (workspace / ".git" / "HEAD").write_text("ref", encoding="utf-8")
-    (workspace / "node_modules" / "pkg" / "index.js").write_text("module", encoding="utf-8")
-    (workspace / ".venv" / "bin" / "python").write_text("binary", encoding="utf-8")
-    monkeypatch.setattr(backup, "DATA_DIR", data)
-    monkeypatch.setattr(backup, "BACKUP_DIR", destination)
-    monkeypatch.setattr(backup, "BACKUP_FILE", destination / "data.zip")
-    monkeypatch.setattr(backup, "WORKSPACE_DIR", workspace)
-
-    assert backup._snapshot() is True
-    import shutil
-
-    shutil.rmtree(workspace)
-    workspace.mkdir()
-    assert backup.restore() is True
-    assert (workspace / ".git" / "HEAD").read_text("utf-8") == "ref"
-    assert (workspace / "node_modules" / "pkg" / "index.js").is_file()
-    assert (workspace / ".venv" / "bin" / "python").is_file()
-
-
-def test_restore_does_not_roll_back_a_newer_current_workspace(monkeypatch, tmp_path):
-    import entrypoints.launcher.backup as backup
-
-    data = tmp_path / "data"
-    workspace = tmp_path / "workspace"
-    destination = tmp_path / "backup"
-    data.mkdir()
-    (workspace / ".git" / "refs" / "heads").mkdir(parents=True)
-    (workspace / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
-    (workspace / ".git" / "refs" / "heads" / "main").write_text("a" * 40 + "\n", encoding="utf-8")
-    (workspace / "version.txt").write_text("old", encoding="utf-8")
-    monkeypatch.setattr(backup, "DATA_DIR", data)
-    monkeypatch.setattr(backup, "BACKUP_DIR", destination)
-    monkeypatch.setattr(backup, "BACKUP_FILE", destination / "data.zip")
-    monkeypatch.setattr(backup, "WORKSPACE_DIR", workspace)
-    monkeypatch.setattr(backup, "_git_commit", lambda _path: (workspace / ".git" / "refs" / "heads" / "main").read_text().strip())
-
-    assert backup._snapshot() is True
-    (workspace / ".git" / "refs" / "heads" / "main").write_text("b" * 40 + "\n", encoding="utf-8")
-    (workspace / "version.txt").write_text("new", encoding="utf-8")
-    (data / "state.txt").write_text("current", encoding="utf-8")
-
-    assert backup.restore() is True
-    assert (workspace / "version.txt").read_text("utf-8") == "new"
-    assert (workspace / ".git" / "refs" / "heads" / "main").read_text().strip() == "b" * 40
-
-
-def test_controlled_restart_can_explicitly_skip_workspace_restore(monkeypatch, tmp_path):
-    import entrypoints.launcher.backup as backup
-
-    data = tmp_path / "data"
-    workspace = tmp_path / "workspace"
-    destination = tmp_path / "backup"
-    data.mkdir()
-    workspace.mkdir()
-    (workspace / "state.txt").write_text("backup", encoding="utf-8")
-    monkeypatch.setattr(backup, "DATA_DIR", data)
-    monkeypatch.setattr(backup, "BACKUP_DIR", destination)
-    monkeypatch.setattr(backup, "BACKUP_FILE", destination / "data.zip")
-    monkeypatch.setattr(backup, "WORKSPACE_DIR", workspace)
-
-    assert backup._snapshot() is True
-    (workspace / "state.txt").write_text("live", encoding="utf-8")
-    assert backup.restore(restore_workspace=False) is True
-    assert (workspace / "state.txt").read_text("utf-8") == "live"

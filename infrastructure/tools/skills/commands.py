@@ -9,6 +9,8 @@ from infrastructure.config import is_admin
 
 from .installer import PLUGIN_DIR, commit_install, install_from_github, install_from_local, rollback_install, uninstall
 from .manager import get_skill_manager
+from .manifest import load_manifest
+from .user_state import ensure_user_skill
 
 logger = logging.getLogger(__name__)
 
@@ -52,29 +54,23 @@ async def handle_skill_install(user_id: int, source: str, *, lang: str = "en") -
         label = "安装失败" if lang == "zh" else "Install failed"
         fallback = "未知错误" if lang == "zh" else "unknown error"
         return f"❌ **{label}：** {result.get('message', fallback)}"
-    name = result.get("name")
-    manager = get_skill_manager()
+    name = str(result.get("name") or "")
     plugin_dir = Path(result.get("path", PLUGIN_DIR / name))
-    previous_record = manager.snapshot_record(str(name))
-    try:
-        name = manager.hot_load(plugin_dir)
-    except Exception as exc:
-        logger.warning("Failed to hot-load skill '%s': %s", name, exc)
-        manager.restore_record(str(name), previous_record)
+    manifest = load_manifest(plugin_dir, is_builtin=False)
+    if not manifest:
         rollback_install(result)
-        return f"⚠️ **技能已安装，但加载失败：** {exc}" if lang == "zh" else f"⚠️ **Installed but failed to load:** {exc}"
+        return "❌ **安装后的 SKILL.md 无效，已回滚。**" if lang == "zh" else "❌ **Installed SKILL.md is invalid; rolled back.**"
     try:
-        if not manager.add_user_skill(user_id, name, source_type=source_type, source_ref=source):
-            raise RuntimeError("user registration returned false")
+        ensure_user_skill(user_id, manifest, enabled=True, source_type=source_type, source_ref=source)
     except Exception as exc:
-        manager.restore_record(name, previous_record)
         cleanup = rollback_install(result)
         logger.warning("Rolled back skill '%s' after user registration failed: %s", name, exc)
         suffix = "" if cleanup.get("ok") else f" Runtime cleanup also failed: {cleanup.get('message', 'unknown error')}"
         return (f"❌ **技能注册失败，安装已回滚：** {exc}{suffix}" if lang == "zh"
                 else f"❌ **Skill registration failed; installation rolled back:** {exc}{suffix}")
+    get_skill_manager().register(manifest)
     commit_install(result)
-    return f"✅ **技能 `{name}` 已安装到你的账户。**" if lang == "zh" else f"✅ **Skill `{name}` installed for your account.**"
+    return f"✅ **技能 `{manifest.name}` 已安装到你的账户。**" if lang == "zh" else f"✅ **Skill `{manifest.name}` installed for your account.**"
 
 
 async def handle_skill_remove(user_id: int, name: str) -> str:

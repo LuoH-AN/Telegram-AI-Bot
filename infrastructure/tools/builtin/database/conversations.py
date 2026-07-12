@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import secrets
@@ -12,7 +11,7 @@ from typing import Annotated, Any, Literal
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import commit, dumps, get_cache
+from ._shared import commit, dumps, get_cache, run_tool
 
 _BACKUP_ROOT = Path("/data/telegram_ai_bot/backups/conversations") if Path("/data").is_dir() else Path("runtime/backups/conversations")
 
@@ -138,15 +137,13 @@ async def user_conversations(
     expected_message_count: Annotated[int, "Required current message count for clear/replace/restore."] = -1,
     backup_id: Annotated[str, "Backup id returned by an earlier clear/replace/restore."] = "",
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(
-            _run,
-            ctx.user_id,
-            action,
-            int(session_id) or None,
-            messages,
-            int(expected_message_count),
-            backup_id,
-        )
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_conversations failed: {exc}")
+    return await run_tool(
+        "user_conversations",
+        _run,
+        ctx.user_id,
+        action,
+        int(session_id) or None,
+        messages,
+        int(expected_message_count),
+        backup_id,
+    )

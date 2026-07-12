@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Literal
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import commit, dumps, get_cache
+from ._shared import commit, dumps, get_cache, run_tool
 
 
 def _run(user_id: int, action: str, persona: str, limit: int | None) -> ToolResult:
@@ -35,7 +34,4 @@ async def user_tokens(
     persona: Annotated[str, "Persona name. Defaults to current."] = "",
     limit: Annotated[int, "Token limit (for set_limit). 0 = unlimited."] = 0,
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, persona, int(limit))
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_tokens failed: {exc}")
+    return await run_tool("user_tokens", _run, ctx.user_id, action, persona, int(limit))

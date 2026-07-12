@@ -30,7 +30,3 @@ def check_available(entry) -> bool:
         ok = False
     _CACHE[key] = (ok, now)
     return ok
-
-
-def invalidate() -> None:
-    _CACHE.clear()

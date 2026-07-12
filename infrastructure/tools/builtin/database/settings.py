@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
@@ -10,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import USER_DATA_INSTRUCTION, commit, dumps, get_cache
+from ._shared import USER_DATA_INSTRUCTION, commit, dumps, get_cache, run_tool
 
 _SENSITIVE_PARTS = ("api_key", "token", "secret", "password", "credential")
 _PROTECTED_KEYS = {"terminal_approvals"}
@@ -149,7 +148,4 @@ async def user_settings(
     key: Annotated[str, "Settings key (for get/set). Omit for the full object."] = "",
     value: Annotated[Any, "Value to set."] = None,
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, (key or "").strip(), value)
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_settings failed: {exc}")
+    return await run_tool("user_settings", _run, ctx.user_id, action, (key or "").strip(), value)

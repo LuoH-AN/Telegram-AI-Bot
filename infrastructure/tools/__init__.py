@@ -13,8 +13,8 @@ from collections.abc import Iterable
 
 from .core.availability import check_available
 from .core.context import ToolContext, ToolResult
-from .core.discovery import discover as _discover_native
 from .core.registry import ToolEntry, registry
+from .builtin import load_builtin_tools
 
 from infrastructure.config import is_admin
 
@@ -23,23 +23,7 @@ _DISCOVERED = False
 
 
 def _default_context(user_id: int) -> ToolContext:
-    outbound = None
-    try:
-        from adapters.telegram.outbound import get_outbound
-        outbound = get_outbound()
-    except Exception:
-        outbound = None
-    sender = getattr(outbound, "sender", None)
-    update = getattr(sender, "update", None)
-    chat = getattr(update, "effective_chat", None)
-    confirm = getattr(sender, "request_terminal_approval", None)
-    return ToolContext(
-        user_id=user_id,
-        chat_id=getattr(chat, "id", None),
-        session_id=getattr(sender, "session_id", None),
-        outbound=outbound,
-        confirm=confirm if callable(confirm) else None,
-    )
+    return ToolContext(user_id=user_id)
 
 
 def _ensure_discovered() -> None:
@@ -47,8 +31,7 @@ def _ensure_discovered() -> None:
     if _DISCOVERED:
         return
     try:
-        _discover_native()
-        _bridge_skills()
+        load_builtin_tools()
         _bridge_mcp()
     except Exception:
         logger.exception("tool discovery failed")
@@ -58,14 +41,8 @@ def _ensure_discovered() -> None:
 
 def _bridge_mcp() -> None:
     """Register remote MCP server tools. Runs in a thread; best-effort."""
-    try:
-        import asyncio
-
-        from .mcp.registry import discover_mcp
-        asyncio.get_event_loop()
-    except Exception:
-        return
     import threading
+    from .mcp.registry import discover_mcp
 
     def _run():
         try:
@@ -74,15 +51,6 @@ def _bridge_mcp() -> None:
             logger.warning("MCP discovery failed", exc_info=True)
 
     threading.Thread(target=_run, daemon=True, name="mcp-discover").start()
-
-
-def _bridge_skills() -> None:
-    """Prompt-only skills (no native functions) contribute system-prompt instructions only."""
-    try:
-        from infrastructure.tools.skills.manager import get_skill_manager
-        get_skill_manager().discover()
-    except Exception:
-        logger.warning("skill discovery failed", exc_info=True)
 
 
 def _user_enabled(user_id: int | None, skill: str | None) -> bool:
@@ -130,14 +98,20 @@ def _selected(entry: ToolEntry, enabled: set[str] | None) -> bool:
     return bool(candidates & enabled)
 
 
+def _entry_visible(entry: ToolEntry, user_id: int | None, enabled: set[str] | None) -> bool:
+    return (
+        check_available(entry)
+        and _user_enabled(user_id, entry.skill)
+        and _admin_allowed(entry, user_id)
+        and _selected(entry, enabled)
+    )
+
+
 def _visible(user_id: int | None, enabled_tools="all") -> list[ToolEntry]:
     enabled = _enabled_names(enabled_tools)
     return [
         entry for entry in registry.all()
-        if check_available(entry)
-        and _user_enabled(user_id, entry.skill)
-        and _admin_allowed(entry, user_id)
-        and _selected(entry, enabled)
+        if _entry_visible(entry, user_id, enabled)
     ]
 
 
@@ -172,11 +146,7 @@ def _skill_instructions(user_id: int | None, seen: set[str], enabled: set[str] |
     try:
         from infrastructure.tools.skills.manager import get_skill_manager
         manager = get_skill_manager()
-        if user_id is None:
-            manifests = manager.list_manifests()
-        else:
-            from infrastructure.tools.skills.user_state import is_visible_for_user
-            manifests = [m for m in manager.list_manifests(user_id) if is_visible_for_user(user_id, m)]
+        manifests = manager.list_manifests(user_id)
         for manifest in manifests:
             if enabled is not None and manifest.name.lower() not in enabled and "skills" not in enabled:
                 continue
@@ -194,17 +164,13 @@ def _skill_instructions(user_id: int | None, seen: set[str], enabled: set[str] |
 async def invoke_tool(user_id: int, name: str, arguments: dict, enabled_tools="all"):
     """Run a single tool by name. Lighter than process_tool_calls for one-shot callers (HTTP API, cron)."""
     _ensure_discovered()
-    from .core.availability import check_available
     from .core.execute import invoke_entry
     from .core.schema import validate
 
     entry = registry.get(name)
     if (
         entry is None
-        or not check_available(entry)
-        or not _user_enabled(user_id, entry.skill)
-        or not _admin_allowed(entry, user_id)
-        or not _selected(entry, _enabled_names(enabled_tools))
+        or not _entry_visible(entry, user_id, _enabled_names(enabled_tools))
     ):
         return ToolResult.error("unknown_tool", f"Tool '{name}' is not available.")
     if getattr(entry, "raw_args", False):

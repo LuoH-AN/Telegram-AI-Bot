@@ -16,7 +16,6 @@ class ToolContext:
     outbound: Any = None
     env: dict[str, str] = field(default_factory=dict)
     confirm: Callable[..., Awaitable[str]] | None = None
-    emit: Callable[[str], None] | None = None
 
 
 @dataclass

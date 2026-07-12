@@ -10,7 +10,6 @@ from infrastructure.tools.core import ToolResult
 
 from .background import _base_env
 from .persist import persist_install_command
-from .rootfs import TerminalRootfsError, terminal_command
 from .state import REPO_ROOT
 
 
@@ -23,10 +22,14 @@ def resolve_cwd(cwd: str) -> Path:
 
 def exec_foreground(command: str, cwd_path: Path, timeout: int) -> ToolResult:
     try:
-        argv = terminal_command(command, cwd_path)
-        proc = subprocess.run(argv, cwd=str(cwd_path), env=_base_env(), capture_output=True, text=True, timeout=timeout)
-    except TerminalRootfsError as exc:
-        return ToolResult.error("persistent_filesystem_unavailable", str(exc))
+        proc = subprocess.run(
+            ["bash", "-lc", command],
+            cwd=str(cwd_path),
+            env=_base_env(),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
     except subprocess.TimeoutExpired:
         return ToolResult.error("timeout", f"command timed out after {timeout}s; use background=true for long-running commands")
     parts: list[str] = []

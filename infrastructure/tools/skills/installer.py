@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 import logging
 import os
 import re
@@ -17,7 +16,6 @@ from .manifest import SKILL_FILENAME, SKILL_NAME_RE, load_manifest
 
 logger = logging.getLogger(__name__)
 PLUGIN_DIR = Path(os.getenv("PLUGIN_DIR", "/data/plugins"))
-INSTALLED_MARKER = PLUGIN_DIR / ".installed"
 MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 100 * 1024 * 1024
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -26,7 +24,6 @@ MAX_ARCHIVE_FILES = 2000
 
 def _ensure_dir() -> Path:
     PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
-    INSTALLED_MARKER.mkdir(parents=True, exist_ok=True)
     return PLUGIN_DIR
 
 
@@ -92,19 +89,7 @@ def _download(owner_repo: str, branch: str, subdir: str) -> Path:
         raise
 
 
-def _write_marker(marker: Path, info: dict) -> None:
-    fd, temp_name = tempfile.mkstemp(prefix=f".{marker.name}.", dir=str(marker.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(info, handle, ensure_ascii=False)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, marker)
-    finally:
-        Path(temp_name).unlink(missing_ok=True)
-
-
-def _finalize(plugin_dir: Path, source: str, *, transactional: bool = False) -> dict:
+def _finalize(plugin_dir: Path, *, transactional: bool = False) -> dict:
     plugin_dir = plugin_dir.resolve()
     plugin_root = PLUGIN_DIR.resolve()
     if plugin_dir.parent != plugin_root:
@@ -117,8 +102,6 @@ def _finalize(plugin_dir: Path, source: str, *, transactional: bool = False) -> 
     target = _safe_child(PLUGIN_DIR, name)
     backup_root: Path | None = None
     backup_path: Path | None = None
-    marker = _safe_child(INSTALLED_MARKER, name).with_suffix(".json")
-    marker_previous = marker.read_bytes() if marker.exists() else None
     try:
         if target.exists() and target != plugin_dir:
             backup_root = Path(tempfile.mkdtemp(prefix=".skill-backup-", dir=str(PLUGIN_DIR)))
@@ -127,17 +110,11 @@ def _finalize(plugin_dir: Path, source: str, *, transactional: bool = False) -> 
         if plugin_dir != target:
             shutil.move(str(plugin_dir), str(target))
         plugin_dir = target
-        info = {"name": name, "source": source, "version": manifest.version}
-        _write_marker(marker, info)
     except Exception:
         if target.exists() and target != backup_path:
             shutil.rmtree(target, ignore_errors=True)
         if backup_path and backup_path.exists():
             shutil.move(str(backup_path), str(target))
-        if marker_previous is None:
-            marker.unlink(missing_ok=True)
-        else:
-            marker.write_bytes(marker_previous)
         if backup_root:
             shutil.rmtree(backup_root, ignore_errors=True)
         raise
@@ -148,7 +125,6 @@ def _finalize(plugin_dir: Path, source: str, *, transactional: bool = False) -> 
         "path": str(plugin_dir),
         "_backup_root": str(backup_root) if backup_root else "",
         "_backup_path": str(backup_path) if backup_path else "",
-        "_marker_previous": marker_previous,
     }
     if not transactional:
         commit_install(result)
@@ -168,15 +144,9 @@ def rollback_install(result: dict) -> dict:
         target = _safe_child(PLUGIN_DIR, name)
         backup_path = Path(result.get("_backup_path") or "") if result.get("_backup_path") else None
         backup_root = Path(result.get("_backup_root") or "") if result.get("_backup_root") else None
-        marker = _safe_child(INSTALLED_MARKER, name).with_suffix(".json")
         shutil.rmtree(target, ignore_errors=True)
         if backup_path and backup_path.exists():
             shutil.move(str(backup_path), str(target))
-        previous = result.get("_marker_previous")
-        if previous is None:
-            marker.unlink(missing_ok=True)
-        else:
-            marker.write_bytes(previous)
         if backup_root:
             shutil.rmtree(backup_root, ignore_errors=True)
         return {"ok": True, "name": name}
@@ -193,7 +163,7 @@ def install_from_github(url: str, *, transactional: bool = False) -> dict:
     _ensure_dir()
     for branch in ("main", "master"):
         try:
-            return _finalize(_download(owner_repo, branch, subdir), url, transactional=transactional)
+            return _finalize(_download(owner_repo, branch, subdir), transactional=transactional)
         except Exception as exc:
             logger.warning("Skill download failed for %s@%s: %s", owner_repo, branch, exc)
             continue
@@ -208,7 +178,7 @@ def install_from_local(path: str | Path, *, transactional: bool = False) -> dict
     staging = Path(tempfile.mkdtemp(prefix=".skill-staging-", dir=str(PLUGIN_DIR)))
     try:
         shutil.copytree(src, staging, dirs_exist_ok=True)
-        return _finalize(staging, str(src), transactional=transactional)
+        return _finalize(staging, transactional=transactional)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -217,18 +187,10 @@ def install_from_local(path: str | Path, *, transactional: bool = False) -> dict
 def uninstall(name: str) -> dict:
     try:
         plugin_dir = _safe_child(PLUGIN_DIR, name)
-        marker = _safe_child(INSTALLED_MARKER, name).with_suffix(".json")
     except ValueError as exc:
         return {"ok": False, "message": str(exc)}
     if not plugin_dir.exists():
         return {"ok": False, "message": f"'{name}' not found"}
     shutil.rmtree(plugin_dir)
-    marker.unlink(missing_ok=True)
     logger.info("Uninstalled '%s'", name)
     return {"ok": True, "name": name}
-
-
-def list_installed() -> list[dict]:
-    if not INSTALLED_MARKER.is_dir():
-        return []
-    return [json.loads(m.read_text()) for m in INSTALLED_MARKER.glob("*.json")]

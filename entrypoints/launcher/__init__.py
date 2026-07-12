@@ -3,7 +3,6 @@
 from .backup import restore as restore_backup, start_daemon as start_backup_daemon
 from .bootstrap_cli import run_cli_bootstrap
 from .env_helpers import apply_env_text, get_telegram_port, is_configured_token
-from .workspace import active_workspace, exec_active_workspace, prepare_active_workspace
 from .process_helpers import (
     UPDATE_RESTART_EXIT_CODE,
     ChildProcess,
@@ -18,9 +17,6 @@ __all__ = [
     "apply_env_text",
     "get_telegram_port",
     "is_configured_token",
-    "active_workspace",
-    "prepare_active_workspace",
-    "exec_active_workspace",
     "restore_backup",
     "start_backup_daemon",
     "ChildProcess",

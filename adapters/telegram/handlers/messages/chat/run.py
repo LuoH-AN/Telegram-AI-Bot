@@ -8,7 +8,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from infrastructure.ai import get_ai_client
-from adapters.telegram.outbound import bind_outbound, reset_outbound
+from infrastructure.tools.core import ToolContext
+from adapters.telegram.outbound import bind_outbound, get_outbound, reset_outbound
 from adapters.telegram.rich_text import edit_rich_text
 from adapters.telegram.rich_text import reply_rich_text
 from adapters.telegram.ux.errors import error_panel
@@ -99,7 +100,15 @@ async def chat(
     current_task = asyncio.current_task()
     if current_task:
         register_response(response_key, task=current_task, pump=runtime.render_pump)
-    outbound_token = bind_outbound(TelegramOutbound(update, context, session_id=req["session_id"]))
+    sender = TelegramOutbound(update, context, session_id=req["session_id"])
+    outbound_token = bind_outbound(sender)
+    tool_context = ToolContext(
+        user_id=req["user_id"],
+        chat_id=update.effective_chat.id,
+        session_id=req["session_id"],
+        outbound=get_outbound(),
+        confirm=sender.request_terminal_approval,
+    )
     try:
         queue_position = await conversation_queue_position(conversation_key)
         if queue_position:
@@ -120,6 +129,7 @@ async def chat(
                 user_id=req["user_id"],
                 ctx=req["ctx"],
                 runtime=runtime,
+                tool_context=tool_context,
             )
             await deliver_and_persist(generated=generated, runtime=runtime, req=req, request_start=request_start)
     except asyncio.CancelledError:

@@ -66,76 +66,12 @@ def test_mcp_tools_default_to_admin_only():
         reset()
 
 
-def test_mcp_reload_swaps_registry_after_probing(monkeypatch):
-    from infrastructure.tools.core.registry import registry
-    from infrastructure.tools.mcp.config import McpServerConfig
-    import infrastructure.tools.mcp.registry as mcp_registry
-
-    old_tool = type("RemoteTool", (), {"name": "old", "description": "old", "inputSchema": {}})()
-    new_tool = type("RemoteTool", (), {"name": "new", "description": "new", "inputSchema": {}})()
-    old_config = McpServerConfig(name="old_server", transport="stdio")
-    new_config = McpServerConfig(name="new_server", transport="stdio")
-    mcp_registry.reset()
-    try:
-        mcp_registry._register_server(old_config, [old_tool])
-        monkeypatch.setattr(mcp_registry, "load_servers", lambda: [new_config])
-
-        def probe(_config):
-            assert registry.get("old_server__old") is not None
-            assert registry.get("new_server__new") is None
-            return [new_tool]
-
-        monkeypatch.setattr(mcp_registry, "_probe_sync", probe)
-        outcome = mcp_registry.reload_mcp()
-        assert outcome == {"servers": 1, "registered_tools": 1, "failures": {}}
-        assert registry.get("old_server__old") is None
-        assert registry.get("new_server__new") is not None
-    finally:
-        mcp_registry.reset()
-
-
 def test_mcp_config_validation_rejects_entries_that_would_silently_disappear():
     from infrastructure.tools.mcp.config import validate_servers_payload
 
     errors = validate_servers_payload([{"name": "demo", "transport": "stdio", "args": "bad"}])
     assert "args must be a list" in "; ".join(errors)
     assert "requires a command" in "; ".join(errors)
-
-
-def test_external_skill_registration_restores_runtime_record_on_failure(monkeypatch, tmp_path):
-    import infrastructure.tools.builtin.config_file.files as config_files
-    import infrastructure.tools.skills.agent_plugins as agent_plugins
-
-    skill_dir = tmp_path / "demo"
-    skill_dir.mkdir()
-    path = skill_dir / "SKILL.md"
-    path.write_text("---\nname: demo\nversion: '1'\ndescription: demo\n---\nbody\n", encoding="utf-8")
-
-    previous = object()
-
-    class FakeManager:
-        record = previous
-
-        def snapshot_record(self, _name):
-            return self.record
-
-        def hot_load(self, _path):
-            self.record = "new"
-            return "demo"
-
-        def add_user_skill(self, *_args, **_kwargs):
-            raise RuntimeError("database unavailable")
-
-        def restore_record(self, _name, record):
-            self.record = record
-
-    manager = FakeManager()
-    monkeypatch.setattr(config_files, "is_external_skill_manifest", lambda _path: True)
-    monkeypatch.setattr(agent_plugins, "get_skill_manager", lambda: manager)
-
-    with pytest.raises(RuntimeError, match="database unavailable"):
-        agent_plugins.register_external_skill_manifest(1, path)
-    assert manager.record is previous
 
 
 def test_user_skill_registration_rolls_back_cache_on_sync_failure(monkeypatch, tmp_path):

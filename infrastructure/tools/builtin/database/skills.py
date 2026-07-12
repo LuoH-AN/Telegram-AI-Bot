@@ -1,13 +1,12 @@
-"""user_skills tool — view/toggle/delete the calling user's installed skills."""
+"""user_skills tool — view or toggle the calling user's installed skills."""
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Literal
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import commit, dumps, get_cache
+from ._shared import commit, dumps, get_cache, run_tool
 
 
 def _run(user_id: int, action: str, name: str, enabled: bool | None) -> ToolResult:
@@ -33,24 +32,14 @@ def _run(user_id: int, action: str, name: str, enabled: bool | None) -> ToolResu
         cache.update_skill(user_id, name, enabled=new_enabled)
         commit()
         return ToolResult.text(f"Skill '{name}' {'enabled' if new_enabled else 'disabled'}")
-    if action == "delete":
-        if not name:
-            return ToolResult.error("missing_name", "name required")
-        if not cache.delete_skill(user_id, name):
-            return ToolResult.error("not_found", f"Skill '{name}' not found")
-        commit()
-        return ToolResult.text(f"Deleted skill '{name}' (use /skill remove for full uninstall)")
-    return ToolResult.error("invalid_action", "action must be list, get, toggle, or delete.")
+    return ToolResult.error("invalid_action", "action must be list, get, or toggle.")
 
 
-@tool(toolset="admin", side_effects=True, description="View or change the calling user's installed skills: list, get, toggle, delete. toggle flips enabled, or set it explicitly with enabled.")
+@tool(toolset="admin", side_effects=True, description="View or toggle the calling user's installed skills. Removal is handled only by /skill remove so filesystem and database state stay consistent.")
 async def user_skills(
     ctx: ToolContext,
-    action: Literal["list", "get", "toggle", "delete"],
+    action: Literal["list", "get", "toggle"],
     name: Annotated[str, "Skill name."] = "",
     enabled: Annotated[bool | None, "Force enable/disable for toggle. Omit to flip."] = None,
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, name, enabled)
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_skills failed: {exc}")
+    return await run_tool("user_skills", _run, ctx.user_id, action, name, enabled)

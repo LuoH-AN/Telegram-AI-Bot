@@ -6,11 +6,9 @@ YAML) and tracks prompt-only skills separately from native @tool functions.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
 
 from .discover import discover_skill_dirs
 from .manifest import SkillManifest, load_manifest
@@ -20,10 +18,6 @@ logger = logging.getLogger(__name__)
 BUILTIN_SKILL_ROOTS = [Path(__file__).resolve().parent / "builtin"]
 EXTERNAL_SKILL_DIR = Path(os.getenv("PLUGIN_DIR", "/data/plugins"))
 LEGACY_EXTERNAL_SKILL_DIR = Path(__file__).resolve().parents[3] / "runtime" / "plugins"
-
-
-class SkillLoadError(Exception):
-    pass
 
 
 def _load_skill_body(manifest: SkillManifest) -> str:
@@ -99,26 +93,12 @@ class SkillManager:
         self._initialized = True
         logger.info("Skill discovery complete: %d loaded (%s)", len(self._records), ", ".join(self._records))
 
-    def hot_load(self, skill_dir: Path) -> str:
-        manifest = load_manifest(skill_dir, is_builtin=False)
-        if not manifest:
-            raise SkillLoadError(f"No SKILL.md in {skill_dir}")
+    def register(self, manifest: SkillManifest) -> None:
         self._records[manifest.name] = SkillRecord(manifest)
         logger.info("Hot-loaded skill: %s", manifest.name)
-        return manifest.name
 
     def unregister(self, name: str) -> bool:
         return self._records.pop(name, None) is not None
-
-    def snapshot_record(self, name: str) -> SkillRecord | None:
-        """Capture a loaded record so a multi-step registration can roll back."""
-        return self._records.get(name)
-
-    def restore_record(self, name: str, record: SkillRecord | None) -> None:
-        if record is None:
-            self._records.pop(name, None)
-        else:
-            self._records[name] = record
 
     def list_manifests(self, user_id: int | None = None) -> list[SkillManifest]:
         self.discover()
@@ -152,15 +132,6 @@ class SkillManager:
         from .user_state import set_user_skill_enabled
 
         set_user_skill_enabled(user_id, manifest, enabled)
-        return True
-
-    def add_user_skill(self, user_id: int, name: str, *, source_type: str = "external", source_ref: str = "") -> bool:
-        manifest = self.get_manifest(name)
-        if not manifest:
-            return False
-        from .user_state import ensure_user_skill
-
-        ensure_user_skill(user_id, manifest, enabled=True, source_type=source_type, source_ref=source_ref)
         return True
 
     def remove_user_skill(self, user_id: int, name: str) -> bool:

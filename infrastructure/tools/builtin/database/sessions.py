@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Literal
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import commit, dumps, get_cache
+from ._shared import commit, dumps, get_cache, run_tool
 
 
 def _run(user_id: int, action: str, persona: str, session_id: int | None, title: str) -> ToolResult:
@@ -79,7 +78,4 @@ async def user_sessions(
     session_id: Annotated[int, "Session id (for get/rename/delete/switch)."] = 0,
     title: Annotated[str, "New title (for rename). Empty clears it."] = "",
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, persona, int(session_id) or None, title)
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_sessions failed: {exc}")
+    return await run_tool("user_sessions", _run, ctx.user_id, action, persona, int(session_id) or None, title)

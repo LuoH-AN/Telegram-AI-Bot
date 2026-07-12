@@ -108,33 +108,6 @@ def discover_mcp() -> int:
         return total
 
 
-def reload_mcp() -> dict[str, Any]:
-    """Probe the new configuration, then atomically replace registered MCP tools.
-
-    Existing tools remain available while network probes run. Once probing is
-    complete, the registry is swapped under a lock so callers never observe a
-    half-reloaded set.
-    """
-    global _REGISTERED
-    servers = load_servers()
-    prepared: list[ToolEntry] = []
-    failures: dict[str, str] = {}
-    for config in servers:
-        try:
-            prepared.extend(_server_entries(config, _probe_sync(config)))
-        except Exception as exc:
-            failures[config.name] = str(exc)
-            logger.warning("MCP server '%s' unreachable during reload: %s", config.name, exc)
-
-    with _RELOAD_LOCK:
-        registry.replace(set(_REGISTERED_NAMES), prepared)
-        _REGISTERED_NAMES.clear()
-        _REGISTERED_NAMES.update(entry.name for entry in prepared)
-        total = len(prepared)
-        _REGISTERED = True
-    return {"servers": len(servers), "registered_tools": total, "failures": failures}
-
-
 def _probe_sync(config: McpServerConfig) -> list:
     """Run the async list_remote_tools in a fresh event loop (called during sync discover)."""
     loop = asyncio.new_event_loop()
@@ -145,7 +118,7 @@ def _probe_sync(config: McpServerConfig) -> list:
 
 
 def reset() -> None:
-    """Allow re-discovery (used by tests / config reload)."""
+    """Clear discovered MCP tools (used by tests and process reinitialization)."""
     global _REGISTERED
     with _RELOAD_LOCK:
         for name in list(_REGISTERED_NAMES):

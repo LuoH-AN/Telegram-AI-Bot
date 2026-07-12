@@ -61,19 +61,6 @@ class ToolRegistry:
                 return True
             return False
 
-    def replace(self, old_names: set[str], entries: list[ToolEntry]) -> None:
-        """Replace a group of tools while readers are excluded by one lock."""
-        with self._lock:
-            for name in old_names:
-                if name in self._entries:
-                    self._entries.pop(name)
-                    self._order.remove(name)
-            for entry in entries:
-                if entry.name in self._entries:
-                    self._order.remove(entry.name)
-                self._entries[entry.name] = entry
-                self._order.append(entry.name)
-
     def get(self, name: str) -> ToolEntry | None:
         with self._lock:
             return self._entries.get(name)

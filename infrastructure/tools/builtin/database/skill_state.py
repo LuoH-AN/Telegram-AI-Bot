@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Any, Literal
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import commit, dumps, get_cache
+from ._shared import commit, dumps, get_cache, run_tool
 
 
 def _run(user_id: int, action: str, name: str, state: Any) -> ToolResult:
@@ -38,7 +37,4 @@ async def user_skill_state(
     name: Annotated[str, "Skill name."] = "",
     state: Annotated[Any, "JSON object to store as the skill's state (for set)."] = None,
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, name, state)
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_skill_state failed: {exc}")
+    return await run_tool("user_skill_state", _run, ctx.user_id, action, name, state)

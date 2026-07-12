@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Literal
 
 from infrastructure.tools.core import ToolContext, ToolResult, tool
 
-from ._shared import commit, dumps, get_cache
+from ._shared import commit, dumps, get_cache, run_tool
 
 
 def _run(user_id: int, action: str, name: str, prompt: str) -> ToolResult:
@@ -74,7 +73,4 @@ async def user_personas(
     name: Annotated[str, "Persona name."] = "",
     prompt: Annotated[str, "system_prompt text (for create/edit)."] = "",
 ) -> ToolResult:
-    try:
-        return await asyncio.to_thread(_run, ctx.user_id, action, name, prompt)
-    except Exception as exc:
-        return ToolResult.error("operation_failed", f"user_personas failed: {exc}")
+    return await run_tool("user_personas", _run, ctx.user_id, action, name, prompt)

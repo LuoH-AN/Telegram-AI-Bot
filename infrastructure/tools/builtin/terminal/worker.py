@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 
 from .store import get_session, update_session
-from .rootfs import terminal_command
 
 
 def _reply(conn: socket.socket, payload: dict) -> None:
@@ -32,7 +31,6 @@ def run(session_id: str) -> int:
     record = get_session(session_id)
     if not record:
         return 2
-    argv = terminal_command(record["command"], Path(record["cwd"]))
     socket_path = Path(record["socket_path"])
     log_path = Path(record["log_file"])
     socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +49,7 @@ def run(session_id: str) -> int:
     if use_pty:
         master_fd, slave_fd = pty.openpty()
         proc = subprocess.Popen(
-            argv,
+            ["bash", "-lc", record["command"]],
             cwd=record["cwd"],
             env=dict(os.environ),
             stdin=slave_fd,
@@ -65,7 +63,7 @@ def run(session_id: str) -> int:
         output_fd = master_fd
     else:
         proc = subprocess.Popen(
-            argv,
+            ["bash", "-lc", record["command"]],
             cwd=record["cwd"],
             env=dict(os.environ),
             stdin=subprocess.PIPE,

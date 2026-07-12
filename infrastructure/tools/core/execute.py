@@ -9,14 +9,17 @@ import time
 from typing import Callable
 
 from .context import ToolContext, ToolResult
-from .errors import error_content
-from .events import bind_callback, emit, release_callback
+from .events import emit
 from .registry import ToolEntry, registry
 from .schema import validate
 
 from infrastructure.config import TOOL_TIMEOUT
 
 logger = logging.getLogger(__name__)
+
+
+def _error_content(code: str, message: str, **details) -> str:
+    return ToolResult.error(code, message, **details).content
 
 
 def _parse_arguments(raw) -> dict:
@@ -38,16 +41,16 @@ def _resolve(tool_call, visible: dict[str, ToolEntry]):
     name = (tool_call.name or "").strip()
     entry = visible.get(name)
     if entry is None:
-        return None, None, error_content("unknown_tool", f"Tool '{name}' is not available.", name=name)
+        return None, None, _error_content("unknown_tool", f"Tool '{name}' is not available.", name=name)
     try:
         args = _parse_arguments(tool_call.arguments)
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
-        return entry, None, error_content("invalid_arguments", f"Invalid arguments: {exc}", raw=str(tool_call.arguments or "")[:500])
+        return entry, None, _error_content("invalid_arguments", f"Invalid arguments: {exc}", raw=str(tool_call.arguments or "")[:500])
     if getattr(entry, "raw_args", False):
         return entry, args, None
     args, err = validate(entry.handler, args)
     if err:
-        return entry, None, error_content("invalid_arguments", err, name=name)
+        return entry, None, _error_content("invalid_arguments", err, name=name)
     return entry, args, None
 
 
@@ -105,11 +108,11 @@ async def _run_one(user_id, item, build_context, event_callback):
     except asyncio.TimeoutError:
         logger.warning("[user=%d] tool %s timed out after %ds", user_id, name, timeout)
         emit(event_callback, user_id, "tool_error", index=idx, tool_name=name, reason="timeout")
-        content = error_content("timeout", f"Tool '{name}' timed out after {timeout}s", tool_name=name)
+        content = _error_content("timeout", f"Tool '{name}' timed out after {timeout}s", tool_name=name)
         ok = False
     except Exception as exc:
         logger.exception("[user=%d] tool %s failed", user_id, name)
-        content = error_content("execution_failed", f"Tool execution failed: {exc}", exception_type=type(exc).__name__)
+        content = _error_content("execution_failed", f"Tool execution failed: {exc}", exception_type=type(exc).__name__)
         ok = False
     elapsed = int((time.monotonic() - started) * 1000)
     emit(event_callback, user_id, "tool_end", index=idx, tool_name=name, ok=ok, elapsed_ms=elapsed)
@@ -133,16 +136,12 @@ async def execute_tool_calls(
     serial = any(item[2] and item[2].serial for item in plan)
     names = [(tc.name or "tool") for _, tc, *_ in plan]
     emit(event_callback, user_id, "tool_batch_start", count=sum(1 for p in plan if p[2]), total=len(tool_calls), serial=serial, tool_names=names)
-    token = bind_callback(event_callback)
-    try:
-        if serial or len(plan) <= 1:
-            results = []
-            for item in plan:
-                results.append(await _run_one(user_id, item, build_context, event_callback))
-        else:
-            results = await asyncio.gather(*[_run_one(user_id, item, build_context, event_callback) for item in plan])
-    finally:
-        release_callback(token)
+    if serial or len(plan) <= 1:
+        results = []
+        for item in plan:
+            results.append(await _run_one(user_id, item, build_context, event_callback))
+    else:
+        results = await asyncio.gather(*[_run_one(user_id, item, build_context, event_callback) for item in plan])
     results.sort(key=lambda r: r[0])
     emit(event_callback, user_id, "tool_batch_end", count=len(results), total=len(tool_calls))
     return [{"role": "tool", "tool_call_id": tc.id, "content": content} for _, tc, content in results]
